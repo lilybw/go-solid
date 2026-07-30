@@ -23,3 +23,6 @@ go.work.sum
 
 # env file
 .env
+
+v1.0/vendor
+v1.0/example/node_modules

@@ -1,0 +1,81 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	solid "github.com/lilybw/go-solid"
+)
+
+func main() {
+	wd, _ := filepath.Abs(".")
+	b, err := solid.New(solid.Config{
+		ComponentsDir: filepath.Join(wd, "components"),
+		WorkDir:       wd,
+		WorkerScript:  filepath.Join("..", "internal", "worker", "transform-worker.mjs"),
+		PoolSize:      1,
+		Minify:        true,
+	})
+	if err != nil {
+		fmt.Println("New failed:", err)
+		os.Exit(1)
+	}
+	defer b.Close()
+
+	fmt.Println("Registered components:", b.Registry().Names())
+
+	ctx := context.Background()
+
+	// Render LoginForm with props
+	t0 := time.Now()
+	r, err := b.Render(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	if err != nil {
+		fmt.Println("Render failed:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("\n=== auth/LoginForm rendered in %v ===\n", time.Since(t0))
+	fmt.Printf("JS bytes: %d (name %s)\n", len(r.JS), r.JSName)
+	fmt.Printf("CSS bytes: %d (name %s)\n", len(r.CSS), r.CSSName)
+	fmt.Println("CSS content:", r.CSS)
+	fmt.Println("--- HTML ---")
+	fmt.Println(r.HTML)
+
+	// Second render = cache hit
+	t1 := time.Now()
+	_, _ = b.Render(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	fmt.Printf("=== cache hit in %v ===\n", time.Since(t1))
+
+	// Different component, verify tree-shaking gives different size
+	r2, _ := b.Render(ctx, "Version", nil)
+	fmt.Printf("\n=== Version: JS bytes: %d ===\n", len(r2.JS))
+
+	// Verify the JS actually contains Solid template calls
+
+	fmt.Println("LoginForm JS contains 'template':", strings.Contains(string(r.JS), "template"))
+}
+
+func init() {
+	// dump full JS to a file for inspection when DUMP=1
+	if os.Getenv("DUMP") == "" {
+		return
+	}
+	wd, _ := filepath.Abs(".")
+	b, err := solid.New(solid.Config{ComponentsDir: filepath.Join(wd, "components"), WorkDir: wd, WorkerScript: filepath.Join("..", "internal", "worker", "transform-worker.mjs"), Dev: true, Minify: false})
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer b.Close()
+	r, err := b.Render(context.Background(), "auth/LoginForm", nil)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	os.WriteFile("/tmp/loginform.js", []byte(r.JS), 0644)
+	fmt.Println("dumped", len(r.JS), "bytes to /tmp/loginform.js")
+	os.Exit(0)
+}
