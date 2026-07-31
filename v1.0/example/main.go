@@ -8,17 +8,16 @@ import (
 	"strings"
 	"time"
 
-	solid "github.com/lilybw/go-solid"
+	solid "github.com/lilybw/go_solid"
 )
 
 func main() {
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(solid.Config{
-		ComponentsDir: filepath.Join(wd, "components"),
-		WorkDir:       wd,
-		WorkerScript:  filepath.Join("..", "internal", "worker", "transform-worker.mjs"),
-		PoolSize:      1,
-		Minify:        true,
+		ComponentsDir:   filepath.Join(wd, "components"),
+		DependenciesDir: wd,
+		PoolSize:        1,
+		Minify:          true,
 	})
 	if err != nil {
 		fmt.Println("New failed:", err)
@@ -32,7 +31,7 @@ func main() {
 
 	// Render LoginForm with props
 	t0 := time.Now()
-	r, err := b.Render(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	r, err := b.RenderCancellable(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
 	if err != nil {
 		fmt.Println("Render failed:", err)
 		os.Exit(1)
@@ -46,11 +45,11 @@ func main() {
 
 	// Second render = cache hit
 	t1 := time.Now()
-	_, _ = b.Render(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	_, _ = b.RenderCancellable(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
 	fmt.Printf("=== cache hit in %v ===\n", time.Since(t1))
 
 	// Different component, verify tree-shaking gives different size
-	r2, _ := b.Render(ctx, "Version", nil)
+	r2, _ := b.RenderCancellable(ctx, "Version", nil)
 	fmt.Printf("\n=== Version: JS bytes: %d ===\n", len(r2.JS))
 
 	// Verify the JS actually contains Solid template calls
@@ -64,13 +63,13 @@ func init() {
 		return
 	}
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(solid.Config{ComponentsDir: filepath.Join(wd, "components"), WorkDir: wd, WorkerScript: filepath.Join("..", "internal", "worker", "transform-worker.mjs"), Dev: true, Minify: false})
+	b, err := solid.New(solid.Config{ComponentsDir: filepath.Join(wd, "components"), DependenciesDir: wd, Dev: true, Minify: false})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 	defer b.Close()
-	r, err := b.Render(context.Background(), "auth/LoginForm", nil)
+	r, err := b.RenderCancellable(context.Background(), "auth/LoginForm", nil)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

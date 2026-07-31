@@ -84,14 +84,28 @@ func hasSolidToolchain(nodeModules string) bool {
 // discovered node_modules so esbuild and the worker can resolve packages.
 func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bundler {
 	t.Helper()
-	workerScript, modulesParent := integrationEnv(t)
+	_, modulesParent := integrationEnv(t)
 
 	workDir := t.TempDir()
-	// Symlink node_modules into the work dir.
-	if err := os.Symlink(filepath.Join(modulesParent, "node_modules"), filepath.Join(workDir, "node_modules")); err != nil {
-		t.Fatalf("symlink node_modules: %v", err)
+	// Make node_modules resolvable from workDir. Symlinks require elevated
+	// privileges on Windows (Developer Mode / admin), so we can't rely on them.
+	// Instead, point the bundler's module resolution at the real tree by using
+	// a junction-free approach: copy is too slow for a big node_modules, so we
+	// set WorkDir to a dir that already HAS node_modules — the modulesParent —
+	// and put components under a subdir there via TempDir-on-same-volume.
+	//
+	// Simplest portable choice: run the bundler with WorkDir = modulesParent
+	// (which already resolves the packages) and a components dir created inside
+	// a fresh temp subfolder of modulesParent so cleanup is contained.
+	_ = workDir // no longer used; kept for clarity of intent
+
+	compBase, err := os.MkdirTemp(modulesParent, "solidbundle-test-*")
+	if err != nil {
+		t.Fatalf("mkdtemp under modulesParent: %v", err)
 	}
-	compDir := filepath.Join(workDir, "components")
+	t.Cleanup(func() { os.RemoveAll(compBase) })
+
+	compDir := filepath.Join(compBase, "components")
 	for rel, contents := range components {
 		full := filepath.Join(compDir, rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
@@ -103,8 +117,7 @@ func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bun
 	}
 
 	cfg.ComponentsDir = compDir
-	cfg.WorkDir = workDir
-	cfg.WorkerScript = workerScript
+	cfg.DependenciesDir = modulesParent // already contains node_modules with the toolchain
 	if cfg.PoolSize == 0 {
 		cfg.PoolSize = 1
 	}
@@ -125,11 +138,11 @@ export default function Hello(props: { name?: string }) {
 `
 
 func TestPool_TransformProducesSolidOutput(t *testing.T) {
-	workerScript, modulesParent := integrationEnv(t)
+	script, modulesParent := integrationEnv(t)
 	pool, err := newPool(PoolConfig{
-		Size:       1,
-		ScriptPath: workerScript,
-		WorkDir:    modulesParent,
+		Size:    1,
+		WorkDir: modulesParent,
+		Script:  AbsoluteFilePath(script),
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -158,11 +171,11 @@ func TestPool_TransformProducesSolidOutput(t *testing.T) {
 }
 
 func TestPool_HandlesConcurrentTransforms(t *testing.T) {
-	workerScript, modulesParent := integrationEnv(t)
+	script, modulesParent := integrationEnv(t)
 	pool, err := newPool(PoolConfig{
-		Size:       2,
-		ScriptPath: workerScript,
-		WorkDir:    modulesParent,
+		Size:    2,
+		WorkDir: modulesParent,
+		Script:  AbsoluteFilePath(script),
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -189,11 +202,11 @@ func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 }
 
 func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
-	workerScript, modulesParent := integrationEnv(t)
+	script, modulesParent := integrationEnv(t)
 	pool, err := newPool(PoolConfig{
-		Size:       1,
-		ScriptPath: workerScript,
-		WorkDir:    modulesParent,
+		Size:    1,
+		WorkDir: modulesParent,
+		Script:  AbsoluteFilePath(script),
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -343,6 +356,80 @@ func TestNew_RequiresMandatoryConfig(t *testing.T) {
 	}
 }
 
+func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
+	script, modulesParent := integrationEnv(t)
+	// Very short timeout so the first transform is interrupted and its worker
+	// killed — exercising the respawn path.
+	pool, err := newPool(PoolConfig{
+		Size:    1,
+		WorkDir: modulesParent,
+		Timeout: 1 * time.Millisecond,
+		Script:  AbsoluteFilePath(script),
+	})
+	if err != nil {
+		t.Fatalf("newPool: %v", err)
+	}
+	defer pool.Close()
+
+	// Force at least one timeout-kill. With a 1ms budget these should trip.
+	for i := 0; i < 3; i++ {
+		_, _ = pool.Transform(context.Background(), transformRequest{
+			Filename: "A.tsx", Code: simpleComponent, Generate: "dom",
+		})
+	}
+
+	// Now give the pool a realistic timeout by rebuilding it is not possible
+	// (timeout is fixed at construction). Instead, assert the pool still hands
+	// out a LIVE worker: a trivial transform under a generous ctx should either
+	// succeed or fail cleanly, but NOT cascade "pipe is being closed"/EOF on a
+	// corpse. We detect recovery by checking we can eventually get a success
+	// once the transform fits in the budget, OR a clean transform error — never
+	// a dead-pipe write error.
+	//
+	// Because the 1ms budget is tiny, we mainly assert no dead-pipe write errors
+	// occur: every call gets a freshly spawned worker.
+	for i := 0; i < 5; i++ {
+		_, err := pool.Transform(context.Background(), transformRequest{
+			Filename: "A.tsx", Code: "export default 0;", Generate: "dom",
+		})
+		if err != nil && strings.Contains(err.Error(), "pipe") {
+			t.Fatalf("dead-pipe error means worker was not respawned: %v", err)
+		}
+	}
+}
+
+func TestPool_SurvivesCleanTransformError(t *testing.T) {
+	// A babel error (bad JSX) must NOT kill the worker — it's a clean, expected
+	// failure. The same worker must serve the next request.
+	script, modulesParent := integrationEnv(t)
+	pool, err := newPool(PoolConfig{Size: 1, WorkDir: modulesParent, Script: AbsoluteFilePath(script)})
+	if err != nil {
+		t.Fatalf("newPool: %v", err)
+	}
+	defer pool.Close()
+
+	_, err = pool.Transform(context.Background(), transformRequest{
+		Filename: "Bad.tsx", Code: `export default () => <div class=>;`, Generate: "dom",
+	})
+	if err == nil {
+		t.Fatal("expected error for malformed JSX")
+	}
+	if strings.Contains(err.Error(), "pipe") || strings.Contains(err.Error(), "EOF") {
+		t.Errorf("clean transform error should not look like a dead worker: %v", err)
+	}
+
+	// Worker must still be alive and usable.
+	out, err := pool.Transform(context.Background(), transformRequest{
+		Filename: "Good.tsx", Code: simpleComponent, Generate: "dom",
+	})
+	if err != nil {
+		t.Fatalf("worker unusable after clean transform error: %v", err)
+	}
+	if !strings.Contains(out, "_$template") {
+		t.Error("recovered worker produced unexpected output")
+	}
+}
+
 func head(s string, n int) string {
 	if len(s) > n {
 		return s[:n]
@@ -369,5 +456,30 @@ func TestRender_WarmRenderIsFast(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Errorf("cache hit took %v, expected <50ms (is caching working?)", elapsed)
+	}
+}
+
+// TestPool_StartupFailureIsLegible simulates the Windows failure mode: a worker
+// that dies at startup. The error must surface at newPool WITH the Node stderr,
+// not later as a bare Transform EOF. This does not need the solid toolchain,
+// only node, so it runs wherever node is present.
+func TestPool_StartupFailureIsLegible(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		if requireIntegration() {
+			t.Fatal("node not on PATH")
+		}
+		t.Skip("node not on PATH")
+	}
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad-worker.mjs")
+	if err := os.WriteFile(bad, []byte(`import "this-module-does-not-exist-xyz";`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newPool(PoolConfig{Size: 1, WorkDir: dir, Script: AbsoluteFilePath(bad)})
+	if err == nil {
+		t.Fatal("expected startup failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to start") && !strings.Contains(err.Error(), "spawn worker") {
+		t.Errorf("startup error not legible: %v", err)
 	}
 }

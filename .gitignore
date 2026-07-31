@@ -25,4 +25,6 @@ go.work.sum
 .env
 
 v1.0/vendor
-v1.0/example/node_modules
+
+package-lock.json
+node_modules

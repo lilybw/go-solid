@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,34 +32,62 @@ type transformResponse struct {
 
 // worker is a single long-lived Node process.
 type worker struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	mu     sync.Mutex // serializes writes; one in-flight request per worker
-	dec    *bufio.Reader
-	enc    *json.Encoder
-	closed atomic.Bool
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	dec      *bufio.Reader
+	enc      *json.Encoder
+	errBuf   *ringBuffer // last bytes the worker wrote to stderr
+	dead     atomic.Bool // set once the process is known unusable
+	killOnce sync.Once   // ensures teardown (incl. a single cmd.Wait) runs once
+}
+
+// ringBuffer keeps the last max bytes written to it, concurrency-safe. Captures
+// worker stderr so that when a worker dies we can report WHY (a Node stack
+// trace, ERR_MODULE_NOT_FOUND, etc.) instead of a bare "EOF".
+type ringBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func newRingBuffer(max int) *ringBuffer { return &ringBuffer{max: max} }
+
+func (r *ringBuffer) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf = append(r.buf, p...)
+	if len(r.buf) > r.max {
+		r.buf = r.buf[len(r.buf)-r.max:]
+	}
+	return len(p), nil
+}
+
+func (r *ringBuffer) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.TrimSpace(string(r.buf))
 }
 
 // Pool is a set of transform workers. Size may be 1 (default) or more; the
 // interface is identical either way, so concurrency can be tuned later without
-// touching call sites.
+// touching call sites. Dead workers are replaced on demand.
 type Pool struct {
 	workers chan *worker
-	all     []*worker
 	nextID  atomic.Int64
 	nodeBin string
-	script  string
+	script  AbsoluteFilePath
+	workDir string
 	timeout time.Duration
 	closed  atomic.Bool
 }
 
 // PoolConfig configures worker startup.
 type PoolConfig struct {
-	Size       int           // number of Node processes; <=0 means 1
-	NodeBin    string        // path to node; "" means "node" on PATH
-	ScriptPath string        // absolute path to transform-worker.mjs
-	WorkDir    string        // cwd for workers (must resolve babel-preset-solid)
-	Timeout    time.Duration // per-transform timeout; 0 means 30s
+	Size    int              // number of Node processes; <=0 means 1
+	NodeBin string           // path to node; "" means "node" on PATH
+	Script  AbsoluteFilePath // absolute path to transform-worker.mjs
+	WorkDir string           // cwd for workers (must resolve babel-preset-solid)
+	Timeout time.Duration    // per-transform timeout; 0 means 30s
 }
 
 func newPool(cfg PoolConfig) (*Pool, error) {
@@ -78,25 +107,25 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 	p := &Pool{
 		workers: make(chan *worker, size),
 		nodeBin: node,
-		script:  cfg.ScriptPath,
+		script:  cfg.Script,
+		workDir: cfg.WorkDir,
 		timeout: timeout,
 	}
 
 	for i := 0; i < size; i++ {
-		w, err := p.spawn(cfg.WorkDir)
+		w, err := p.spawn()
 		if err != nil {
 			p.Close()
 			return nil, fmt.Errorf("pool: spawn worker %d: %w", i, err)
 		}
-		p.all = append(p.all, w)
 		p.workers <- w
 	}
 	return p, nil
 }
 
-func (p *Pool) spawn(workDir string) (*worker, error) {
-	cmd := exec.Command(p.nodeBin, p.script)
-	cmd.Dir = workDir
+func (p *Pool) spawn() (*worker, error) {
+	cmd := exec.Command(p.nodeBin, string(p.script))
+	cmd.Dir = p.workDir
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -104,60 +133,170 @@ func (p *Pool) spawn(workDir string) (*worker, error) {
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, err
 	}
-	// Drain stderr so a chatty worker can't block on a full pipe. In production
-	// you'd route this to your logger; here we discard.
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		_ = stdin.Close()
+		_ = stdout.Close()
 		return nil, err
 	}
-	go io.Copy(io.Discard, stderr)
+	errBuf := newRingBuffer(8 << 10) // last 8KB
+	go io.Copy(errBuf, stderr)       //nolint:errcheck // best-effort diagnostics
 
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("start node (%s %s): %w", p.nodeBin, p.script, err)
 	}
 
 	w := &worker{
-		cmd:   cmd,
-		stdin: stdin,
-		dec:   bufio.NewReaderSize(stdout, 1<<20),
-		enc:   json.NewEncoder(stdin),
+		cmd:    cmd,
+		stdin:  stdin,
+		dec:    bufio.NewReaderSize(stdout, 1<<20),
+		enc:    json.NewEncoder(stdin),
+		errBuf: errBuf,
 	}
+
+	// Fail fast: probe with a trivial transform so a broken environment (missing
+	// babel, ESM resolution failure, wrong Node) surfaces at construction with
+	// the actual stderr, not later as a bare EOF.
+	if err := w.probe(); err != nil {
+		w.kill()
+		stderrTail := w.errBuf.String()
+		if stderrTail != "" {
+			return nil, fmt.Errorf("worker failed to start: %w\nworker stderr:\n%s", err, stderrTail)
+		}
+		return nil, fmt.Errorf("worker failed to start: %w", err)
+	}
+
 	return w, nil
 }
 
-// Transform runs one JSX->Solid transform on any free worker. Blocks until a
-// worker is available or ctx is cancelled.
+// probe sends one no-op transform and waits for a valid response.
+func (w *worker) probe() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := w.roundtrip(ctx, transformRequest{
+		Filename: "__probe__.jsx",
+		Code:     "export default 0;",
+		Generate: "dom",
+	})
+	return err
+}
+
+// kill terminates the worker process and marks it dead. Safe to call from
+// multiple goroutines and multiple times; teardown runs exactly once.
+func (w *worker) kill() {
+	w.dead.Store(true)
+	w.killOnce.Do(func() {
+		_ = w.stdin.Close()
+		if w.cmd.Process != nil {
+			_ = w.cmd.Process.Kill()
+		}
+		// Reap exactly once so the OS doesn't keep a zombie. cmd.Wait must never
+		// be called concurrently with itself, which is why this is inside Once.
+		go func() { _ = w.cmd.Wait() }()
+	})
+}
+
+// Transform runs one JSX->Solid transform on a free worker. If the chosen worker
+// has died, it is replaced and the request retried once on a fresh worker, so a
+// single crash does not poison the pool.
 func (p *Pool) Transform(ctx context.Context, req transformRequest) (string, error) {
 	if p.closed.Load() {
 		return "", fmt.Errorf("pool: closed")
 	}
 
-	var w *worker
-	select {
-	case w = <-p.workers:
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
-	defer func() { p.workers <- w }()
+	// One retry: a worker can die between checkout and use.
+	for attempt := 0; attempt < 2; attempt++ {
+		var w *worker
+		select {
+		case w = <-p.workers:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 
+		// If this worker is known-dead (killed by a previous timeout), replace it
+		// before returning it to rotation, and try again.
+		if w.dead.Load() {
+			p.replace(w)
+			continue
+		}
+
+		out, err := p.run(ctx, w, req)
+
+		if w.dead.Load() {
+			// The worker died during this request (timeout kill or pipe EOF).
+			// Replace it rather than returning a corpse to the channel.
+			p.replace(w)
+			// Retry once on a fresh worker for transient death; surface the error
+			// on the second failure.
+			if attempt == 0 && !p.closed.Load() && ctx.Err() == nil {
+				continue
+			}
+			return out, err
+		}
+
+		// Healthy worker: return it to rotation.
+		p.workers <- w
+		return out, err
+	}
+	return "", fmt.Errorf("pool: transform failed after retry")
+}
+
+// run executes one round-trip with the pool timeout, marking the worker dead on
+// any failure that indicates the process is no longer usable.
+func (p *Pool) run(ctx context.Context, w *worker, req transformRequest) (string, error) {
 	req.ID = p.nextID.Add(1)
 
-	// Bound the transform with the pool timeout unless ctx is tighter.
 	tctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	return w.roundtrip(tctx, req)
+	out, err := w.roundtrip(tctx, req)
+	if err != nil {
+		// A protocol/IO error or a kill means the process is unusable. A *babel*
+		// error (resp.OK == false) is a clean, expected failure and does NOT
+		// kill the worker — roundtrip distinguishes these via errTransform.
+		if !isTransformError(err) {
+			w.kill()
+		}
+	}
+	return out, err
 }
 
-// roundtrip writes one request and reads exactly one response line. A worker
-// processes one request at a time (guaranteed by the pool channel), so lines
-// can't interleave; we still verify the id matches.
-func (w *worker) roundtrip(ctx context.Context, req transformRequest) (string, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+// replace spawns a fresh worker to keep the pool at capacity. If respawn fails
+// (e.g. environment now broken), the slot is left empty rather than filled with
+// a corpse; the pool degrades in capacity but never hands out dead workers. A
+// pool that loses all workers will return spawn errors on the next call.
+func (p *Pool) replace(dead *worker) {
+	dead.kill()
+	if p.closed.Load() {
+		return
+	}
+	w, err := p.spawn()
+	if err != nil {
+		// Can't respawn right now; don't block. The channel simply has one fewer
+		// worker. Surfacing this is the caller's next-call spawn error.
+		return
+	}
+	p.workers <- w
+}
 
+// errTransform marks a clean, expected transform failure (bad user JSX) as
+// opposed to a dead-process error. Such workers stay alive.
+type errTransform struct{ msg string }
+
+func (e *errTransform) Error() string { return e.msg }
+
+func isTransformError(err error) bool {
+	_, ok := err.(*errTransform)
+	return ok
+}
+
+// roundtrip writes one request and reads exactly one response line. The worker
+// processes one request at a time (guaranteed by the pool channel handing out
+// each worker to a single caller), so lines can't interleave.
+func (w *worker) roundtrip(ctx context.Context, req transformRequest) (string, error) {
 	type result struct {
 		code string
 		err  error
@@ -184,7 +323,8 @@ func (w *worker) roundtrip(ctx context.Context, req transformRequest) (string, e
 			return
 		}
 		if !resp.OK {
-			done <- result{err: fmt.Errorf("transform failed: %s", resp.Error)}
+			// Clean transform failure (bad JSX). Worker is still healthy.
+			done <- result{err: &errTransform{msg: "transform failed: " + resp.Error}}
 			return
 		}
 		done <- result{code: resp.Code}
@@ -194,26 +334,27 @@ func (w *worker) roundtrip(ctx context.Context, req transformRequest) (string, e
 	case r := <-done:
 		return r.code, r.err
 	case <-ctx.Done():
-		// The worker may be wedged on this request; kill it so the pool doesn't
-		// hand out a desynced process. A supervisor could respawn; kept simple here.
-		w.closed.Store(true)
-		_ = w.cmd.Process.Kill()
+		// The worker may be wedged on this request; kill it so the pool replaces
+		// it rather than reusing a desynced process.
+		w.kill()
 		return "", ctx.Err()
 	}
 }
 
-// Close terminates all workers.
+// Close terminates all workers and prevents further use.
 func (p *Pool) Close() {
 	if p.closed.Swap(true) {
 		return
 	}
-	for _, w := range p.all {
-		if w == nil {
-			continue
-		}
-		_ = w.stdin.Close()
-		if w.cmd.Process != nil {
-			_ = w.cmd.Process.Kill()
+	// Drain whatever workers are currently in the channel and kill them.
+	for {
+		select {
+		case w := <-p.workers:
+			if w != nil {
+				w.kill()
+			}
+		default:
+			return
 		}
 	}
 }

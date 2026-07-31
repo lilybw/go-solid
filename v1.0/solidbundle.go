@@ -30,13 +30,16 @@ type Config struct {
 	// ComponentsDir/auth/LoginForm.tsx registers as template "auth/LoginForm".
 	ComponentsDir string
 
-	// WorkDir is the directory esbuild and Node resolve node_modules from. It
-	// must contain (or have an ancestor containing) solid-js and
-	// babel-preset-solid. Usually the frontend project root.
-	WorkDir string
-
-	// WorkerScript is the absolute path to transform-worker.mjs.
-	WorkerScript string
+	// DependenciesDir is the directory esbuild and Node resolve node_modules from. It
+	// must contain (or have an ancestor containing) the peer dependencies
+	// (solid-js, babel-preset-solid, @babel/core). Usually the frontend project
+	// root.
+	//
+	// Optional: if empty, it defaults to ComponentsDir. Since consumers already
+	// point ComponentsDir at their frontend tree, the peer deps installed there
+	// (npm install solid-js babel-preset-solid @babel/core) resolve without any
+	// extra configuration.
+	DependenciesDir string
 
 	// PoolSize is the number of persistent Node workers. 0/1 => single worker.
 	PoolSize int
@@ -60,18 +63,36 @@ type Bundler struct {
 
 // New constructs a Bundler: scans components, starts the worker pool.
 func New(cfg Config) (*Bundler, error) {
-	if cfg.ComponentsDir == "" || cfg.WorkDir == "" || cfg.WorkerScript == "" {
-		return nil, fmt.Errorf("solidbundle: ComponentsDir, WorkDir, WorkerScript are required")
+	if cfg.ComponentsDir == "" {
+		return nil, fmt.Errorf("go_solid: ComponentsDir is required")
+	}
+	// DependenciesDir defaults to the components directory: consumers already point that
+	// at their frontend tree, so peer deps installed there resolve out of the box.
+	if cfg.DependenciesDir == "" {
+		cfg.DependenciesDir = cfg.ComponentsDir
+	}
+
+	scriptLocation, err := materializeWorkerScript()
+	if err != nil {
+		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
+	}
+
+	if missing := peerDepsMissing(cfg.DependenciesDir, requiredPeerDeps); len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
+				"Install them in your frontend project:\n"+
+				"    npm install --save-dev %s",
+			missing, cfg.DependenciesDir, strings.Join(missing, " "))
 	}
 	reg, err := NewRegistry(cfg.ComponentsDir)
 	if err != nil {
 		return nil, err
 	}
 	pool, err := newPool(PoolConfig{
-		Size:       cfg.PoolSize,
-		NodeBin:    cfg.NodeBin,
-		ScriptPath: cfg.WorkerScript,
-		WorkDir:    cfg.WorkDir,
+		Size:    cfg.PoolSize,
+		NodeBin: cfg.NodeBin,
+		Script:  scriptLocation,
+		WorkDir: cfg.DependenciesDir,
 	})
 	if err != nil {
 		return nil, err
@@ -99,6 +120,10 @@ func (b *Bundler) Close() {
 // and passed to the component) and returns the artifact set. In dev mode the
 // registry is reloaded and the cache bypassed so on-disk edits take effect.
 func (b *Bundler) Render(ctx context.Context, name string, props any) (*Rendered, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err // caller already cancelled / deadline exceeded
+	}
+
 	propsJSON := "{}"
 	if props != nil {
 		raw, err := json.Marshal(props)
@@ -127,7 +152,7 @@ func (b *Bundler) Render(ctx context.Context, name string, props any) (*Rendered
 
 	// 1. Generate the entry module that imports the component and mounts it with
 	//    props read from a data island (keeps server-owned data server-owned).
-	entrySource, err := generateEntry(comp, b.cfg.WorkDir)
+	entrySource, err := generateEntry(comp, b.cfg.DependenciesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +160,7 @@ func (b *Bundler) Render(ctx context.Context, name string, props any) (*Rendered
 	// 2. Write the entry to a temp dir. The esbuild plugin transforms every
 	//    JSX/TSX file in the graph (entry + component + its imports) through the
 	//    babel-preset-solid worker pool, so we do NOT pre-transform here.
-	entryPath, cleanup, err := writeTempEntry(b.cfg.WorkDir, entrySource)
+	entryPath, cleanup, err := writeTempEntry(b.cfg.DependenciesDir, entrySource)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +168,7 @@ func (b *Bundler) Render(ctx context.Context, name string, props any) (*Rendered
 
 	// 3. Bundle with esbuild (Go): the solid plugin runs babel per-file, then
 	//    esbuild typestrips, resolves imports, tree-shakes, collects CSS, minifies.
-	bundle, err := bundleEntry(b.pool, "dom", entryPath, b.cfg.WorkDir, b.cfg.Minify, b.cfg.Dev)
+	bundle, err := bundleEntry(b.pool, "dom", entryPath, b.cfg.DependenciesDir, b.cfg.Minify, b.cfg.Dev)
 	if err != nil {
 		return nil, fmt.Errorf("solidbundle: bundle %q: %w", name, err)
 	}
@@ -169,26 +194,27 @@ func (b *Bundler) Render(ctx context.Context, name string, props any) (*Rendered
 // generateEntry produces the entry .tsx that imports the component by absolute
 // path and mounts it. Props flow via the data island (window / #hots-bootstrap),
 // keeping the server as the source of truth for data.
-func generateEntry(comp Component, workDir string) (string, error) {
+func generateEntry(comp Component, _ /*workDir*/ string) (string, error) {
 	// Absolute import path (without extension) so the generated entry resolves
 	// the component no matter which temp directory esbuild reads it from.
 	importPath := filepath.ToSlash(strings.TrimSuffix(comp.AbsPath, comp.Ext))
 
 	// The mount target and data island id are conventions the HTML shell provides.
-	return fmt.Sprintf(`import { render } from "solid-js/web";
-import Component from %q;
+	return fmt.Sprintf(
+		`import { render } from "solid-js/web";
+		import Component from %q;
 
-function readProps() {
-  const el = document.getElementById("solidbundle-props");
-  if (!el || !el.textContent) return {};
-  try { return JSON.parse(el.textContent); } catch { return {}; }
-}
+		function readProps() {
+		const el = document.getElementById("solidbundle-props");
+		if (!el || !el.textContent) return {};
+		try { return JSON.parse(el.textContent); } catch { return {}; }
+		}
 
-const root = document.getElementById("solidbundle-root");
-if (root) {
-  render(() => Component(readProps()), root);
-}
-`, importPath), nil
+		const root = document.getElementById("solidbundle-root");
+		if (root) {
+		render(() => Component(readProps()), root);
+		}
+		`, importPath), nil
 }
 
 // assembleHTML builds the index.html returned to the client. It embeds props as
@@ -199,18 +225,19 @@ func assembleHTML(name, propsJSON, jsName, cssName string) string {
 	if cssName != "" {
 		css = fmt.Sprintf(`  <link rel="stylesheet" href="/static/dist/%s">`+"\n", cssName)
 	}
-	return fmt.Sprintf(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>%s</title>
-%s</head>
-<body>
-  <div id="solidbundle-root"></div>
-  <script id="solidbundle-props" type="application/json">%s</script>
-  <script type="module" src="/static/dist/%s"></script>
-</body>
-</html>
-`, name, css, propsJSON, jsName)
+	return fmt.Sprintf(
+		`<!doctype html>
+		<html>
+		<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<title>%s</title>
+		%s</head>
+		<body>
+		<div id="solidbundle-root"></div>
+		<script id="solidbundle-props" type="application/json">%s</script>
+		<script type="module" src="/static/dist/%s"></script>
+		</body>
+		</html>
+	`, name, css, propsJSON, jsName)
 }

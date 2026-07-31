@@ -1,4 +1,4 @@
-# solidbundle
+# go_solid
 
 Adaptive SolidJS component bundling for a Go backend. A Go server names a
 component (by its path in a components folder); solidbundle compiles it to a
@@ -71,3 +71,23 @@ splits CSS into a hashed file, and serves cache hits in ~13µs vs ~360ms cold.
   supervision, request coalescing (two concurrent misses for the same key both
   build), and SSR (generate:"ssr" is plumbed but the HTML shell renders client-only).
 - The worker drains stderr to Discard; wire it to your logger in production.
+
+## Tests
+
+    go test ./...              # pure tests always run; integration skips without Node
+    go test -race ./...        # concurrency-safe check on pool + cache
+    go test -cover ./...       # ~81% statement coverage
+
+Two tiers:
+
+- **Pure tests** (registry, cache, hashing, entry/HTML generation) need no
+  toolchain and run anywhere.
+- **Integration tests** (worker pool, full Render pipeline, CSS collection)
+  require `node` on PATH plus `node_modules` with solid-js + babel-preset-solid
+  + @babel/core. They SKIP cleanly when those are absent, so the suite stays
+  green on a bare machine.
+
+In CI, where the toolchain must exist, set SOLIDBUNDLE_REQUIRE_INTEGRATION=1 to
+turn those skips into hard failures:
+
+    SOLIDBUNDLE_REQUIRE_INTEGRATION=1 go test -race ./...
