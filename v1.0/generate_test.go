@@ -36,11 +36,17 @@ func TestGenerateEntry_ImportsComponentWithoutExtension(t *testing.T) {
 	}
 }
 
+func getTestHeadSegment() HTMLHeadSegmentBuilder {
+	return newHTMLHeadSegmentBuilder().
+		DeterministicOutput().
+		SetTitle("test/test")
+}
+
 func TestAssembleHTML_WithCSS(t *testing.T) {
-	html := assembleHTML("auth/LoginForm", `{"title":"Hi"}`, "auth_LoginForm.abc.js", "auth_LoginForm.def.css")
+	html := assembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, "auth_LoginForm.abc.js", "auth_LoginForm.def.css")
 
 	for _, want := range []string{
-		`<title>auth/LoginForm</title>`,
+		`<title>test/test</title>`,
 		`<link rel="stylesheet" href="/static/dist/auth_LoginForm.def.css">`,
 		`<script id="solidbundle-props" type="application/json">{"title":"Hi"}</script>`,
 		`<script type="module" src="/static/dist/auth_LoginForm.abc.js"></script>`,
@@ -53,7 +59,7 @@ func TestAssembleHTML_WithCSS(t *testing.T) {
 }
 
 func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
-	html := assembleHTML("Version", `{}`, "Version.abc.js", "")
+	html := assembleHTML(getTestHeadSegment(), `{}`, "Version.abc.js", "")
 	if strings.Contains(html, "<link") {
 		t.Errorf("HTML should omit <link> when cssName empty; got:\n%s", html)
 	}
@@ -66,7 +72,7 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 // This test documents that generateEntry/assembleHTML place it in a non-executed
 // context (the data island), which is what makes raw embedding acceptable.
 func TestAssembleHTML_PropsGoInDataIsland(t *testing.T) {
-	html := assembleHTML("C", `{"x":1}`, "c.js", "")
+	html := assembleHTML(getTestHeadSegment(), `{"x":1}`, "c.js", "")
 	island := `<script id="solidbundle-props" type="application/json">{"x":1}</script>`
 	if !strings.Contains(html, island) {
 		t.Errorf("props not placed in application/json data island; got:\n%s", html)

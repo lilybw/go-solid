@@ -27,9 +27,9 @@ func newCache(enabled bool) *cache {
 	return &cache{entries: make(map[string]*Rendered), enabled: enabled}
 }
 
-func cacheKey(componentName, propsJSON string, minify bool) string {
+func cacheKey(component QualifiedName, propsJSON string, minify bool) string {
 	h := sha256.New()
-	h.Write([]byte(componentName))
+	h.Write([]byte(component))
 	h.Write([]byte{0})
 	h.Write([]byte(propsJSON))
 	h.Write([]byte{0})

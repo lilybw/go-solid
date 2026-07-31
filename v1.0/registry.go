@@ -25,7 +25,7 @@ type Component struct {
 type Registry struct {
 	root       string
 	mu         sync.RWMutex
-	components map[string]Component
+	components map[QualifiedName]Component
 }
 
 // registryExtensions are the file types treated as component entry points.
@@ -43,7 +43,7 @@ func NewRegistry(root string) (*Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("registry: resolve root: %w", err)
 	}
-	r := &Registry{root: abs, components: make(map[string]Component)}
+	r := &Registry{root: abs, components: make(map[QualifiedName]Component)}
 	if err := r.Reload(); err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func NewRegistry(root string) (*Registry, error) {
 // Reload rescans the root directory, rebuilding the index from scratch. Safe to
 // call at runtime (e.g. in dev mode on each request, or on a filesystem watch).
 func (r *Registry) Reload() error {
-	found := make(map[string]Component)
+	found := make(map[QualifiedName]Component)
 
 	walkErr := filepath.WalkDir(r.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -79,11 +79,11 @@ func (r *Registry) Reload() error {
 
 		// Collision guard: two files resolving to the same name (Foo.tsx and
 		// Foo.jsx) is ambiguous and almost certainly a mistake.
-		if existing, dup := found[name]; dup {
+		if existing, dup := found[QualifiedName(name)]; dup {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.AbsPath, path)
 		}
-		found[name] = Component{Name: name, AbsPath: path, Ext: ext}
+		found[QualifiedName(name)] = Component{Name: name, AbsPath: path, Ext: ext}
 		return nil
 	})
 	if walkErr != nil {
@@ -97,23 +97,35 @@ func (r *Registry) Reload() error {
 }
 
 // Lookup returns the component registered under name, or ok=false.
-func (r *Registry) Lookup(name string) (Component, bool) {
+func (r *Registry) Lookup(component QualifiedName) (Component, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	c, ok := r.components[name]
+	c, ok := r.components[component]
 	return c, ok
+}
+
+type QualifiedNameSlice []QualifiedName
+
+func (this QualifiedNameSlice) ToStringSlice() []string {
+	out := make([]string, len(this))
+	for i, n := range this {
+		out[i] = string(n)
+	}
+	return out
 }
 
 // Names returns all registered component names, sorted. Useful for debugging
 // and for a dev-mode index page.
-func (r *Registry) Names() []string {
+func (r *Registry) Names() QualifiedNameSlice {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.components))
+	names := make([]QualifiedName, 0, len(r.components))
 	for n := range r.components {
 		names = append(names, n)
 	}
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		return string(names[i]) < string(names[j])
+	})
 	return names
 }
 

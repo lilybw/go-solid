@@ -7,7 +7,7 @@ Also this readme uses the words "template" and "component" (solidjs component) i
 ## Requirements
 This library uses esbuild-go to generate templates. However, esbuild-go only supports React inherently. 
 
-Thus the need for node workers which this library uses to apply the solidjs transform, and by extension, a couple of node modules for said worker. 
+Thus the need for node workers, and by extension a couple of node modules, which this library uses to apply the solidjs transform. 
 
 To provide these dependencies, include this package.json in your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
 ```json
@@ -52,7 +52,7 @@ bundler, err := solid.New(solid.Config{
 ```
 A given template ```auth/LoginForm.tsx``` are then referenced from the components dir as such:
 ```go
-renderedTemplate, err := b.Render(ctx, "auth/LoginForm", props)
+renderedTemplate, err := bundler.Prepare("auth/LoginForm", props).Render()
 ```
 
 ## Templating Data
@@ -61,7 +61,7 @@ Data is passed to the template using the standard props input for solidjs compon
 In Go, this is expressed as any struct that can be json serialized, for instance a ```map[string]any```:
 
 ```go
-rendered, err := b.Render(ctx, "path/to/Component", map[string]any{"title": "Hello World"})
+rendered, err := bundler.Prepare("path/to/Component", map[string]any{"title": "Hello World"}).Render()
 ```
 
 

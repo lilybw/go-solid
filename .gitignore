@@ -28,3 +28,4 @@ v1.0/vendor
 
 package-lock.json
 node_modules
+.testing_ground

@@ -31,7 +31,7 @@ func main() {
 
 	// Render LoginForm with props
 	t0 := time.Now()
-	r, err := b.RenderCancellable(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	r, err := b.Prepare("auth/LoginForm", map[string]any{"title": "Hello World"}).WithRunCtx(ctx).Render()
 	if err != nil {
 		fmt.Println("Render failed:", err)
 		os.Exit(1)
@@ -45,11 +45,11 @@ func main() {
 
 	// Second render = cache hit
 	t1 := time.Now()
-	_, _ = b.RenderCancellable(ctx, "auth/LoginForm", map[string]any{"title": "Hello World"})
+	_, _ = b.Prepare("auth/LoginForm", map[string]any{"title": "Hello World"}).WithRunCtx(ctx).Render()
 	fmt.Printf("=== cache hit in %v ===\n", time.Since(t1))
 
 	// Different component, verify tree-shaking gives different size
-	r2, _ := b.RenderCancellable(ctx, "Version", nil)
+	r2, _ := b.Prepare("Version", nil).WithRunCtx(ctx).Render()
 	fmt.Printf("\n=== Version: JS bytes: %d ===\n", len(r2.JS))
 
 	// Verify the JS actually contains Solid template calls
@@ -69,7 +69,7 @@ func init() {
 		os.Exit(1)
 	}
 	defer b.Close()
-	r, err := b.RenderCancellable(context.Background(), "auth/LoginForm", nil)
+	r, err := b.Prepare("auth/LoginForm", nil).WithRunCtx(context.Background()).Render()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

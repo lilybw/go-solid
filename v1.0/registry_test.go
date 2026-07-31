@@ -136,7 +136,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 		t.Fatalf("Reload: %v", err)
 	}
 
-	got := reg.Names()
+	got := reg.Names().ToStringSlice()
 	want := []string{"A", "B"}
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {

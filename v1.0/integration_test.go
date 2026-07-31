@@ -237,7 +237,7 @@ func TestRender_ProducesSolidBundleAndHTML(t *testing.T) {
 		"Hello.tsx": simpleComponent,
 	}, Config{Minify: false})
 
-	r, err := b.Render(context.Background(), "Hello", map[string]any{"name": "HOTS"})
+	r, err := b.Prepare("Hello", map[string]any{"name": "HOTS"}).WithRunCtx(context.Background()).Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -270,7 +270,7 @@ export default function Styled() { return <div class="styled">hi</div>; }
 		"styled.css": `.styled { padding: 4px; letter-spacing: 2px; }`,
 	}, Config{Minify: true})
 
-	r, err := b.Render(context.Background(), "Styled", nil)
+	r, err := b.Prepare("Styled", nil).WithRunCtx(context.Background()).Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
@@ -293,11 +293,11 @@ func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 	}, Config{Minify: true}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
 
 	ctx := context.Background()
-	first, err := b.Render(ctx, "Hello", map[string]any{"name": "A"})
+	first, err := b.Prepare("Hello", map[string]any{"name": "A"}).WithRunCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("first Render: %v", err)
 	}
-	second, err := b.Render(ctx, "Hello", map[string]any{"name": "A"})
+	second, err := b.Prepare("Hello", map[string]any{"name": "A"}).WithRunCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("second Render: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 	}
 
 	// Different props must NOT hit the same cache entry.
-	third, err := b.Render(ctx, "Hello", map[string]any{"name": "B"})
+	third, err := b.Prepare("Hello", map[string]any{"name": "B"}).WithRunCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("third Render: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestRender_UnknownComponentErrors(t *testing.T) {
 		"Hello.tsx": simpleComponent,
 	}, Config{})
 
-	_, err := b.Render(context.Background(), "does/not/exist", nil)
+	_, err := b.Prepare("does/not/exist", nil).WithRunCtx(context.Background()).Render()
 	if err == nil {
 		t.Fatal("expected error for unknown component, got nil")
 	}
@@ -335,11 +335,11 @@ func TestRender_DevModeBypassesCache(t *testing.T) {
 	}, Config{Dev: true, Minify: false})
 
 	ctx := context.Background()
-	first, err := b.Render(ctx, "Hello", nil)
+	first, err := b.Prepare("Hello", nil).WithRunCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("first Render: %v", err)
 	}
-	second, err := b.Render(ctx, "Hello", nil)
+	second, err := b.Prepare("Hello", nil).WithRunCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("second Render: %v", err)
 	}
@@ -446,12 +446,13 @@ func TestRender_WarmRenderIsFast(t *testing.T) {
 	}, Config{Minify: true})
 
 	ctx := context.Background()
-	if _, err := b.Render(ctx, "Hello", map[string]any{"name": "warm"}); err != nil {
+
+	if _, err := b.Prepare("Hello", map[string]any{"name": "warm"}).WithRunCtx(ctx).Render(); err != nil {
 		t.Fatalf("warm-up Render: %v", err)
 	}
 	// Second identical render is a cache hit; should be near-instant.
 	start := time.Now()
-	if _, err := b.Render(ctx, "Hello", map[string]any{"name": "warm"}); err != nil {
+	if _, err := b.Prepare("Hello", map[string]any{"name": "warm"}).WithRunCtx(ctx).Render(); err != nil {
 		t.Fatalf("cached Render: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
