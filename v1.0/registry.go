@@ -116,7 +116,7 @@ func (this QualifiedNameSlice) ToStringSlice() []string {
 
 // Names returns all registered component names, sorted. Useful for debugging
 // and for a dev-mode index page.
-func (r *Registry) Names() QualifiedNameSlice {
+func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	names := make([]meta.QualifiedName, 0, len(r.components))

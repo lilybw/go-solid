@@ -80,8 +80,8 @@ type Bundler struct {
 
 // New constructs a Bundler: scans components, starts the worker pool.
 func New(cfg Config) (*Bundler, error) {
-	if cfg.Components == "" {
-		return nil, fmt.Errorf("go_solid: ComponentsDir is required")
+	if err := configValidationCheck(cfg); err != nil {
+		return nil, err
 	}
 	// Dependencies defaults to the components directory: consumers already point that
 	// at their frontend tree, so peer deps installed there resolve out of the box.
@@ -142,6 +142,32 @@ func New(cfg Config) (*Bundler, error) {
 		disk:      disk,
 		workspace: workspace,
 	}, nil
+}
+
+func configValidationCheck(cfg Config) error {
+	if cfg.Components == "" {
+		return fmt.Errorf("go_solid: ComponentsDir is required")
+	}
+	abs, err := filepath.Abs(cfg.Components)
+	if err != nil {
+		return fmt.Errorf("go_solid: Expected absolute path to ComponentsDir %q: %w", cfg.Components, err)
+	}
+	cfg.Components = abs
+	if cfg.Dependencies != "" {
+		abs, err := filepath.Abs(cfg.Dependencies)
+		if err != nil {
+			return fmt.Errorf("go_solid: Expected absolute path to Dependencies %q: %w", cfg.Dependencies, err)
+		}
+		cfg.Dependencies = abs
+	}
+	if cfg.Workspace != "" {
+		abs, err := filepath.Abs(cfg.Workspace)
+		if err != nil {
+			return fmt.Errorf("go_solid: Expected absolute path to Workspace %q: %w", cfg.Workspace, err)
+		}
+		cfg.Workspace = abs
+	}
+	return nil
 }
 
 // Registry exposes the underlying registry (for dev index pages, warmup, etc.).

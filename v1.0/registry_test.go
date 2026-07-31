@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lilybw/go_solid/internal/meta"
@@ -102,7 +103,10 @@ func TestRegistry_SkipsNodeModulesAndDotDirs(t *testing.T) {
 	got := reg.Names()
 	want := []string{"Real"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Names() = %v, want %v (node_modules and dotdirs must be skipped)", got, want)
+		t.Errorf("Names() = %#v (len %d), want %#v (len %d)", got, len(got), want, len(want))
+		for i, s := range got {
+			t.Errorf("got[%d] = %q", i, s)
+		}
 	}
 }
 
@@ -126,7 +130,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	if names := reg.Names(); !reflect.DeepEqual(names, []string{"A"}) {
+	if names := reg.Names(); !reflect.DeepEqual(strings.Join(names, ","), "A") {
 		t.Fatalf("initial Names() = %v, want [A]", names)
 	}
 
@@ -138,7 +142,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 		t.Fatalf("Reload: %v", err)
 	}
 
-	got := reg.Names().ToStringSlice()
+	got := reg.Names()
 	want := []string{"A", "B"}
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {

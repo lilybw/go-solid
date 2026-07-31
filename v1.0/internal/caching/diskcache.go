@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lilybw/go_solid/internal/esbuild"
 	"github.com/lilybw/go_solid/internal/meta"
 )
 
@@ -52,6 +53,14 @@ type diskManifest struct {
 		JS   meta.RelativeFilePath `json:"js"`
 		CSS  meta.RelativeFilePath `json:"css,omitempty"`
 	} `json:"artifacts"`
+	// ServeNames are the names the consumer serves assets under (the
+	// content-hashed names baked into the HTML). Distinct from Artifacts, which
+	// are storage filenames. Restoring these keeps a disk-cache hit identical to
+	// a fresh render.
+	ServeNames struct {
+		JS  string `json:"js"`
+		CSS string `json:"css,omitempty"`
+	} `json:"serveNames"`
 }
 
 // DiskCache persists rendered bundles and maintains the reverse dependency index.
@@ -120,7 +129,7 @@ func (dc *DiskCache) Get(key string) (*Rendered, bool) {
 	}
 	// Invalidation: every source must still match its recorded hash.
 	for src, want := range man.Sources {
-		got, ok := hashFile(src) // TODO: Ensure we are not hashing all files always... Thatd be expensive
+		got, ok := hashFile(src)
 		if !ok || got != want {
 			return nil, false // stale (edited or deleted source)
 		}
@@ -138,12 +147,12 @@ func (dc *DiskCache) Get(key string) (*Rendered, bool) {
 	r := &Rendered{
 		HTML:   string(html),
 		JS:     string(js),
-		JSName: man.Artifacts.JS,
+		JSName: man.ServeNames.JS,
 	}
 	if man.Artifacts.CSS != "" {
 		if css, err := os.ReadFile(base + ".css"); err == nil {
 			r.CSS = string(css)
-			r.CSSName = man.Artifacts.CSS
+			r.CSSName = man.ServeNames.CSS
 		}
 	}
 	return r, true
@@ -167,8 +176,9 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 		Sources:     map[string]string{},
 	}
 	for _, src := range sources {
+		key := esbuild.NormalizeSourcePath(src)
 		if h, ok := hashFile(src); ok {
-			man.Sources[src] = h
+			man.Sources[key] = h
 		}
 	}
 	stem := entryStem(component, rootID, key)
@@ -177,6 +187,8 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 	if r.CSS != "" {
 		man.Artifacts.CSS = stem + ".css"
 	}
+	man.ServeNames.JS = r.JSName
+	man.ServeNames.CSS = r.CSSName
 
 	base := filepath.Join(dc.dir, stem)
 	if err := atomicWrite(base+".html", []byte(r.HTML)); err != nil {
@@ -207,11 +219,12 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 
 // DependentsOf returns the entry keys that depend on the given source file.
 // This is the query the file-watcher will use to decide what to invalidate.
-func (dc *DiskCache) DependentsOf(sourceAbsPath string) []string {
+func (dc *DiskCache) DependentsOf(source meta.AbsoluteFilePath) []string {
+	source = esbuild.NormalizeSourcePath(source)
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	out := make([]string, len(dc.index[sourceAbsPath]))
-	copy(out, dc.index[sourceAbsPath])
+	out := make([]string, len(dc.index[source]))
+	copy(out, dc.index[source])
 	return out
 }
 
@@ -225,7 +238,7 @@ func (dc *DiskCache) RebuildIndex() error {
 }
 
 func (dc *DiskCache) rebuildIndexLocked() error {
-	idx := map[meta.AbsoluteFilePath][]string{}
+	idx := map[string][]string{}
 	entries, err := os.ReadDir(dc.dir)
 	if err != nil {
 		if os.IsNotExist(err) {

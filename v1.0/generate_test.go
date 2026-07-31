@@ -53,7 +53,7 @@ func TestAssembleHTML_WithCSS(t *testing.T) {
 
 	for _, want := range []string{
 		`<title>test/test</title>`,
-		`<link rel="stylesheet" href="/static/dist/auth_LoginForm.def.css">`,
+		`<link href="/static/dist/auth_LoginForm.def.css" rel="stylesheet">`,
 		`<script id="solidbundle-props" type="application/json">{"title":"Hi"}</script>`,
 		`<script type="module" src="/static/dist/auth_LoginForm.abc.js"></script>`,
 		`<div id="solidbundle-root"></div>`,

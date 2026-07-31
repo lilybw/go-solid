@@ -67,8 +67,8 @@ func (this *htmlHeadSegmentBuilder) AddLink(rel, href string) HTMLHeadSegmentBui
 	this.rest = append(this.rest, HTMLTag{
 		Name: "link",
 		HTMLTagAttributes: map[string]string{
-			"rel":  rel,
 			"href": href,
+			"rel":  rel,
 		},
 	})
 	return this

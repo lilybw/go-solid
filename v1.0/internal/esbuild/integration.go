@@ -159,3 +159,10 @@ func WriteTempEntry(workspace meta.AbsoluteDirectoryPath, transformed string) (s
 	}
 	return entry, func() { os.RemoveAll(dir) }, nil
 }
+
+func NormalizeSourcePath(p string) meta.AbsoluteFilePath {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
+}

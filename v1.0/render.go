@@ -63,7 +63,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
-			data.component, strings.Join(bundler.registry.Names().ToStringSlice(), ", "))
+			data.component, strings.Join(bundler.registry.Names(), ", "))
 	}
 
 	// 1. Generate the entry module that imports the component and mounts it with

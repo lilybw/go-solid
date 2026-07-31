@@ -401,7 +401,7 @@ func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
         ".go_solid/.tmp123/entry.jsx": {"bytes": 1}
       }
     }`
-	got := esbuild.ExtractSourcesFromMetafile(meta, "/work")
+	got := esbuild.ExtractSourcesFromMetafile(meta, "C:/work")
 	// Only the two consumer sources survive; node_modules and temp entry dropped.
 	var hasA, hasB, hasNM, hasEntry bool
 	for _, s := range got {
