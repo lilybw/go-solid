@@ -20,7 +20,7 @@ type HTMLHeadSegmentBuilder interface {
 	Build() string
 }
 
-type HTMLTagName string
+type HTMLTagName = string
 
 type HTMLTag struct {
 	Name              HTMLTagName
@@ -109,7 +109,7 @@ func (this *htmlHeadSegmentBuilder) Build() string {
 	}
 	html := ""
 	for _, tag := range all {
-		html += "<" + string(tag.Name)
+		html += "<" + tag.Name
 		for attr, val := range tag.HTMLTagAttributes {
 			html += " " + attr + "=\"" + val + "\""
 		}
@@ -117,7 +117,7 @@ func (this *htmlHeadSegmentBuilder) Build() string {
 		if tag.InnerHTML != "" {
 			html += tag.InnerHTML
 		}
-		html += "</" + string(tag.Name) + ">\n"
+		html += "</" + tag.Name + ">\n"
 	}
 	return html
 }

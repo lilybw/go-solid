@@ -47,7 +47,7 @@ func peerDepResolvable(startDir AbsoluteDirectoryPath, pkg string) bool {
 //go:embed internal/worker/transform-worker.mjs
 var rawEmbeddedWorkerScript []byte
 
-type AbsoluteFilePath string
+type AbsoluteFilePath = string
 
 var parsedEmbeddedWorkerScript AbsoluteFilePath
 

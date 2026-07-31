@@ -14,8 +14,8 @@ import (
 func main() {
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(solid.Config{
-		Components:   solid.AbsoluteDirectoryPath(filepath.Join(wd, "components")),
-		Dependencies: solid.AbsoluteDirectoryPath(wd),
+		Components:   filepath.Join(wd, "components"),
+		Dependencies: wd,
 		PoolSize:     1,
 		Minify:       true,
 	})
@@ -54,7 +54,7 @@ func main() {
 
 	// Verify the JS actually contains Solid template calls
 
-	fmt.Println("LoginForm JS contains 'template':", strings.Contains(string(r.JS), "template"))
+	fmt.Println("LoginForm JS contains 'template':", strings.Contains(r.JS, "template"))
 }
 
 func init() {
@@ -63,7 +63,7 @@ func init() {
 		return
 	}
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(solid.Config{Components: solid.AbsoluteDirectoryPath(filepath.Join(wd, "components")), Dependencies: solid.AbsoluteDirectoryPath(wd), Dev: true, Minify: false})
+	b, err := solid.New(solid.Config{Components: filepath.Join(wd, "components"), Dependencies: wd, Dev: true, Minify: false})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

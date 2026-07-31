@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-type AbsoluteDirectoryPath string
+type AbsoluteDirectoryPath = string
 
 // Config configures a Bundler.
 type Config struct {
@@ -89,7 +89,7 @@ func New(cfg Config) (*Bundler, error) {
 	// the registry directory the consumer already knows go_solid owns.
 	workspace := cfg.Workspace
 	if workspace == "" {
-		workspace = AbsoluteDirectoryPath(filepath.Join(string(cfg.Components), ".go_solid"))
+		workspace = filepath.Join(string(cfg.Components), ".go_solid")
 	}
 	if err := os.MkdirAll(string(workspace), 0o755); err != nil {
 		return nil, fmt.Errorf("go_solid: create workspace %q: %w", workspace, err)

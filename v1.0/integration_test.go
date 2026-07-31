@@ -64,7 +64,7 @@ func integrationEnv(t *testing.T) (workerScript string, modulesParent AbsoluteDi
 	for _, dir := range candidates {
 		nm := filepath.Join(dir, "node_modules")
 		if hasSolidToolchain(nm) {
-			return workerScript, AbsoluteDirectoryPath(dir)
+			return workerScript, dir
 		}
 	}
 	skip("node_modules with solid-js + babel-preset-solid not found; run `npm install solid-js babel-preset-solid @babel/core`")
@@ -116,7 +116,7 @@ func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bun
 		}
 	}
 
-	cfg.Components = AbsoluteDirectoryPath(compDir)
+	cfg.Components = compDir
 	cfg.Dependencies = modulesParent // already contains node_modules with the toolchain
 	if cfg.PoolSize == 0 {
 		cfg.PoolSize = 1

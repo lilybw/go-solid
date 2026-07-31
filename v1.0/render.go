@@ -9,7 +9,7 @@ import (
 )
 
 // Name of component with path from registry directory, however without extension.
-type QualifiedName string
+type QualifiedName = string
 
 func (this *Bundler) Prepare(component QualifiedName, props any) RenderCallBuilder {
 	return newRenderCallBuilder(this, component, props)
