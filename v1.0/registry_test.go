@@ -10,7 +10,7 @@ import (
 
 // writeTree creates a set of files (relative path -> contents) under a fresh
 // temp dir and returns the dir. Directories are created as needed.
-func writeTree(t *testing.T, files map[string]string) string {
+func writeTree(t *testing.T, files map[string]string) AbsoluteDirectoryPath {
 	t.Helper()
 	root := t.TempDir()
 	for rel, contents := range files {
@@ -22,7 +22,7 @@ func writeTree(t *testing.T, files map[string]string) string {
 			t.Fatalf("write %s: %v", full, err)
 		}
 	}
-	return root
+	return AbsoluteDirectoryPath(root)
 }
 
 func TestRegistry_DerivesNamesFromPaths(t *testing.T) {
@@ -129,7 +129,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 	}
 
 	// Add a file on disk, then reload.
-	if err := os.WriteFile(filepath.Join(root, "B.tsx"), []byte("export default () => null;"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(string(root), "B.tsx"), []byte("export default () => null;"), 0o644); err != nil {
 		t.Fatalf("write B.tsx: %v", err)
 	}
 	if err := reg.Reload(); err != nil {
@@ -153,7 +153,7 @@ func TestRegistry_ReloadDropsDeletedFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	if err := os.Remove(filepath.Join(root, "B.tsx")); err != nil {
+	if err := os.Remove(filepath.Join(string(root), "B.tsx")); err != nil {
 		t.Fatalf("remove B.tsx: %v", err)
 	}
 	if err := reg.Reload(); err != nil {
@@ -170,12 +170,12 @@ func TestRegistry_ReloadDropsDeletedFiles(t *testing.T) {
 func TestRegistry_RootIsAbsolute(t *testing.T) {
 	root := writeTree(t, map[string]string{"A.tsx": "export default () => null;"})
 	// Pass a relative path; Root() should still be absolute.
-	rel, err := filepath.Rel(mustGetwd(t), root)
+	rel, err := filepath.Rel(mustGetwd(t), string(root))
 	if err != nil {
 		// Different volume etc — skip rather than fail spuriously.
 		t.Skipf("cannot relativize temp dir: %v", err)
 	}
-	reg, err := NewRegistry(rel)
+	reg, err := NewRegistry(AbsoluteDirectoryPath(rel))
 	if err != nil {
 		t.Fatalf("NewRegistry(rel): %v", err)
 	}
@@ -185,7 +185,7 @@ func TestRegistry_RootIsAbsolute(t *testing.T) {
 }
 
 func TestRegistry_NonexistentRootErrors(t *testing.T) {
-	_, err := NewRegistry(filepath.Join(t.TempDir(), "nope-does-not-exist"))
+	_, err := NewRegistry(AbsoluteDirectoryPath(filepath.Join(t.TempDir(), "nope-does-not-exist")))
 	if err == nil {
 		t.Fatal("expected error for nonexistent root, got nil")
 	}

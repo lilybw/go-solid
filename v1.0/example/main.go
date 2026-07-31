@@ -14,10 +14,10 @@ import (
 func main() {
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(solid.Config{
-		ComponentsDir:   filepath.Join(wd, "components"),
-		DependenciesDir: wd,
-		PoolSize:        1,
-		Minify:          true,
+		Components:   solid.AbsoluteDirectoryPath(filepath.Join(wd, "components")),
+		Dependencies: solid.AbsoluteDirectoryPath(wd),
+		PoolSize:     1,
+		Minify:       true,
 	})
 	if err != nil {
 		fmt.Println("New failed:", err)
@@ -63,7 +63,7 @@ func init() {
 		return
 	}
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(solid.Config{ComponentsDir: filepath.Join(wd, "components"), DependenciesDir: wd, Dev: true, Minify: false})
+	b, err := solid.New(solid.Config{Components: solid.AbsoluteDirectoryPath(filepath.Join(wd, "components")), Dependencies: solid.AbsoluteDirectoryPath(wd), Dev: true, Minify: false})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

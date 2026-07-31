@@ -76,18 +76,18 @@ type Pool struct {
 	nextID  atomic.Int64
 	nodeBin string
 	script  AbsoluteFilePath
-	depsDir string
+	deps    AbsoluteDirectoryPath
 	timeout time.Duration
 	closed  atomic.Bool
 }
 
 // PoolConfig configures worker startup.
 type PoolConfig struct {
-	Size    int              // number of Node processes; <=0 means 1
-	NodeBin string           // path to node; "" means "node" on PATH
-	Script  AbsoluteFilePath // absolute path to transform-worker.mjs
-	WorkDir string           // cwd for workers (must resolve babel-preset-solid)
-	Timeout time.Duration    // per-transform timeout; 0 means 30s
+	Size         int                   // number of Node processes; <=0 means 1
+	NodeBin      string                // path to node; "" means "node" on PATH
+	Script       AbsoluteFilePath      // absolute path to transform-worker.mjs
+	Dependencies AbsoluteDirectoryPath // cwd for workers (must resolve babel-preset-solid)
+	Timeout      time.Duration         // per-transform timeout; 0 means 30s
 }
 
 func newPool(cfg PoolConfig) (*Pool, error) {
@@ -108,7 +108,7 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 		workers: make(chan *worker, size),
 		nodeBin: node,
 		script:  cfg.Script,
-		depsDir: cfg.WorkDir,
+		deps:    cfg.Dependencies,
 		timeout: timeout,
 	}
 
@@ -124,8 +124,8 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 }
 
 func (p *Pool) spawn() (*worker, error) {
-	cmd := exec.Command(p.nodeBin, string(p.script), p.depsDir)
-	cmd.Dir = p.depsDir
+	cmd := exec.Command(p.nodeBin, string(p.script), string(p.deps))
+	cmd.Dir = string(p.deps)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

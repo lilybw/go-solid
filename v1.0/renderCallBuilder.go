@@ -5,7 +5,7 @@ import "context"
 type RenderCallBuilder interface {
 	WithRunCtx(ctx context.Context) RenderCallBuilder
 	MountOnRootID(id string) RenderCallBuilder
-	WithHTMLHeadTags(fn func(configurator HTMLHeadSegmentBuilder)) RenderCallBuilder
+	WithHTMLHeadTags(fn Configurator[HTMLHeadSegmentBuilder]) RenderCallBuilder
 
 	Render() (*Rendered, error)
 }
@@ -26,8 +26,8 @@ type renderCallBuilderImpl struct {
 	data    renderData
 }
 
-func (this *renderCallBuilderImpl) WithHTMLHeadTags(fn func(configurator HTMLHeadSegmentBuilder)) RenderCallBuilder {
-
+func (this *renderCallBuilderImpl) WithHTMLHeadTags(fn Configurator[HTMLHeadSegmentBuilder]) RenderCallBuilder {
+	fn(this.data.htmlHeadTags)
 	return this
 }
 

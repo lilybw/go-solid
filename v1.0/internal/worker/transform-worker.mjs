@@ -62,7 +62,7 @@ async function handle(req) {
     presets: [[solid, { generate, hydratable: !!req.hydratable }]],
     filename: req.filename || "component.tsx",
     // babel-preset-solid does the JSX transform but NOT TypeScript stripping;
-    // we still parse TS/JSX syntax so annotations don't break the parse.
+    // parsing TS/JSX syntax so annotations don't break the parse.
     // esbuild does the actual type stripping downstream.
     parserOpts: { plugins: ["typescript", "jsx"] },
     // Keep it a pure syntactic transform: no config files, no env lookups.

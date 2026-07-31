@@ -18,16 +18,20 @@ package go_solid
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
+type AbsoluteDirectoryPath string
+
 // Config configures a Bundler.
 type Config struct {
-	// ComponentsDir is the root folder scanned for components. A file at
-	// ComponentsDir/auth/LoginForm.tsx registers as template "auth/LoginForm".
-	ComponentsDir string
+	// Components is the root folder scanned for components. A file at
+	// Components/auth/LoginForm.tsx registers as template "auth/LoginForm".
+	Components AbsoluteDirectoryPath
 
-	// DependenciesDir is the directory esbuild and Node resolve node_modules from. It
+	// Dependencies is the directory esbuild and Node resolve node_modules from. It
 	// must contain (or have an ancestor containing) the peer dependencies
 	// (solid-js, babel-preset-solid, @babel/core). Usually the frontend project
 	// root.
@@ -36,7 +40,14 @@ type Config struct {
 	// point ComponentsDir at their frontend tree, the peer deps installed there
 	// (npm install solid-js babel-preset-solid @babel/core) resolve without any
 	// extra configuration.
-	DependenciesDir string
+	Dependencies AbsoluteDirectoryPath
+
+	// Workspace is where go_solid writes its runtime state: the materialized
+	// worker script and temporary bundle-entry files. Optional: defaults to
+	// <ComponentsDir>/.go_solid. Override only if the components tree is
+	// read-only at runtime (e.g. baked into an image); point it at a writable
+	// path then. Safe to gitignore: it holds only regenerable artifacts.
+	Workspace AbsoluteDirectoryPath
 
 	// PoolSize is the number of persistent Node workers. 0/1 => single worker.
 	PoolSize int
@@ -46,59 +57,79 @@ type Config struct {
 
 	// Dev disables caching and emits sourcemaps; Minify controls esbuild
 	// minification (usually !Dev).
-	Dev    bool
-	Minify bool
+	Dev      bool
+	Minify   bool
+	Defaults *BehaviouralDefaults
+}
+
+type BehaviouralDefaults struct {
+	HTMLHeadAttributes Configurator[HTMLHeadSegmentBuilder]
 }
 
 // Bundler is the top-level handle. Construct with New, close with Close.
 type Bundler struct {
-	cfg      Config
-	registry *Registry
-	pool     *Pool
-	cache    *cache
+	cfg       Config
+	registry  *Registry
+	pool      *Pool
+	cache     *cache
+	workspace AbsoluteDirectoryPath // resolved workspace (.go_solid) for worker + temp files
 }
 
 // New constructs a Bundler: scans components, starts the worker pool.
 func New(cfg Config) (*Bundler, error) {
-	if cfg.ComponentsDir == "" {
+	if cfg.Components == "" {
 		return nil, fmt.Errorf("go_solid: ComponentsDir is required")
 	}
-	// DependenciesDir defaults to the components directory: consumers already point that
+	// Dependencies defaults to the components directory: consumers already point that
 	// at their frontend tree, so peer deps installed there resolve out of the box.
-	if cfg.DependenciesDir == "" {
-		cfg.DependenciesDir = cfg.ComponentsDir
+	if cfg.Dependencies == "" {
+		cfg.Dependencies = cfg.Components
 	}
-
-	scriptLocation, err := materializeWorkerScript()
+	// Resolve and create the workspace: one visible, gitignorable folder inside
+	// the registry directory the consumer already knows go_solid owns.
+	workspace := cfg.Workspace
+	if workspace == "" {
+		workspace = AbsoluteDirectoryPath(filepath.Join(string(cfg.Components), ".go_solid"))
+	}
+	if err := os.MkdirAll(string(workspace), 0o755); err != nil {
+		return nil, fmt.Errorf("go_solid: create workspace %q: %w", workspace, err)
+	}
+	scriptLocation, err := materializeWorkerScript(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
 	}
 
-	if missing := peerDepsMissing(cfg.DependenciesDir, requiredPeerDeps); len(missing) > 0 {
+	if missing := peerDepsMissing(cfg.Dependencies, requiredPeerDeps); len(missing) > 0 {
 		return nil, fmt.Errorf(
 			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
 				"Install them in your frontend project:\n"+
 				"    npm install --save-dev %s",
-			missing, cfg.DependenciesDir, strings.Join(missing, " "))
+			missing, cfg.Dependencies, strings.Join(missing, " "))
 	}
-	reg, err := NewRegistry(cfg.ComponentsDir)
+	reg, err := NewRegistry(cfg.Components)
 	if err != nil {
 		return nil, err
 	}
 	pool, err := newPool(PoolConfig{
-		Size:    cfg.PoolSize,
-		NodeBin: cfg.NodeBin,
-		Script:  scriptLocation,
-		WorkDir: cfg.DependenciesDir,
+		Size:         cfg.PoolSize,
+		NodeBin:      cfg.NodeBin,
+		Script:       scriptLocation,
+		Dependencies: cfg.Dependencies,
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	if cfg.Defaults != nil && cfg.Defaults.HTMLHeadAttributes != nil {
+		setHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
+	}
+
 	return &Bundler{
-		cfg:      cfg,
-		registry: reg,
-		pool:     pool,
-		cache:    newCache(!cfg.Dev),
+		cfg:       cfg,
+		registry:  reg,
+		pool:      pool,
+		cache:     newCache(!cfg.Dev),
+		workspace: workspace,
 	}, nil
 }
 

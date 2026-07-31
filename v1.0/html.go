@@ -1,6 +1,11 @@
 package go_solid
 
-import "sort"
+import (
+	"maps"
+	"sort"
+)
+
+type Configurator[T any] = func(T)
 
 type HTMLHeadSegmentBuilder interface {
 	AddUnique(key, value string) HTMLHeadSegmentBuilder
@@ -30,13 +35,31 @@ type htmlHeadSegmentBuilder struct {
 	deterministic bool
 }
 
-func newHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
+func generateEmptyHeadSegmentBuilderTemplate() *htmlHeadSegmentBuilder {
 	instance := &htmlHeadSegmentBuilder{
 		unique:        make(map[HTMLTagName]string),
 		rest:          make([]HTMLTag, 0),
 		deterministic: false,
 	}
 	instance.SetTitle("go-solid")
+	return instance
+}
+
+var _htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
+
+func setHTMLHeadSegmentTemplate(fn Configurator[HTMLHeadSegmentBuilder]) {
+	_htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
+	fn(_htmlHeadBuilderTemplate)
+}
+
+func newHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
+	instance := &htmlHeadSegmentBuilder{
+		unique:        make(map[HTMLTagName]string),
+		rest:          make([]HTMLTag, 0),
+		deterministic: _htmlHeadBuilderTemplate.deterministic,
+	}
+	copy(instance.rest, _htmlHeadBuilderTemplate.rest)
+	instance.unique = maps.Clone(_htmlHeadBuilderTemplate.unique)
 	return instance
 }
 

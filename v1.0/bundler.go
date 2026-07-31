@@ -53,7 +53,7 @@ func solidPlugin(pool *Pool, generate string) esbuild.Plugin {
 	}
 }
 
-func bundleEntry(pool *Pool, generate, entryPath, workDir string, minify, dev bool) (*bundleResult, error) {
+func bundleEntry(pool *Pool, generate, entryPath string, workDir AbsoluteDirectoryPath, minify, dev bool) (*bundleResult, error) {
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
 		Bundle:            true,
@@ -62,7 +62,7 @@ func bundleEntry(pool *Pool, generate, entryPath, workDir string, minify, dev bo
 		Format:            esbuild.FormatESModule,
 		Platform:          esbuild.PlatformBrowser,
 		Target:            esbuild.ES2020,
-		AbsWorkingDir:     workDir,
+		AbsWorkingDir:     string(workDir),
 		MinifyWhitespace:  minify,
 		MinifyIdentifiers: minify,
 		MinifySyntax:      minify,
@@ -107,8 +107,8 @@ func bundleEntry(pool *Pool, generate, entryPath, workDir string, minify, dev bo
 	return out, nil
 }
 
-func writeTempEntry(workDir, transformed string) (string, func(), error) {
-	dir, err := os.MkdirTemp(workDir, ".solidbundle-*")
+func writeTempEntry(workspace AbsoluteDirectoryPath, transformed string) (string, func(), error) {
+	dir, err := os.MkdirTemp(string(workspace), ".solidbundle-*")
 	if err != nil {
 		return "", nil, err
 	}

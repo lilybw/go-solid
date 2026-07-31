@@ -38,8 +38,8 @@ var registryExtensions = map[string]bool{
 
 // NewRegistry walks root and indexes every component file. The template name is
 // the relative path minus extension: components/auth/LoginForm.tsx => "auth/LoginForm".
-func NewRegistry(root string) (*Registry, error) {
-	abs, err := filepath.Abs(root)
+func NewRegistry(root AbsoluteDirectoryPath) (*Registry, error) {
+	abs, err := filepath.Abs(string(root))
 	if err != nil {
 		return nil, fmt.Errorf("registry: resolve root: %w", err)
 	}
