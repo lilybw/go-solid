@@ -3,6 +3,8 @@ package go_solid
 import (
 	"strings"
 	"testing"
+
+	caching "github.com/lilybw/go_solid/internal/caching"
 )
 
 func TestGenerateEntry_ImportsComponentWithoutExtension(t *testing.T) {
@@ -43,7 +45,7 @@ func getTestHeadSegment() HTMLHeadSegmentBuilder {
 }
 
 func TestAssembleHTML_WithCSS(t *testing.T) {
-	rendered := &Rendered{
+	rendered := &caching.Rendered{
 		JSName:  "auth_LoginForm.abc.js",
 		CSSName: "auth_LoginForm.def.css",
 	}
@@ -63,7 +65,7 @@ func TestAssembleHTML_WithCSS(t *testing.T) {
 }
 
 func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
-	rendered := &Rendered{
+	rendered := &caching.Rendered{
 		JSName:  "Version.abc.js",
 		CSSName: "",
 	}
@@ -80,7 +82,7 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 // This test documents that generateEntry/assembleHTML place it in a non-executed
 // context (the data island), which is what makes raw embedding acceptable.
 func TestAssembleHTML_PropsGoInDataIsland(t *testing.T) {
-	rendered := &Rendered{
+	rendered := &caching.Rendered{
 		JSName:  "c.js",
 		CSSName: "",
 	}

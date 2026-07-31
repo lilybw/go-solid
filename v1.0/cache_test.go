@@ -4,44 +4,46 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	caching "github.com/lilybw/go_solid/internal/caching"
 )
 
-func TestCacheKey_Deterministic(t *testing.T) {
-	a := cacheKey("auth/LoginForm", `{"title":"Hi"}`, true)
-	b := cacheKey("auth/LoginForm", `{"title":"Hi"}`, true)
+func Test_Deterministic(t *testing.T) {
+	a := caching.MemCacheKey("auth/LoginForm", `{"title":"Hi"}`, true)
+	b := caching.MemCacheKey("auth/LoginForm", `{"title":"Hi"}`, true)
 	if a != b {
-		t.Errorf("cacheKey not deterministic: %q != %q", a, b)
+		t.Errorf("caching.MemCacheKey not deterministic: %q != %q", a, b)
 	}
 }
 
-func TestCacheKey_SensitiveToEachInput(t *testing.T) {
-	base := cacheKey("comp", `{"a":1}`, true)
+func Test_Key_SensitiveToEachInput(t *testing.T) {
+	base := caching.MemCacheKey("comp", `{"a":1}`, true)
 
 	cases := map[string]string{
-		"different name":   cacheKey("other", `{"a":1}`, true),
-		"different props":  cacheKey("comp", `{"a":2}`, true),
-		"different minify": cacheKey("comp", `{"a":1}`, false),
+		"different name":   caching.MemCacheKey("other", `{"a":1}`, true),
+		"different props":  caching.MemCacheKey("comp", `{"a":2}`, true),
+		"different minify": caching.MemCacheKey("comp", `{"a":1}`, false),
 	}
 	for label, got := range cases {
 		if got == base {
-			t.Errorf("cacheKey collision for %s: key did not change", label)
+			t.Errorf("caching.MemCacheKey collision for %s: key did not change", label)
 		}
 	}
 }
 
 // The separator bytes matter: without them, name="ab"+props="c" would collide
 // with name="a"+props="bc". Guard against that regression.
-func TestCacheKey_NoConcatenationCollision(t *testing.T) {
-	x := cacheKey("ab", "c", false)
-	y := cacheKey("a", "bc", false)
+func Test_cacheKey_NoConcatenationCollision(t *testing.T) {
+	x := caching.MemCacheKey("ab", "c", false)
+	y := caching.MemCacheKey("a", "bc", false)
 	if x == y {
-		t.Error("cacheKey collides across the name/props boundary (missing separator)")
+		t.Error("caching.MemCacheKey collides across the name/props boundary (missing separator)")
 	}
 }
 
 func TestShortHash_LengthAndStability(t *testing.T) {
-	h1 := shortHash("hello world", 8)
-	h2 := shortHash("hello world", 8)
+	h1 := caching.ShortHash("hello world", 8)
+	h2 := caching.ShortHash("hello world", 8)
 	if h1 != h2 {
 		t.Errorf("shortHash not stable: %q != %q", h1, h2)
 	}
@@ -51,25 +53,25 @@ func TestShortHash_LengthAndStability(t *testing.T) {
 }
 
 func TestShortHash_DifferentInputsDiffer(t *testing.T) {
-	if shortHash("a", 8) == shortHash("b", 8) {
+	if caching.ShortHash("a", 8) == caching.ShortHash("b", 8) {
 		t.Error("shortHash produced same prefix for different inputs")
 	}
 }
 
 func TestShortHash_ClampsOverlongN(t *testing.T) {
 	// sha256 hex is 64 chars; asking for more must not panic and must clamp.
-	h := shortHash("x", 999)
+	h := caching.ShortHash("x", 999)
 	if len(h) != 64 {
 		t.Errorf("shortHash(x, 999) len = %d, want 64 (clamped)", len(h))
 	}
 }
 
 func TestCache_PutGetRoundTrip(t *testing.T) {
-	c := newCache(true)
-	want := &Rendered{JS: "console.log(1)", JSName: "a.js"}
-	c.put("k", want)
+	c := caching.NewMemCache(true)
+	want := &caching.Rendered{JS: "console.log(1)", JSName: "a.js"}
+	c.Put("k", want)
 
-	got, ok := c.get("k")
+	got, ok := c.Get("k")
 	if !ok {
 		t.Fatal("get after put returned ok=false")
 	}
@@ -79,23 +81,23 @@ func TestCache_PutGetRoundTrip(t *testing.T) {
 }
 
 func TestCache_MissReturnsFalse(t *testing.T) {
-	c := newCache(true)
-	if _, ok := c.get("absent"); ok {
+	c := caching.NewMemCache(true)
+	if _, ok := c.Get("absent"); ok {
 		t.Error("get on empty cache returned ok=true")
 	}
 }
 
 func TestCache_DisabledNeverStores(t *testing.T) {
-	c := newCache(false)
-	c.put("k", &Rendered{JS: "x"})
-	if _, ok := c.get("k"); ok {
+	c := caching.NewMemCache(false)
+	c.Put("k", &caching.Rendered{JS: "x"})
+	if _, ok := c.Get("k"); ok {
 		t.Error("disabled cache returned a stored value")
 	}
 }
 
 func TestCache_ConcurrentAccessIsSafe(t *testing.T) {
 	// Run with -race to make this meaningful.
-	c := newCache(true)
+	c := caching.NewMemCache(true)
 	const workers = 32
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -104,8 +106,8 @@ func TestCache_ConcurrentAccessIsSafe(t *testing.T) {
 			defer wg.Done()
 			key := fmt.Sprintf("key-%d", n%4) // deliberate contention on few keys
 			for j := 0; j < 200; j++ {
-				c.put(key, &Rendered{JS: fmt.Sprintf("%d-%d", n, j)})
-				c.get(key)
+				c.Put(key, &caching.Rendered{JS: fmt.Sprintf("%d-%d", n, j)})
+				c.Get(key)
 			}
 		}(i)
 	}

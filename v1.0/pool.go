@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/lilybw/go_solid/internal/meta"
 )
 
 // transformRequest / transformResponse mirror the NDJSON protocol spoken by
@@ -75,19 +77,19 @@ type Pool struct {
 	workers chan *worker
 	nextID  atomic.Int64
 	nodeBin string
-	script  AbsoluteFilePath
-	deps    AbsoluteDirectoryPath
+	script  meta.AbsoluteFilePath
+	deps    meta.AbsoluteDirectoryPath
 	timeout time.Duration
 	closed  atomic.Bool
 }
 
 // PoolConfig configures worker startup.
 type PoolConfig struct {
-	Size         int                   // number of Node processes; <=0 means 1
-	NodeBin      string                // path to node; "" means "node" on PATH
-	Script       AbsoluteFilePath      // absolute path to transform-worker.mjs
-	Dependencies AbsoluteDirectoryPath // cwd for workers (must resolve babel-preset-solid)
-	Timeout      time.Duration         // per-transform timeout; 0 means 30s
+	Size         int                        // number of Node processes; <=0 means 1
+	NodeBin      string                     // path to node; "" means "node" on PATH
+	Script       meta.AbsoluteFilePath      // absolute path to transform-worker.mjs
+	Dependencies meta.AbsoluteDirectoryPath // cwd for workers (must resolve babel-preset-solid)
+	Timeout      time.Duration              // per-transform timeout; 0 means 30s
 }
 
 func newPool(cfg PoolConfig) (*Pool, error) {
@@ -124,8 +126,8 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 }
 
 func (p *Pool) spawn() (*worker, error) {
-	cmd := exec.Command(p.nodeBin, string(p.script), string(p.deps))
-	cmd.Dir = string(p.deps)
+	cmd := exec.Command(p.nodeBin, p.script, p.deps)
+	cmd.Dir = p.deps
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

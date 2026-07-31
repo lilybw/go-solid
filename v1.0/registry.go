@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/lilybw/go_solid/internal/meta"
 )
 
 // Component is one entry discovered in the components directory.
@@ -25,7 +27,7 @@ type Component struct {
 type Registry struct {
 	root       string
 	mu         sync.RWMutex
-	components map[QualifiedName]Component
+	components map[meta.QualifiedName]Component
 }
 
 // registryExtensions are the file types treated as component entry points.
@@ -38,12 +40,12 @@ var registryExtensions = map[string]bool{
 
 // NewRegistry walks root and indexes every component file. The template name is
 // the relative path minus extension: components/auth/LoginForm.tsx => "auth/LoginForm".
-func NewRegistry(root AbsoluteDirectoryPath) (*Registry, error) {
-	abs, err := filepath.Abs(string(root))
+func NewRegistry(root meta.AbsoluteDirectoryPath) (*Registry, error) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("registry: resolve root: %w", err)
 	}
-	r := &Registry{root: abs, components: make(map[QualifiedName]Component)}
+	r := &Registry{root: abs, components: make(map[meta.QualifiedName]Component)}
 	if err := r.Reload(); err != nil {
 		return nil, err
 	}
@@ -53,7 +55,7 @@ func NewRegistry(root AbsoluteDirectoryPath) (*Registry, error) {
 // Reload rescans the root directory, rebuilding the index from scratch. Safe to
 // call at runtime (e.g. in dev mode on each request, or on a filesystem watch).
 func (r *Registry) Reload() error {
-	found := make(map[QualifiedName]Component)
+	found := make(map[meta.QualifiedName]Component)
 
 	walkErr := filepath.WalkDir(r.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -79,11 +81,11 @@ func (r *Registry) Reload() error {
 
 		// Collision guard: two files resolving to the same name (Foo.tsx and
 		// Foo.jsx) is ambiguous and almost certainly a mistake.
-		if existing, dup := found[QualifiedName(name)]; dup {
+		if existing, dup := found[meta.QualifiedName(name)]; dup {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.AbsPath, path)
 		}
-		found[QualifiedName(name)] = Component{Name: name, AbsPath: path, Ext: ext}
+		found[meta.QualifiedName(name)] = Component{Name: name, AbsPath: path, Ext: ext}
 		return nil
 	})
 	if walkErr != nil {
@@ -97,20 +99,18 @@ func (r *Registry) Reload() error {
 }
 
 // Lookup returns the component registered under name, or ok=false.
-func (r *Registry) Lookup(component QualifiedName) (Component, bool) {
+func (r *Registry) Lookup(component meta.QualifiedName) (Component, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	c, ok := r.components[component]
 	return c, ok
 }
 
-type QualifiedNameSlice []QualifiedName
+type QualifiedNameSlice []meta.QualifiedName
 
 func (this QualifiedNameSlice) ToStringSlice() []string {
 	out := make([]string, len(this))
-	for i, n := range this {
-		out[i] = string(n)
-	}
+	copy(out, this)
 	return out
 }
 
@@ -119,12 +119,12 @@ func (this QualifiedNameSlice) ToStringSlice() []string {
 func (r *Registry) Names() QualifiedNameSlice {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	names := make([]QualifiedName, 0, len(r.components))
+	names := make([]meta.QualifiedName, 0, len(r.components))
 	for n := range r.components {
 		names = append(names, n)
 	}
 	sort.Slice(names, func(i, j int) bool {
-		return string(names[i]) < string(names[j])
+		return names[i] < names[j]
 	})
 	return names
 }

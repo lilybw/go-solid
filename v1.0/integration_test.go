@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lilybw/go_solid/internal/meta"
 )
 
 // -----------------------------------------------------------------------------
@@ -30,7 +32,7 @@ func requireIntegration() bool {
 
 // integrationEnv locates the worker script and a node_modules that resolves the
 // required packages. It returns (workerScript, nodeModulesParent) or skips.
-func integrationEnv(t *testing.T) (workerScript string, modulesParent AbsoluteDirectoryPath) {
+func integrationEnv(t *testing.T) (workerScript string, modulesParent meta.AbsoluteDirectoryPath) {
 	t.Helper()
 
 	skip := func(format string, args ...any) {
@@ -99,7 +101,7 @@ func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bun
 	// a fresh temp subfolder of modulesParent so cleanup is contained.
 	_ = workDir // no longer used; kept for clarity of intent
 
-	compBase, err := os.MkdirTemp(string(modulesParent), "solidbundle-test-*")
+	compBase, err := os.MkdirTemp(modulesParent, "solidbundle-test-*")
 	if err != nil {
 		t.Fatalf("mkdtemp under modulesParent: %v", err)
 	}
@@ -142,7 +144,7 @@ func TestPool_TransformProducesSolidOutput(t *testing.T) {
 	pool, err := newPool(PoolConfig{
 		Size:         1,
 		Dependencies: modulesParent,
-		Script:       AbsoluteFilePath(script),
+		Script:       script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -175,7 +177,7 @@ func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 	pool, err := newPool(PoolConfig{
 		Size:         2,
 		Dependencies: modulesParent,
-		Script:       AbsoluteFilePath(script),
+		Script:       script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -206,7 +208,7 @@ func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 	pool, err := newPool(PoolConfig{
 		Size:         1,
 		Dependencies: modulesParent,
-		Script:       AbsoluteFilePath(script),
+		Script:       script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -364,7 +366,7 @@ func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
 		Size:         1,
 		Dependencies: modulesParent,
 		Timeout:      1 * time.Millisecond,
-		Script:       AbsoluteFilePath(script),
+		Script:       script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -402,7 +404,7 @@ func TestPool_SurvivesCleanTransformError(t *testing.T) {
 	// A babel error (bad JSX) must NOT kill the worker — it's a clean, expected
 	// failure. The same worker must serve the next request.
 	script, modulesParent := integrationEnv(t)
-	pool, err := newPool(PoolConfig{Size: 1, Dependencies: modulesParent, Script: AbsoluteFilePath(script)})
+	pool, err := newPool(PoolConfig{Size: 1, Dependencies: modulesParent, Script: script})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
 	}
@@ -476,7 +478,7 @@ func TestPool_StartupFailureIsLegible(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(`import "this-module-does-not-exist-xyz";`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := newPool(PoolConfig{Size: 1, Dependencies: AbsoluteDirectoryPath(dir), Script: AbsoluteFilePath(bad)})
+	_, err := newPool(PoolConfig{Size: 1, Dependencies: dir, Script: bad})
 	if err == nil {
 		t.Fatal("expected startup failure, got nil")
 	}
