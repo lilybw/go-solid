@@ -1,4 +1,4 @@
-package go_solid
+package esbuild
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	esbuild "github.com/evanw/esbuild/pkg/api"
 	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go_solid/internal/workers"
 )
 
 type bundleResult struct {
@@ -19,12 +20,12 @@ type bundleResult struct {
 	Sources []meta.AbsoluteFilePath // absolute paths of consumer source files (for invalidation)
 }
 
-// solidPlugin returns an esbuild plugin that intercepts every JSX/TSX source
+// SolidPlugin returns an esbuild plugin that intercepts every JSX/TSX source
 // file and runs it through the babel-preset-solid worker pool BEFORE esbuild
 // bundles it. This is the key to correct output: esbuild's own JSX transform is
 // React-shaped and cannot produce Solid's template() calls, so we must let babel
 // own the JSX->Solid step for every file in the graph, not just the entry.
-func solidPlugin(ctx context.Context, pool *Pool, generate string) esbuild.Plugin {
+func SolidPlugin(ctx context.Context, pool *workers.Pool, generate string) esbuild.Plugin {
 	return esbuild.Plugin{
 		Name: "solid-transform",
 		Setup: func(build esbuild.PluginBuild) {
@@ -35,7 +36,7 @@ func solidPlugin(ctx context.Context, pool *Pool, generate string) esbuild.Plugi
 					if err != nil {
 						return esbuild.OnLoadResult{}, err
 					}
-					transformed, err := pool.Transform(ctx, transformRequest{
+					transformed, err := pool.Transform(ctx, workers.TransformRequest{
 						Filename: args.Path,
 						Code:     string(src),
 						Generate: generate,
@@ -57,7 +58,7 @@ func solidPlugin(ctx context.Context, pool *Pool, generate string) esbuild.Plugi
 	}
 }
 
-func bundleEntry(ctx context.Context, pool *Pool, generate, entryPath string, workspace meta.AbsoluteDirectoryPath, minify, dev bool) (*bundleResult, error) {
+func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath string, workspace meta.AbsoluteDirectoryPath, minify, dev bool) (*bundleResult, error) {
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
 		Bundle:            true,
@@ -71,7 +72,7 @@ func bundleEntry(ctx context.Context, pool *Pool, generate, entryPath string, wo
 		MinifyWhitespace:  minify,
 		MinifyIdentifiers: minify,
 		MinifySyntax:      minify,
-		Plugins:           []esbuild.Plugin{solidPlugin(ctx, pool, generate)},
+		Plugins:           []esbuild.Plugin{SolidPlugin(ctx, pool, generate)},
 		Loader: map[string]esbuild.Loader{
 			".css":   esbuild.LoaderCSS,
 			".svg":   esbuild.LoaderDataURL,
@@ -109,14 +110,14 @@ func bundleEntry(ctx context.Context, pool *Pool, generate, entryPath string, wo
 	if out.JS == nil {
 		return nil, fmt.Errorf("esbuild produced no JS output")
 	}
-	out.Sources = extractSourcesFromMetafile(result.Metafile, workspace)
+	out.Sources = ExtractSourcesFromMetafile(result.Metafile, workspace)
 	return out, nil
 }
 
 // extractSources parses esbuild's metafile JSON and returns the absolute paths
 // of consumer source files in the bundle graph, excluding node_modules and the
 // generated temp entry. These are what invalidation hashes.
-func extractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirectoryPath) []string {
+func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirectoryPath) []string {
 	if metafile == "" {
 		return nil
 	}
@@ -146,7 +147,7 @@ func extractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 	return srcs
 }
 
-func writeTempEntry(workspace meta.AbsoluteDirectoryPath, transformed string) (string, func(), error) {
+func WriteTempEntry(workspace meta.AbsoluteDirectoryPath, transformed string) (string, func(), error) {
 	dir, err := os.MkdirTemp(workspace, ".solidbundle-*")
 	if err != nil {
 		return "", nil, err

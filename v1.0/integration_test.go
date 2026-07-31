@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go_solid/internal/workers"
 )
 
 // -----------------------------------------------------------------------------
@@ -141,7 +142,7 @@ export default function Hello(props: { name?: string }) {
 
 func TestPool_TransformProducesSolidOutput(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := newPool(PoolConfig{
+	pool, err := workers.NewPool(workers.PoolConfig{
 		Size:         1,
 		Dependencies: modulesParent,
 		Script:       script,
@@ -151,7 +152,7 @@ func TestPool_TransformProducesSolidOutput(t *testing.T) {
 	}
 	defer pool.Close()
 
-	out, err := pool.Transform(context.Background(), transformRequest{
+	out, err := pool.Transform(context.Background(), workers.TransformRequest{
 		Filename: "Hello.tsx",
 		Code:     simpleComponent,
 		Generate: "dom",
@@ -174,7 +175,7 @@ func TestPool_TransformProducesSolidOutput(t *testing.T) {
 
 func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := newPool(PoolConfig{
+	pool, err := workers.NewPool(workers.PoolConfig{
 		Size:         2,
 		Dependencies: modulesParent,
 		Script:       script,
@@ -188,7 +189,7 @@ func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 	errs := make(chan error, n)
 	for i := 0; i < n; i++ {
 		go func() {
-			_, err := pool.Transform(context.Background(), transformRequest{
+			_, err := pool.Transform(context.Background(), workers.TransformRequest{
 				Filename: "Hello.tsx",
 				Code:     simpleComponent,
 				Generate: "dom",
@@ -205,7 +206,7 @@ func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 
 func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := newPool(PoolConfig{
+	pool, err := workers.NewPool(workers.PoolConfig{
 		Size:         1,
 		Dependencies: modulesParent,
 		Script:       script,
@@ -217,7 +218,7 @@ func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 
 	// Syntactically broken JSX should produce an error, and the worker should
 	// stay alive to serve the next request.
-	_, err = pool.Transform(context.Background(), transformRequest{
+	_, err = pool.Transform(context.Background(), workers.TransformRequest{
 		Filename: "Bad.tsx",
 		Code:     `export default () => <div class=>;`,
 		Generate: "dom",
@@ -227,7 +228,7 @@ func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 	}
 
 	// Worker still usable afterwards.
-	if _, err := pool.Transform(context.Background(), transformRequest{
+	if _, err := pool.Transform(context.Background(), workers.TransformRequest{
 		Filename: "Hello.tsx", Code: simpleComponent, Generate: "dom",
 	}); err != nil {
 		t.Errorf("worker unusable after error: %v", err)
@@ -362,7 +363,7 @@ func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
 	// Very short timeout so the first transform is interrupted and its worker
 	// killed — exercising the respawn path.
-	pool, err := newPool(PoolConfig{
+	pool, err := workers.NewPool(workers.PoolConfig{
 		Size:         1,
 		Dependencies: modulesParent,
 		Timeout:      1 * time.Millisecond,
@@ -375,7 +376,7 @@ func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
 
 	// Force at least one timeout-kill. With a 1ms budget these should trip.
 	for i := 0; i < 3; i++ {
-		_, _ = pool.Transform(context.Background(), transformRequest{
+		_, _ = pool.Transform(context.Background(), workers.TransformRequest{
 			Filename: "A.tsx", Code: simpleComponent, Generate: "dom",
 		})
 	}
@@ -391,7 +392,7 @@ func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
 	// Because the 1ms budget is tiny, we mainly assert no dead-pipe write errors
 	// occur: every call gets a freshly spawned worker.
 	for i := 0; i < 5; i++ {
-		_, err := pool.Transform(context.Background(), transformRequest{
+		_, err := pool.Transform(context.Background(), workers.TransformRequest{
 			Filename: "A.tsx", Code: "export default 0;", Generate: "dom",
 		})
 		if err != nil && strings.Contains(err.Error(), "pipe") {
@@ -404,13 +405,13 @@ func TestPool_SurvivesCleanTransformError(t *testing.T) {
 	// A babel error (bad JSX) must NOT kill the worker — it's a clean, expected
 	// failure. The same worker must serve the next request.
 	script, modulesParent := integrationEnv(t)
-	pool, err := newPool(PoolConfig{Size: 1, Dependencies: modulesParent, Script: script})
+	pool, err := workers.NewPool(workers.PoolConfig{Size: 1, Dependencies: modulesParent, Script: script})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
 	}
 	defer pool.Close()
 
-	_, err = pool.Transform(context.Background(), transformRequest{
+	_, err = pool.Transform(context.Background(), workers.TransformRequest{
 		Filename: "Bad.tsx", Code: `export default () => <div class=>;`, Generate: "dom",
 	})
 	if err == nil {
@@ -421,7 +422,7 @@ func TestPool_SurvivesCleanTransformError(t *testing.T) {
 	}
 
 	// Worker must still be alive and usable.
-	out, err := pool.Transform(context.Background(), transformRequest{
+	out, err := pool.Transform(context.Background(), workers.TransformRequest{
 		Filename: "Good.tsx", Code: simpleComponent, Generate: "dom",
 	})
 	if err != nil {
@@ -478,7 +479,7 @@ func TestPool_StartupFailureIsLegible(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(`import "this-module-does-not-exist-xyz";`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := newPool(PoolConfig{Size: 1, Dependencies: dir, Script: bad})
+	_, err := workers.NewPool(workers.PoolConfig{Size: 1, Dependencies: dir, Script: bad})
 	if err == nil {
 		t.Fatal("expected startup failure, got nil")
 	}

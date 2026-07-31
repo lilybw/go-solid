@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	caching "github.com/lilybw/go_solid/internal/caching"
+	"github.com/lilybw/go_solid/internal/esbuild"
 	"github.com/lilybw/go_solid/internal/meta"
 )
 
@@ -75,7 +76,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	// 2. Write the entry to a temp dir. The esbuild plugin transforms every
 	//    JSX/TSX file in the graph (entry + component + its imports) through the
 	//    babel-preset-solid worker pool, so we do NOT pre-transform here.
-	entryPath, cleanup, err := writeTempEntry(bundler.workspace, entrySource)
+	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.workspace, entrySource)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +84,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	// 3. Bundle with esbuild (Go): the solid plugin runs babel per-file, then
 	//    esbuild typestrips, resolves imports, tree-shakes, collects CSS, minifies.
-	bundle, err := bundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Minify, bundler.cfg.Dev)
+	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Minify, bundler.cfg.Dev)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
 	}

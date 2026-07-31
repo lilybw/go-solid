@@ -24,6 +24,7 @@ import (
 
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go_solid/internal/workers"
 )
 
 // Config configures a Bundler.
@@ -71,7 +72,7 @@ type BehaviouralDefaults struct {
 type Bundler struct {
 	cfg       Config
 	registry  *Registry
-	pool      *Pool
+	pool      *workers.Pool
 	cache     *caching.MemCache
 	disk      *caching.DiskCache
 	workspace meta.AbsoluteDirectoryPath // resolved workspace (.go_solid) for worker + temp files
@@ -112,7 +113,7 @@ func New(cfg Config) (*Bundler, error) {
 	if err != nil {
 		return nil, err
 	}
-	pool, err := newPool(PoolConfig{
+	pool, err := workers.NewPool(workers.PoolConfig{
 		Size:         cfg.PoolSize,
 		NodeBin:      cfg.NodeBin,
 		Script:       scriptLocation,
