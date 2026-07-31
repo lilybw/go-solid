@@ -16,8 +16,41 @@
 // goes to stderr so it can never corrupt the framing.
 
 import { createInterface } from "node:readline";
-import { transformAsync } from "@babel/core";
-import solid from "babel-preset-solid";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { join } from "node:path";
+
+// argv[2] is the dependencies directory, passed by the Go side (Pool.go#spawn).
+// The worker script may live in a cache dir far from the consumer's
+// node_modules, so we cannot use bare `import "@babel/core"` — Node would
+// resolve it relative to THIS file's location and fail. Instead anchor resolution at depsDir explicitly.
+const depsDir = process.argv[2];
+if (!depsDir) {
+  process.stderr.write("[transform-worker] fatal: missing deps directory (argv[2])\n");
+  process.exit(2);
+}
+
+// createRequire wants a file path to anchor at. The file need not exist — it's
+// only used as the starting point for the node_modules walk-up. A notional file
+// directly inside depsDir makes resolution look in depsDir/node_modules first.
+const requireFromDeps = createRequire(pathToFileURL(join(depsDir, "__go_solid_resolver__.cjs")));
+
+let transformAsync, solid;
+try {
+  // Resolve to absolute paths using the consumer's node_modules...
+  const babelPath  = requireFromDeps.resolve("@babel/core");
+  const presetPath = requireFromDeps.resolve("babel-preset-solid");
+  // ...then import those absolute paths (no bare-specifier walk-up involved).
+  ({ transformAsync } = await import(pathToFileURL(babelPath)));
+  solid = (await import(pathToFileURL(presetPath))).default;
+} catch (err) {
+  process.stderr.write(
+    "[transform-worker] fatal: cannot resolve compiler from " + depsDir + "\n" +
+    String(err && err.stack ? err.stack : err) + "\n",
+  );
+  process.exit(3);
+}
+
 
 function log(...args) {
   process.stderr.write("[transform-worker] " + args.join(" ") + "\n");

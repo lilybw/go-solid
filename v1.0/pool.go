@@ -76,7 +76,7 @@ type Pool struct {
 	nextID  atomic.Int64
 	nodeBin string
 	script  AbsoluteFilePath
-	workDir string
+	depsDir string
 	timeout time.Duration
 	closed  atomic.Bool
 }
@@ -108,7 +108,7 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 		workers: make(chan *worker, size),
 		nodeBin: node,
 		script:  cfg.Script,
-		workDir: cfg.WorkDir,
+		depsDir: cfg.WorkDir,
 		timeout: timeout,
 	}
 
@@ -124,8 +124,8 @@ func newPool(cfg PoolConfig) (*Pool, error) {
 }
 
 func (p *Pool) spawn() (*worker, error) {
-	cmd := exec.Command(p.nodeBin, string(p.script))
-	cmd.Dir = p.workDir
+	cmd := exec.Command(p.nodeBin, string(p.script), p.depsDir)
+	cmd.Dir = p.depsDir
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
