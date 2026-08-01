@@ -36,6 +36,7 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 	}
 }
 
+// TODO: Move to internal alongside renderData and ifRequest if possible
 func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if err := data.ctx.Err(); err != nil {
 		return nil, err // caller already cancelled / deadline exceeded

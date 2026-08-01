@@ -14,9 +14,7 @@ import (
 const DEFAULT_HMR_PATH = "/__go_solid_hmr__"
 
 // NormalizeHMRConfig fills defaults and validates. It errors if HMR is enabled
-// without a Mux: defaulting to http.DefaultServeMux would silently mount the
-// endpoint on a mux the consumer's server never serves, so HMR would break with
-// no visible cause. Better to fail loudly at startup.
+// without a Mux
 func NormalizeHMRConfig(cfg *shared.HMRConfig) (*shared.HMRConfig, error) {
 	if cfg == nil {
 		cfg = &shared.HMRConfig{}
@@ -37,7 +35,7 @@ type Hub struct {
 
 func NewHub(cfg *shared.HMRConfig) *Hub {
 	// cfg is accepted for symmetry and future per-hub settings; nothing on it is
-	// needed at construction today.
+	// needed at construction currently.
 	return &Hub{conns: map[meta.QualifiedName]map[*websocket.Conn]struct{}{}}
 }
 
@@ -65,9 +63,6 @@ func (h *Hub) remove(component meta.QualifiedName, c *websocket.Conn) {
 
 // Reload pushes a reload to every connection viewing the named component. Write
 // failures are ignored: a dead connection is cleaned up by its own read loop.
-// Snapshot under lock, write outside it, so a slow write never blocks
-// registration of other connections. Exported so the watcher (same package) and
-// any future caller can trigger it.
 func (h *Hub) Reload(component meta.QualifiedName) {
 	h.mu.Lock()
 	targets := make([]*websocket.Conn, 0, len(h.conns[component]))

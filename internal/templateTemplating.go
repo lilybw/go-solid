@@ -74,7 +74,7 @@ type htmlTemplateData struct {
 }
 
 func GenerateEntry(comp Component) (string, error) {
-	importPath := filepath.ToSlash(strings.TrimSuffix(comp.AbsPath, comp.Ext))
+	importPath := filepath.ToSlash(strings.TrimSuffix(comp.Path, comp.Ext))
 
 	data := entryTemplateData{
 		ImportPath:   strconv.Quote(importPath),
@@ -91,10 +91,7 @@ func GenerateEntry(comp Component) (string, error) {
 }
 
 // AssembleHTML builds the self-contained document. hmrScript is the injected
-// hot-reload client, generated in package go_solid and passed in as a string
-// ("" when HMR is inactive). It is passed in rather than generated here so that
-// package internal never imports package hmr — hmr already imports internal, so
-// the reverse would be an import cycle.
+// hot-reload client
 func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID, hmrScript string) string {
 	styles := ""
 	if rendered.CSS != "" {

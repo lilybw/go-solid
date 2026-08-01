@@ -15,16 +15,16 @@ import (
 type Component struct {
 	// Name is the registry key: the path relative to the components root,
 	// without extension, using forward slashes. e.g. "auth/LoginForm".
-	Name string
-	// AbsPath is the absolute path to the .tsx/.jsx source file on disk.
-	AbsPath string
+	Name meta.QualifiedName
+	// Path is the absolute path to the .tsx/.jsx source file on disk.
+	Path meta.AbsoluteFilePath
 	// Ext is the source extension (".tsx", ".jsx", ".ts", ".js").
 	Ext         string
 	MountRootID string // optional: if non-empty, the HTML shell will mount this component at this id instead of the default "go-solid-root"
 }
 
-func NewComponent(name, absPath, ext string) Component {
-	return Component{Name: name, AbsPath: absPath, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
+func NewComponent(name meta.QualifiedName, path meta.AbsoluteFilePath, ext string) Component {
+	return Component{Name: name, Path: path, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
 }
 
 // Registry maps template names to component source files. It regenerates itself
@@ -88,7 +88,7 @@ func (r *Registry) Reload() error {
 		// Foo.jsx) is ambiguous and almost certainly a mistake.
 		if existing, dup := found[name]; dup {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
-				name, existing.AbsPath, path)
+				name, existing.Path, path)
 		}
 		found[name] = NewComponent(name, path, ext)
 		return nil

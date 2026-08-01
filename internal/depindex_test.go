@@ -21,7 +21,7 @@ func norm(p string) string {
 // sortedDeps returns DependentsOf sorted, since the method builds its result by
 // ranging a map and the order is therefore unspecified. Every assertion on
 // multi-element results must sort first.
-func sortedDeps(d *DepIndex, source string) []string {
+func sortedDeps(d *DependencyIndex, source string) []string {
 	got := d.DependentsOf(source)
 	sort.Strings(got)
 	return got

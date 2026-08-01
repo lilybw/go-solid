@@ -59,7 +59,7 @@ type Bundler struct {
 	pool     *workers.Pool
 	cache    *caching.MemCache
 	disk     *caching.DiskCache
-	index    *internal.DepIndex
+	index    *internal.DependencyIndex
 	hub      *hmr.Hub
 	watcher  *hmr.Watcher
 
@@ -118,7 +118,7 @@ func New(cfg Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	b := &Bundler{
+	bundler := &Bundler{
 		cfg:       cfg,
 		registry:  registry,
 		pool:      pool,
@@ -137,25 +137,25 @@ func New(cfg Config) (*Bundler, error) {
 			pool.Close()
 			return nil, err
 		}
-		b.cfg.HMR = normalized
+		bundler.cfg.HMR = normalized
 
-		b.hub = hmr.NewHub(normalized)
+		bundler.hub = hmr.NewHub(normalized)
 		// go_solid registers its own endpoint — the consumer never wires it.
-		normalized.Mux.Handle(normalized.HMRPath, b.hub.Handler())
+		normalized.Mux.Handle(normalized.HMRPath, bundler.hub.Handler())
 
 		// NewWatcher starts its own goroutine before returning, so there is no
 		// separate Start call to forget.
-		w, err := hmr.NewWatcher(string(cfg.Components), b.index, b.hub, registry, func(e error) {
+		w, err := hmr.NewWatcher(string(cfg.Components), bundler.index, bundler.hub, registry, func(e error) {
 			fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
 		})
 		if err != nil {
 			pool.Close()
 			return nil, err
 		}
-		b.watcher = w
+		bundler.watcher = w
 	}
 
-	return b, nil
+	return bundler, nil
 }
 
 func configValidationCheck(cfg Config) error {

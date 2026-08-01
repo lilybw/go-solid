@@ -69,11 +69,11 @@ func TestRegistry_LookupReturnsCorrectComponent(t *testing.T) {
 	if comp.Ext != ".tsx" {
 		t.Errorf("Ext = %q, want .tsx", comp.Ext)
 	}
-	if filepath.Base(comp.AbsPath) != "LoginForm.tsx" {
-		t.Errorf("AbsPath base = %q, want LoginForm.tsx", filepath.Base(comp.AbsPath))
+	if filepath.Base(comp.Path) != "LoginForm.tsx" {
+		t.Errorf("AbsPath base = %q, want LoginForm.tsx", filepath.Base(comp.Path))
 	}
-	if !filepath.IsAbs(comp.AbsPath) {
-		t.Errorf("AbsPath = %q, want absolute", comp.AbsPath)
+	if !filepath.IsAbs(comp.Path) {
+		t.Errorf("AbsPath = %q, want absolute", comp.Path)
 	}
 }
 

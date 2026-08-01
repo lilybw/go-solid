@@ -25,9 +25,6 @@ var hmrClientTemplate = template.Must(template.New("hmr").Parse(
 </script>`))
 
 // ClientScript renders the injected hot-reload snippet for one component.
-// Exported because it is called from package go_solid (which owns render0);
-// package hmr cannot import go_solid, but go_solid imports hmr, so generation
-// lives here and the result is passed into AssembleHTML as a string.
 func ClientScript(path, component string) string {
 	var b strings.Builder
 	// Execute cannot fail: fixed template, fixed data shape. A failure would be

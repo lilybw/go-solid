@@ -9,5 +9,10 @@ type HMRConfig struct {
 	// injected client connects. Defaults to "/__go_solid_hmr__".
 	HMRPath string
 	// ServeMux, Router or the like to mount the WebSocket handler on. Required when HMR is enabled.
-	Mux *http.ServeMux
+	Mux HandleMux
+}
+
+// HandleMux is anything that can register an http.Handler under a string pattern
+type HandleMux interface {
+	Handle(pattern string, handler http.Handler)
 }
