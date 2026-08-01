@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/coder/websocket"
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 const DEFAULT_HMR_PATH = "/__go_solid_hmr__"

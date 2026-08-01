@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // writeTree creates a set of files (relative path -> contents) under a fresh

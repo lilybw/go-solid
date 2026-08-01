@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lilybw/go_solid/internal"
-	caching "github.com/lilybw/go_solid/internal/caching"
-	"github.com/lilybw/go_solid/internal/esbuild"
-	"github.com/lilybw/go_solid/internal/hmr"
-	"github.com/lilybw/go_solid/internal/meta"
-	networking "github.com/lilybw/go_solid/internal/networking"
+	"github.com/lilybw/go-solid/internal"
+	caching "github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/hmr"
+	"github.com/lilybw/go-solid/internal/meta"
+	networking "github.com/lilybw/go-solid/internal/networking"
 )
 
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/lilybw/go_solid/internal"
+	"github.com/lilybw/go-solid/internal"
 )
 
 // These tests exercise real fsnotify on the real filesystem, so they are

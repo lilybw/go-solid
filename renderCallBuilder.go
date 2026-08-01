@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	caching "github.com/lilybw/go_solid/internal/caching"
-	"github.com/lilybw/go_solid/internal/meta"
-	networking "github.com/lilybw/go_solid/internal/networking"
+	caching "github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/meta"
+	networking "github.com/lilybw/go-solid/internal/networking"
 )
 
 type RenderCallBuilder interface {

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	caching "github.com/lilybw/go_solid/internal/caching"
+	caching "github.com/lilybw/go-solid/internal/caching"
 )
 
 func Test_Deterministic(t *testing.T) {

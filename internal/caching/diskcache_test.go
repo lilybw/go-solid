@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lilybw/go_solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/esbuild"
 )
 
 // These tests exercise the disk cache in isolation. They construct *Rendered

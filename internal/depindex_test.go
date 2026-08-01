@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/lilybw/go_solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/esbuild"
 )
 
 // norm mirrors what DepIndex does internally to every key, so expected values in

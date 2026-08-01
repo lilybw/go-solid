@@ -1,4 +1,4 @@
-module github.com/lilybw/go_solid
+module github.com/lilybw/go-solid
 
 go 1.25.4
 

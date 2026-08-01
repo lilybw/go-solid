@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // TransformRequest / transformResponse mirror the NDJSON protocol spoken by

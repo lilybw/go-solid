@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lilybw/go_solid/internal/meta"
-	"github.com/lilybw/go_solid/internal/workers"
+	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/workers"
 )
 
 // -----------------------------------------------------------------------------

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/lilybw/go_solid/internal"
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // Watcher watches the components tree and, on change, inverts through DepIndex

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // Component is one entry discovered in the components directory.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	solid "github.com/lilybw/go_solid"
+	solid "github.com/lilybw/go-solid"
 )
 
 func main() {

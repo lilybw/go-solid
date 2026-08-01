@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // requiredPeerDeps are the Node packages the consumer must provide (Model A:

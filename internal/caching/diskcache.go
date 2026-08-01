@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lilybw/go_solid/internal/esbuild"
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // -----------------------------------------------------------------------------

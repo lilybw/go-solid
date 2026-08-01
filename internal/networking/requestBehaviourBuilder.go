@@ -3,8 +3,8 @@ package networking
 import (
 	"net/http"
 
-	caching "github.com/lilybw/go_solid/internal/caching"
-	"github.com/lilybw/go_solid/internal/meta"
+	caching "github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // What to do when a failure occurs during the render call. Never expects an error to be returned, but if one is, it may panic.

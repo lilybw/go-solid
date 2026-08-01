@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go_solid/internal"
-	caching "github.com/lilybw/go_solid/internal/caching"
-	networking "github.com/lilybw/go_solid/internal/networking"
+	"github.com/lilybw/go-solid/internal"
+	caching "github.com/lilybw/go-solid/internal/caching"
+	networking "github.com/lilybw/go-solid/internal/networking"
 )
 
 func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {

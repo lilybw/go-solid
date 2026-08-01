@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"sync"
 
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // MemCache is a simple in-memory artifact MemCache. Keyed by a hash of

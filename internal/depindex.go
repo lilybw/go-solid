@@ -3,8 +3,8 @@ package internal
 import (
 	"sync"
 
-	"github.com/lilybw/go_solid/internal/esbuild"
-	"github.com/lilybw/go_solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // DepIndex is the reverse dependency graph: it maps each source file to the set
