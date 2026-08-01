@@ -1,4 +1,4 @@
-package go_solid
+package caching
 
 // Rendered is the cacheable artifact set for one component+props combination.
 type Rendered struct {

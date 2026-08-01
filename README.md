@@ -64,6 +64,23 @@ In Go, this is expressed as any struct that can be json serialized, for instance
 rendered, err := bundler.Prepare("path/to/Component", map[string]any{"title": "Hello World"}).Render()
 ```
 
+## HMR 
+go_solid builds a two-way dependency index from esbuilds metafile output when a component is bundled. 
+This index is used to, among other things, do hot module replacement if such is configured. 
+
+To enable HMR, provide your server ServeMux in the Bundler Config:
+
+```go
+mux := http.DefaultServeMux();
+bundler, err := go_solid.New(solid.New(solid.Config{
+    ...
+  HMR:    go_solid.HMRConfig{
+      Mux: mux,
+    },
+})
+```
+To avoid potential cors issues, do ensure that the WS connections the library will make to any client visiting your servers endpoints, is directed at the same origin as the template the client has been served. (You can set HMR up over another port, but browsers may be perturbed by this)
+
 
 
 

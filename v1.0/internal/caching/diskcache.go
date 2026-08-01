@@ -1,4 +1,4 @@
-package go_solid
+package caching
 
 import (
 	"crypto/sha256"
@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,10 +38,9 @@ import (
 // the source of truth. RebuildIndex regenerates it from scratch.
 
 const CACHE_DIR_NAME = "component_cache"
-const indexFileName = "_index.json"
 
-// diskManifest is the on-disk, human-readable entry descriptor.
-type diskManifest struct {
+// DiskManifest is the on-disk, human-readable entry descriptor.
+type DiskManifest struct {
 	Component   string            `json:"component"`
 	RootID      string            `json:"rootID"`
 	Minify      bool              `json:"minify"`
@@ -68,21 +66,17 @@ type diskManifest struct {
 type DiskCache struct {
 	workspace meta.AbsoluteDirectoryPath // <workspace>/component_cache
 	mu        sync.Mutex
-	index     map[meta.AbsoluteFilePath][]string // sourceAbsPath -> []entryKey
 	enabled   bool
 }
 
 func NewDiskCache(workspace string, enabled bool) (*DiskCache, error) {
 	dir := filepath.Join(workspace, CACHE_DIR_NAME)
-	dc := &DiskCache{workspace: dir, index: map[meta.AbsoluteFilePath][]string{}, enabled: enabled}
+	dc := &DiskCache{workspace: dir, enabled: enabled}
 	if !enabled {
 		return dc, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("disk cache: create %q: %w", dir, err)
-	}
-	if err := dc.RebuildIndex(); err != nil {
-		return nil, err
 	}
 	return dc, nil
 }
@@ -168,7 +162,7 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
-	man := diskManifest{
+	man := DiskManifest{
 		Component:   component,
 		RootID:      rootID,
 		Minify:      minify,
@@ -211,72 +205,7 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 		return err
 	}
 
-	// Update reverse index incrementally.
-	for src := range man.Sources {
-		dc.index[src] = appendUnique(dc.index[src], key)
-	}
-	return dc.writeIndexLocked()
-}
-
-// DependentsOf returns the entry keys that depend on the given source file.
-// This is the query the file-watcher will use to decide what to invalidate.
-func (dc *DiskCache) DependentsOf(source meta.AbsoluteFilePath) []string {
-	source = esbuild.NormalizeSourcePath(source)
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-	out := make([]string, len(dc.index[source]))
-	copy(out, dc.index[source])
-	return out
-}
-
-// RebuildIndex regenerates the reverse index from the manifests on disk. The
-// manifests are authoritative; the index is derived, so this makes any drift
-// (crash mid-write, manual file deletion) self-healing.
-func (dc *DiskCache) RebuildIndex() error {
-	dc.mu.Lock()
-	defer dc.mu.Unlock()
-	return dc.rebuildIndexLocked()
-}
-
-func (dc *DiskCache) rebuildIndexLocked() error {
-	idx := map[string][]string{}
-	entries, err := os.ReadDir(dc.workspace)
-	if err != nil {
-		if os.IsNotExist(err) {
-			dc.index = idx
-			return nil
-		}
-		return err
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".meta.json") {
-			continue
-		}
-		man, err := readManifest(filepath.Join(dc.workspace, e.Name()))
-		if err != nil {
-			continue // skip corrupt manifest; not fatal
-		}
-		for src := range man.Sources {
-			idx[src] = appendUnique(idx[src], man.Key)
-		}
-	}
-	dc.index = idx
-	return dc.writeIndexLocked()
-}
-
-func (dc *DiskCache) writeIndexLocked() error {
-	// Deterministic output: sort keys and values so the file diffs cleanly.
-	ordered := make(map[string][]string, len(dc.index))
-	for k, v := range dc.index {
-		vv := append([]string(nil), v...)
-		sort.Strings(vv)
-		ordered[k] = vv
-	}
-	b, err := json.MarshalIndent(ordered, "", "  ")
-	if err != nil {
-		return err
-	}
-	return atomicWrite(filepath.Join(dc.workspace, indexFileName), b)
+	return nil
 }
 
 func (dc *DiskCache) manifestPathForKey(key string) (string, bool) {
@@ -298,12 +227,12 @@ func (dc *DiskCache) manifestPathForKey(key string) (string, bool) {
 	return "", false
 }
 
-func readManifest(path string) (*diskManifest, error) {
+func readManifest(path string) (*DiskManifest, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var m diskManifest
+	var m DiskManifest
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package networking
 import (
 	"net/http"
 
+	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/meta"
 )
 
@@ -18,13 +19,14 @@ type RequestBehaviourBuilder interface {
 	UponEntryGenerationError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponTempEntryWriteError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponCompBundlingError(fn FailureCaseHandler) RequestBehaviourBuilder
+	TransmitRenderedTemplate(fn func(w http.ResponseWriter, r *http.Request, rendered *caching.Rendered) error) RequestBehaviourBuilder
 }
 
 type requestBehaviourBuilder struct {
-	data *RequestData
+	data *RequestBehaviour
 }
 
-func NewRequestBehaviourBuilder(data *RequestData) RequestBehaviourBuilder {
+func NewRequestBehaviourBuilder(data *RequestBehaviour) RequestBehaviourBuilder {
 	return &requestBehaviourBuilder{
 		data: data,
 	}
@@ -78,7 +80,15 @@ func (this *requestBehaviourBuilder) UponCompBundlingError(fn FailureCaseHandler
 	return this
 }
 
-type RequestData struct {
+func (this *requestBehaviourBuilder) TransmitRenderedTemplate(fn func(w http.ResponseWriter, r *http.Request, rendered *caching.Rendered) error) RequestBehaviourBuilder {
+	meta.PanicIfTrue(fn == nil, "TransmitRenderedTemplate handler cannot be nil")
+	this.data.TransmitRenderedTemplate = func(rendered *caching.Rendered) error {
+		return fn(this.data.W, this.data.R, rendered)
+	}
+	return this
+}
+
+type RequestBehaviour struct {
 	W                         http.ResponseWriter
 	R                         *http.Request
 	UponPropsMarshalingError  RequestBoundFailureCaseHandler
@@ -87,19 +97,20 @@ type RequestData struct {
 	UponEntryGenerationError  RequestBoundFailureCaseHandler
 	UponTempEntryWriteError   RequestBoundFailureCaseHandler
 	UponCompBundlingError     RequestBoundFailureCaseHandler
+	TransmitRenderedTemplate  func(rendered *caching.Rendered) error
 }
 
 // A failure case handler encapsulated with writer and request
 type RequestBoundFailureCaseHandler func(err error) error
 
-func (this *RequestData) bind(fn FailureCaseHandler) RequestBoundFailureCaseHandler {
+func (this *RequestBehaviour) bind(fn FailureCaseHandler) RequestBoundFailureCaseHandler {
 	return func(err error) error {
 		return fn(this.W, this.R, err)
 	}
 }
 
-func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestData {
-	return &RequestData{
+func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
+	return &RequestBehaviour{
 		W:                         w,
 		R:                         r,
 		UponPropsMarshalingError:  defaultHttpErrorHandler500(w, "Failed to marshal props"),
@@ -108,6 +119,12 @@ func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestData {
 		UponEntryGenerationError:  defaultHttpErrorHandler500(w, "Failed to generate entry"),
 		UponTempEntryWriteError:   defaultHttpErrorHandler500(w, "Failed to write temporary entry"),
 		UponCompBundlingError:     defaultHttpErrorHandler500(w, "Failed to bundle component"),
+		TransmitRenderedTemplate: func(rendered *caching.Rendered) error {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(200)
+			_, err := w.Write([]byte(rendered.HTML))
+			return err
+		},
 	}
 }
 

@@ -1,19 +1,3 @@
-// Package solidbundle turns named SolidJS components into self-contained
-// HTML+CSS+JS bundles, generated on demand and cached. It is designed to be
-// imported into a Go web server (such as hots) so that a template name maps to
-// a Solid component that is compiled adaptively — only the JS actually needed
-// for that component is emitted.
-//
-// Pipeline per render:
-//
-//	name+props -> generate entry .tsx  (mounts <Component/> with props)
-//	           -> babel-preset-solid   (JSX -> Solid template() calls; Node pool)
-//	           -> esbuild (Go)          (typestrip, bundle, tree-shake, CSS, minify)
-//	           -> assemble index.html   (references emitted CSS + JS)
-//	           -> cache
-//
-// Node is required ONLY for the babel transform step, and only at build /
-// cache-miss time — never per request once warm and cached.
 package go_solid
 
 import (
@@ -25,44 +9,41 @@ import (
 	"github.com/lilybw/go_solid/internal"
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/esbuild"
+	"github.com/lilybw/go_solid/internal/hmr"
 	"github.com/lilybw/go_solid/internal/meta"
 	networking "github.com/lilybw/go_solid/internal/networking"
 	"github.com/lilybw/go_solid/internal/workers"
 )
 
-// Config configures a Bundler.
 type Config struct {
-	// Components is the root folder scanned for components. A file at
-	// Components/auth/LoginForm.tsx registers as template "auth/LoginForm".
-	Components meta.AbsoluteDirectoryPath
-
-	// Dependencies is the directory esbuild and Node resolve node_modules from. It
-	// must contain (or have an ancestor containing) the peer dependencies
-	// (solid-js, babel-preset-solid, @babel/core). Usually the frontend project
-	// root.
-	//
-	// Optional: if empty, it defaults to ComponentsDir. Since consumers already
-	// point ComponentsDir at their frontend tree, the peer deps installed there
-	// (npm install solid-js babel-preset-solid @babel/core) resolve without any
-	// extra configuration.
+	Components   meta.AbsoluteDirectoryPath
 	Dependencies meta.AbsoluteDirectoryPath
+	Workspace    meta.AbsoluteDirectoryPath
 
-	// Workspace is where go_solid writes its runtime state: the materialized
-	// worker script and temporary bundle-entry files. Optional: defaults to
-	// <ComponentsDir>/.go_solid. Override only if the components tree is
-	// read-only at runtime (e.g. baked into an image); point it at a writable
-	// path then. Safe to gitignore: it holds only regenerable artifacts.
-	Workspace meta.AbsoluteDirectoryPath
-
-	// PoolSize is the number of persistent Node workers. 0/1 => single worker.
 	PoolSize int
+	NodeBin  string
 
-	// NodeBin overrides the node executable ("" => "node" on PATH).
-	NodeBin string
+	// DisableCaching bypasses both the in-memory and on-disk caches, so every
+	// render rebuilds from source. Previously implied by Dev.
+	DisableCaching bool
 
-	// Dev disables caching and emits sourcemaps;
-	Dev bool
-	// Minify controls esbuild minification (usually !Dev).
+	// Sourcemaps emits inline sourcemaps from esbuild for easier debugging in
+	// the browser. Independent of caching, so you can debug a cached prod build.
+	// Previously implied by Dev.
+	Sourcemaps bool
+
+	// HotReloadRegistry rescans the components directory on every render, so new
+	// or renamed component files are picked up without a restart. Previously
+	// implied by Dev. Note this is registry reload only; hot *browser* reload is
+	// the separate HMR feature below.
+	HotReloadRegistry bool
+
+	// HMR enables hot browser reload in development. When non-nil and not
+	// Disabled, go_solid watches the components tree and pushes reloads to the
+	// tabs viewing an affected template. Requires HMR.Mux so go_solid can mount
+	// its WebSocket handler itself.
+	HMR *hmr.Config
+
 	Minify   bool
 	Defaults *BehaviouralDefaults
 }
@@ -71,28 +52,26 @@ type BehaviouralDefaults struct {
 	HTMLHeadAttributes meta.Configurator[networking.HTMLHeadSegmentBuilder]
 }
 
-// Bundler is the top-level handle. Construct with New, close with Close.
 type Bundler struct {
-	cfg       Config
-	registry  *internal.Registry
-	pool      *workers.Pool
-	cache     *caching.MemCache
-	disk      *caching.DiskCache
+	cfg      Config
+	registry *internal.Registry
+	pool     *workers.Pool
+	cache    *caching.MemCache
+	disk     *caching.DiskCache
+	index    *internal.DepIndex
+	hub      *hmr.Hub
+	watcher  *hmr.Watcher
+
 	workspace meta.AbsoluteDirectoryPath // resolved workspace (.go_solid) for worker + temp files
 }
 
-// New constructs a Bundler: scans components, starts the worker pool.
 func New(cfg Config) (*Bundler, error) {
 	if err := configValidationCheck(cfg); err != nil {
 		return nil, err
 	}
-	// Dependencies defaults to the components directory: consumers already point that
-	// at their frontend tree, so peer deps installed there resolve out of the box.
 	if cfg.Dependencies == "" {
 		cfg.Dependencies = cfg.Components
 	}
-	// Resolve and create the workspace: one visible, gitignorable folder inside
-	// the registry directory the consumer already knows go_solid owns.
 	workspace := cfg.Workspace
 	if workspace == "" {
 		workspace = filepath.Join(cfg.Components, ".go_solid")
@@ -112,7 +91,7 @@ func New(cfg Config) (*Bundler, error) {
 				"    npm install --save-dev %s",
 			missing, cfg.Dependencies, strings.Join(missing, " "))
 	}
-	reg, err := internal.NewRegistry(cfg.Components)
+	registry, err := internal.NewRegistry(cfg.Components)
 	if err != nil {
 		return nil, err
 	}
@@ -130,21 +109,52 @@ func New(cfg Config) (*Bundler, error) {
 		networking.SetHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
 	}
 
-	// Disk cache lives in the workspace; enabled outside dev mode (dev bypasses
-	// caching so on-disk edits always rebuild).
-	disk, err := caching.NewDiskCache(workspace, !cfg.Dev)
+	// Caches are enabled unless explicitly disabled.
+	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching)
 	if err != nil {
+		// Don't leak the pool if disk cache setup fails.
+		pool.Close()
 		return nil, err
 	}
 
-	return &Bundler{
+	b := &Bundler{
 		cfg:       cfg,
-		registry:  reg,
+		registry:  registry,
 		pool:      pool,
-		cache:     caching.NewMemCache(!cfg.Dev),
+		cache:     caching.NewMemCache(!cfg.DisableCaching),
 		disk:      disk,
 		workspace: workspace,
-	}, nil
+		index:     internal.NewDepIndex(),
+	}
+
+	// Hot browser reload: opt-in, and go_solid mounts its own handler on the
+	// consumer-provided mux. When inactive, none of this is constructed and the
+	// emitted HTML is byte-identical to a plain render.
+	if cfg.HMR != nil && !cfg.HMR.Disabled {
+		normalized, err := hmr.NormalizeHMRConfig(cfg.HMR)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		b.cfg.HMR = normalized
+
+		b.hub = hmr.NewHub(normalized)
+		// go_solid registers its own endpoint — the consumer never wires it.
+		normalized.Mux.Handle(normalized.HMRPath, b.hub.Handler())
+
+		// NewWatcher starts its own goroutine before returning, so there is no
+		// separate Start call to forget.
+		w, err := hmr.NewWatcher(string(cfg.Components), b.index, b.hub, registry, func(e error) {
+			fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
+		})
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		b.watcher = w
+	}
+
+	return b, nil
 }
 
 func configValidationCheck(cfg Config) error {
@@ -173,19 +183,20 @@ func configValidationCheck(cfg Config) error {
 	return nil
 }
 
-// Registry exposes the underlying registry (for dev index pages, warmup, etc.).
 func (b *Bundler) Registry() *internal.Registry { return b.registry }
 
-// Close shuts down the worker pool.
 func (b *Bundler) Close() {
-	if b == nil || b.pool == nil {
+	if b == nil {
 		return
 	}
-	b.pool.Close()
+	if b.watcher != nil {
+		b.watcher.Stop()
+	}
+	if b.pool != nil {
+		b.pool.Close()
+	}
 }
 
-// logDiskCacheError reports a non-fatal disk cache failure. Kept minimal; wire
-// to a real logger if the consumer provides one.
 func (b *Bundler) logDiskCacheError(err error) {
 	fmt.Fprintf(os.Stderr, "[go_solid] disk cache write failed (non-fatal): %v\n", err)
 }

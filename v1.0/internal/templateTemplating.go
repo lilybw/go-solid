@@ -10,8 +10,6 @@ import (
 	"github.com/lilybw/go_solid/internal/networking"
 )
 
-// Templates are parsed once at package init; a malformed template is a
-// programming error, so Must-panic at startup rather than per render.
 var (
 	_jsTemplate   = template.Must(template.New("entry").Parse(jsTemplateText))
 	_htmlTemplate = template.Must(template.New("html").Parse(htmlTemplateText))
@@ -35,29 +33,29 @@ const jsTemplateText = `
 		render(() => Component(readProps()), root);
 	} else {
 		console.error("go_solid: Component " + {{.CompName}} + " could not mount: no element with id " + {{.CompMountId}} + " found in the HTML shell.");
-}
+	}
 `
 
 const htmlTemplateText = `
 	<!doctype html>
 	<html>
 	<head>
-	{{.Head}}
-	{{- if .Styles}}
-	{{.Styles}}
-	{{- end}}
+		{{.Head}}
+		{{- if .Styles}}
+		{{.Styles}}
+		{{- end}}
 	</head>
 	<body>
-	<div id="{{.MountRootID}}"></div>
-	<script id="{{.PropsMountID}}" type="application/json">{{.PropsJSON}}</script>
-	<script type="module">{{.JS}}</script>
+		<div id="{{.MountRootID}}"></div>
+		<script id="{{.PropsMountID}}" type="application/json">{{.PropsJSON}}</script>
+		<script type="module">{{.JS}}</script>
+		{{- if .HMRScript}}
+		{{.HMRScript}}
+		{{- end}}
 	</body>
 	</html>
 `
 
-// entryTemplateData holds the already-quoted values interpolated into the entry
-// module. Every field is a JS string literal (produced by strconv.Quote), so the
-// template inserts them into expression position without further quoting.
 type entryTemplateData struct {
 	ImportPath   string
 	CompName     string
@@ -65,8 +63,6 @@ type entryTemplateData struct {
 	CompMountId  string
 }
 
-// htmlTemplateData holds the pieces of the final document. Head, Styles, JS and
-// PropsJSON are all pre-escaped/pre-built; the template does no escaping.
 type htmlTemplateData struct {
 	Head         string
 	Styles       string // "" or a complete <style>...</style> element
@@ -74,15 +70,10 @@ type htmlTemplateData struct {
 	PropsMountID string
 	PropsJSON    string
 	JS           string
+	HMRScript    string // "" when HMR inactive; injected reload client otherwise
 }
 
-// generateEntry produces the entry .tsx that imports the component by absolute
-// path and mounts it. Props flow via the data island, keeping the server as the
-// source of truth for data.
 func GenerateEntry(comp Component) (string, error) {
-	// Absolute import path (without extension) so the generated entry resolves
-	// the component no matter which temp directory esbuild reads it from. This
-	// path is consumed only at bundle time by esbuild; it never reaches the browser.
 	importPath := filepath.ToSlash(strings.TrimSuffix(comp.AbsPath, comp.Ext))
 
 	data := entryTemplateData{
@@ -99,10 +90,12 @@ func GenerateEntry(comp Component) (string, error) {
 	return b.String(), nil
 }
 
-// assembleHTML builds the self-contained index.html returned to the client. It
-// inlines the bundled JS as a module script, inlines CSS as a <style> element,
-// and embeds props as a JSON data island. Nothing is served externally.
-func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID string) string {
+// AssembleHTML builds the self-contained document. hmrScript is the injected
+// hot-reload client, generated in package go_solid and passed in as a string
+// ("" when HMR is inactive). It is passed in rather than generated here so that
+// package internal never imports package hmr — hmr already imports internal, so
+// the reverse would be an import cycle.
+func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID, hmrScript string) string {
 	styles := ""
 	if rendered.CSS != "" {
 		styles = "<style>" + rendered.CSS + "</style>"
@@ -115,13 +108,12 @@ func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON strin
 		PropsMountID: derivePropsMountIdFromCompRootID(mountRootID),
 		PropsJSON:    inlineJSON(propsJSON),
 		JS:           inlineJS(rendered.JS),
+		HMRScript:    hmrScript,
 	}
 
 	var b strings.Builder
-	// Execute only errors on template/data-shape bugs, which Must + a fixed
-	// struct rule out; a render-time failure here would be a programming error.
 	if err := _htmlTemplate.Execute(&b, data); err != nil {
-		panic("go_solid: assembleHTML template execution failed: " + err.Error())
+		panic("go_solid: AssembleHTML template execution failed: " + err.Error())
 	}
 	return b.String()
 }

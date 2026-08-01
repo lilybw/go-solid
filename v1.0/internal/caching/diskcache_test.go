@@ -1,10 +1,9 @@
-package go_solid
+package caching
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -249,95 +248,6 @@ func TestDiskCache_ValidWhenSourceUnchanged(t *testing.T) {
 	}
 }
 
-// --- reverse index ----------------------------------------------------------
-
-func TestDiskCache_ReverseIndexMultiEntry(t *testing.T) {
-	dc, ws := newTestDiskCache(t)
-	shared := writeSource(t, ws, "sub/Shared.tsx", "export default 0;")
-	a := writeSource(t, ws, "A.tsx", "export default 1;")
-	b := writeSource(t, ws, "B.tsx", "export default 2;")
-	dc.Put("keyA", "A", "root", true, sampleRendered(), []string{a, shared})
-	dc.Put("keyB", "B", "root", true, sampleRendered(), []string{b, shared})
-
-	deps := dc.DependentsOf(shared)
-	sort.Strings(deps)
-	if len(deps) != 2 || deps[0] != "keyA" || deps[1] != "keyB" {
-		t.Errorf("DependentsOf(shared) = %v, want [keyA keyB]", deps)
-	}
-	// A source used by one entry maps to just that one.
-	if got := dc.DependentsOf(a); len(got) != 1 || got[0] != "keyA" {
-		t.Errorf("DependentsOf(a) = %v, want [keyA]", got)
-	}
-	// Unknown source -> empty.
-	if got := dc.DependentsOf("/nope"); len(got) != 0 {
-		t.Errorf("DependentsOf(unknown) = %v, want []", got)
-	}
-}
-
-func TestDiskCache_IndexFileWrittenAndValid(t *testing.T) {
-	dc, ws := newTestDiskCache(t)
-	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put("k", "W", "root", true, sampleRendered(), []string{src})
-
-	idxPath := filepath.Join(ws, CACHE_DIR_NAME, indexFileName)
-	b, err := os.ReadFile(idxPath)
-	if err != nil {
-		t.Fatalf("index file missing: %v", err)
-	}
-	var idx map[string][]string
-	if err := json.Unmarshal(b, &idx); err != nil {
-		t.Fatalf("index not valid JSON: %v", err)
-	}
-	if got := idx[src]; len(got) != 1 || got[0] != "k" {
-		t.Errorf("index[%s] = %v, want [k]", src, got)
-	}
-}
-
-// --- rebuild / drift healing ------------------------------------------------
-
-func TestDiskCache_RebuildFromManifests(t *testing.T) {
-	dc, ws := newTestDiskCache(t)
-	shared := writeSource(t, ws, "sub/Shared.tsx", "export default 0;")
-	dc.Put("keyA", "A", "root", true, sampleRendered(), []string{shared})
-	dc.Put("keyB", "B", "root", true, sampleRendered(), []string{shared})
-
-	// Corrupt the in-memory index, then rebuild from the manifests (source of truth).
-	dc.mu.Lock()
-	dc.index = map[string][]string{"garbage": {"nonsense"}}
-	dc.mu.Unlock()
-
-	if err := dc.RebuildIndex(); err != nil {
-		t.Fatalf("RebuildIndex: %v", err)
-	}
-	deps := dc.DependentsOf(shared)
-	sort.Strings(deps)
-	if len(deps) != 2 {
-		t.Errorf("after rebuild DependentsOf(shared) = %v, want 2 entries", deps)
-	}
-	if len(dc.DependentsOf("garbage")) != 0 {
-		t.Error("rebuild did not clear stale index data")
-	}
-}
-
-func TestDiskCache_RebuildOnStartupHealsDeletedIndex(t *testing.T) {
-	ws := t.TempDir()
-	dc, _ := NewDiskCache(ws, true)
-	shared := writeSource(t, ws, "S.tsx", "export default 0;")
-	dc.Put("keyA", "A", "root", true, sampleRendered(), []string{shared})
-
-	// Simulate drift: delete the index file but leave manifests.
-	os.Remove(filepath.Join(ws, CACHE_DIR_NAME, indexFileName))
-
-	// A fresh cache over the same workspace must rebuild the index on startup.
-	dc2, err := NewDiskCache(ws, true)
-	if err != nil {
-		t.Fatalf("newDiskCache (reopen): %v", err)
-	}
-	if got := dc2.DependentsOf(shared); len(got) != 1 || got[0] != "keyA" {
-		t.Errorf("startup rebuild failed: DependentsOf = %v, want [keyA]", got)
-	}
-}
-
 // --- atomic write -----------------------------------------------------------
 
 func TestAtomicWrite_OverwritesCleanly(t *testing.T) {
@@ -382,7 +292,6 @@ func TestDiskCache_ConcurrentPutGet(t *testing.T) {
 			for j := 0; j < 25; j++ {
 				_ = dc.Put(key, "C", "root", true, sampleRendered(), []string{src})
 				dc.Get(key)
-				dc.DependentsOf(src)
 			}
 		}(i)
 	}
@@ -467,9 +376,6 @@ func TestDiskCache_PersistsAcrossNewInstance(t *testing.T) {
 	if got.JS != sampleRendered().JS {
 		t.Error("persisted JS differs")
 	}
-	if len(dc2.DependentsOf(src)) != 1 {
-		t.Error("reverse index not restored on new instance")
-	}
 }
 
 // Regression: a disk-cache hit must return the ORIGINAL serving names (the
@@ -534,23 +440,6 @@ func TestDiskCache_InvalidatesOnTransitiveSourceEdit(t *testing.T) {
 	os.WriteFile(b, []byte("b2-changed"), 0o644) // edit the transitive dep
 	if _, ok := dc.Get("k"); ok {
 		t.Error("entry not invalidated when a transitive source changed")
-	}
-}
-
-// RebuildIndex must skip a corrupt manifest rather than failing, and keep the
-// good entries indexed.
-func TestDiskCache_RebuildToleratesCorruptManifest(t *testing.T) {
-	dc, ws := newTestDiskCache(t)
-	src := writeSource(t, ws, "C.tsx", "x")
-	dc.Put("good", "C", "r", true, sampleRendered(), []string{src})
-
-	os.WriteFile(filepath.Join(dc.workspace, "broken.meta.json"), []byte("{not valid"), 0o644)
-
-	if err := dc.RebuildIndex(); err != nil {
-		t.Errorf("RebuildIndex failed instead of skipping corrupt manifest: %v", err)
-	}
-	if len(dc.DependentsOf(src)) != 1 {
-		t.Error("good entry lost while skipping corrupt manifest")
 	}
 }
 

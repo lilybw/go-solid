@@ -10,7 +10,7 @@ import (
 )
 
 type RenderCallBuilder interface {
-	WithRunCtx(ctx context.Context) RenderCallBuilder
+	WithCtx(ctx context.Context) RenderCallBuilder
 	MountOnRootID(id string) RenderCallBuilder
 	WithHTMLHeadTags(fn meta.Configurator[networking.HTMLHeadSegmentBuilder]) RenderCallBuilder
 	// Automatically route the render call to the given request and response writer.
@@ -61,7 +61,7 @@ func (this *renderCallBuilderImpl) WithHTMLHeadTags(fn meta.Configurator[network
 	return this
 }
 
-func (this *renderCallBuilderImpl) WithRunCtx(ctx context.Context) RenderCallBuilder {
+func (this *renderCallBuilderImpl) WithCtx(ctx context.Context) RenderCallBuilder {
 	this.data.ctx = ctx
 	return this
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/lilybw/go_solid/internal"
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/esbuild"
+	"github.com/lilybw/go_solid/internal/hmr"
 	"github.com/lilybw/go_solid/internal/meta"
 	networking "github.com/lilybw/go_solid/internal/networking"
 )
@@ -23,11 +24,10 @@ type renderData struct {
 	props        any
 	rootID       string
 	htmlHeadTags networking.HTMLHeadSegmentBuilder
-	// Nil if not provided
-	request *networking.RequestData
+	request      *networking.RequestBehaviour
 }
 
-func (this *renderData) ifRequest(fn func(r *networking.RequestData) error) {
+func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) {
 	if this.request != nil {
 		err := fn(this.request)
 		if err != nil {
@@ -36,13 +36,8 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestData) error) {
 	}
 }
 
-// render0 compiles the named component with the given props (marshaled to JSON
-// and passed to the component) and returns the artifact set. In dev mode the
-// registry is reloaded and the cache bypassed so on-disk edits take effect.
 func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if err := data.ctx.Err(); err != nil {
-		// request ctx always take precedence over other provided ctxs, so no point in writing an http error here even if a request was provided.
-		// cause if its already cancelled, the http request is already gone and writing to it will fail anyway.
 		return nil, err // caller already cancelled / deadline exceeded
 	}
 
@@ -50,15 +45,16 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if data.props != nil {
 		raw, err := json.Marshal(data.props)
 		if err != nil {
-			data.ifRequest(func(req *networking.RequestData) error { return req.UponPropsMarshalingError(err) })
+			data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponPropsMarshalingError(err) })
 			return nil, fmt.Errorf("go_solid#Render: marshal props: %w", err)
 		}
 		propsJSON = string(raw)
 	}
 
-	if bundler.cfg.Dev {
+	// Registry hot reload is now its own flag, independent of caching.
+	if bundler.cfg.HotReloadRegistry {
 		if err := bundler.registry.Reload(); err != nil {
-			data.ifRequest(func(req *networking.RequestData) error { return req.UponRegistryReloadError(err) })
+			data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponRegistryReloadError(err) })
 			return nil, err
 		}
 	}
@@ -68,7 +64,6 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		return cached, nil
 	}
 
-	// Second tier: disk cache (survives restarts; validated by source hashes).
 	if bundler.disk != nil {
 		if cached, ok := bundler.disk.Get(key); ok {
 			bundler.cache.Put(key, cached) // promote to memory
@@ -78,7 +73,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
-		data.ifRequest(func(req *networking.RequestData) error {
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.UponRegistryLookupFailure(fmt.Errorf("component %q not found in registry", data.component))
 		})
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
@@ -88,33 +83,30 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		data.rootID = comp.MountRootID
 	}
 
-	// 1. Generate the entry module that imports the component and mounts it with
-	//    props read from a data island (keeps server-owned data server-owned).
 	entrySource, err := internal.GenerateEntry(comp)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestData) error { return req.UponEntryGenerationError(err) })
+		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponEntryGenerationError(err) })
 		return nil, err
 	}
 
-	// 2. Write the entry to a temp dir. The esbuild plugin transforms every
-	//    JSX/TSX file in the graph (entry + component + its imports) through the
-	//    babel-preset-solid worker pool, so we do NOT pre-transform here.
 	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.workspace, entrySource)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestData) error { return req.UponTempEntryWriteError(err) })
+		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponTempEntryWriteError(err) })
 		return nil, err
 	}
 	defer cleanup()
 
-	// 3. Bundle with esbuild (Go): the solid plugin runs babel per-file, then
-	//    esbuild typestrips, resolves imports, tree-shakes, collects CSS, minifies.
-	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Minify, bundler.cfg.Dev)
+	// Sourcemaps is now its own flag (last BundleEntry arg), independent of caching.
+	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Minify, bundler.cfg.Sourcemaps)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestData) error { return req.UponCompBundlingError(err) })
+		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponCompBundlingError(err) })
 		return nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
 	}
 
-	// 4. Assemble artifacts with predictable, content-hashed asset names.
+	// Maintain the dependency graph on every render regardless of cache settings;
+	// the watcher inverts it to decide which tabs to reload.
+	bundler.index.Record(data.component, bundle.Sources)
+
 	safeName := strings.ReplaceAll(data.component, "/", "_")
 	jsHash := caching.ShortHash(string(bundle.JS), 8)
 	rendered := &caching.Rendered{
@@ -126,24 +118,25 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		cssHash := caching.ShortHash(string(bundle.CSS), 8)
 		rendered.CSSName = fmt.Sprintf("%s.%s.css", safeName, cssHash)
 	}
-	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID)
+
+	// Inject the hot-reload client only when HMR is active. Generated here in
+	// package go_solid (which imports both hmr and internal) and passed to
+	// AssembleHTML as a plain string, so internal never imports hmr — avoiding
+	// the import cycle (hmr already imports internal).
+	hmrScript := ""
+	if bundler.hub != nil {
+		hmrScript = hmr.ClientScript(bundler.cfg.HMR.HMRPath, data.component)
+	}
+	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID, hmrScript)
 
 	bundler.cache.Put(key, rendered)
 	if bundler.disk != nil {
-		// Persist to disk with the source list from the metafile, for
-		// cross-restart caching and hash-based invalidation. A disk write
-		// failure is non-fatal: the in-memory result is still returned.
 		if err := bundler.disk.Put(key, data.component, data.rootID, bundler.cfg.Minify, rendered, bundle.Sources); err != nil {
 			bundler.logDiskCacheError(err)
 		}
 	}
-	// TODO: Send the rendered result to the request bound writer
-	data.ifRequest(func(req *networking.RequestData) error {
-		req.W.Header().Set("Content-Type", "text/html; charset=utf-8")
-		req.W.WriteHeader(200)
-		_, err := req.W.Write([]byte(rendered.HTML))
-		return err
-	})
+
+	data.ifRequest(func(req *networking.RequestBehaviour) error { return req.TransmitRenderedTemplate(rendered) })
 
 	return rendered, nil
 }
