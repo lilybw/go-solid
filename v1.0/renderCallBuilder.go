@@ -32,7 +32,6 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 		data: renderData{
 			component:    componentName,
 			props:        props,
-			rootID:       "go-solid-root",
 			htmlHeadTags: networking.NewHTMLHeadSegmentBuilder(),
 			request:      nil,
 		},

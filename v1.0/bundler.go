@@ -60,9 +60,9 @@ type Config struct {
 	// NodeBin overrides the node executable ("" => "node" on PATH).
 	NodeBin string
 
-	// Dev disables caching and emits sourcemaps; Minify controls esbuild
-	// minification (usually !Dev).
-	Dev      bool
+	// Dev disables caching and emits sourcemaps;
+	Dev bool
+	// Minify controls esbuild minification (usually !Dev).
 	Minify   bool
 	Defaults *BehaviouralDefaults
 }

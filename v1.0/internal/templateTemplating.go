@@ -1,10 +1,10 @@
 package internal
 
 import (
-	"html/template"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"text/template"
 
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/networking"
