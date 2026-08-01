@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/lilybw/go-solid/shared"
 )
 
 // timeoutAfter is the shared deadline channel for "this must not hang" assertions.
@@ -28,7 +29,7 @@ func wsURL(serverURL, path, component string) string {
 // newHubServer wires a Hub's handler onto an httptest server at DEFAULT_HMR_PATH.
 func newHubServer(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
-	h := NewHub(&Config{})
+	h := NewHub(&shared.HMRConfig{})
 	mux := http.NewServeMux()
 	mux.Handle(DEFAULT_HMR_PATH, h.Handler())
 	srv := httptest.NewServer(mux)

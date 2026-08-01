@@ -12,6 +12,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/lilybw/go-solid/internal"
+	"github.com/lilybw/go-solid/shared"
 )
 
 // These tests exercise real fsnotify on the real filesystem, so they are
@@ -45,7 +46,7 @@ func mkComponentsTree(t *testing.T, files map[string]string) string {
 // (or times out). Used to observe that the watcher actually drove a reload.
 func hubWithClient(t *testing.T, component string) (*Hub, func(within time.Duration) bool) {
 	t.Helper()
-	h := NewHub(&Config{})
+	h := NewHub(&shared.HMRConfig{})
 	mux := http.NewServeMux()
 	mux.Handle(DEFAULT_HMR_PATH, h.Handler())
 	srv := httptest.NewServer(mux)
@@ -254,7 +255,7 @@ func TestWatcher_StopIsIdempotentlySafe(t *testing.T) {
 		filepath.Join("ui", "Button.tsx"): "x",
 	})
 	index := internal.NewDepIndex()
-	h := NewHub(&Config{})
+	h := NewHub(&shared.HMRConfig{})
 
 	w, err := NewWatcher(root, index, h, nil, nil)
 	if err != nil {

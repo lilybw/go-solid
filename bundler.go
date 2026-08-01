@@ -13,6 +13,7 @@ import (
 	"github.com/lilybw/go-solid/internal/meta"
 	networking "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/workers"
+	"github.com/lilybw/go-solid/shared"
 )
 
 type Config struct {
@@ -42,7 +43,7 @@ type Config struct {
 	// Disabled, go_solid watches the components tree and pushes reloads to the
 	// tabs viewing an affected template. Requires HMR.Mux so go_solid can mount
 	// its WebSocket handler itself.
-	HMR *hmr.Config
+	HMR *shared.HMRConfig
 
 	Minify   bool
 	Defaults *BehaviouralDefaults

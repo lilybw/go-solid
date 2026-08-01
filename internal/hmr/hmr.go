@@ -8,30 +8,18 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared"
 )
 
 const DEFAULT_HMR_PATH = "/__go_solid_hmr__"
-
-type Config struct {
-	// Disabled turns HMR off even when a config is supplied, so a consumer can
-	// keep the struct around and flip one field.
-	Disabled bool
-	// HMRPath is where go_solid mounts the WebSocket handler and where the
-	// injected client connects. Defaults to DEFAULT_HMR_PATH.
-	HMRPath string
-	// Mux is the consumer's mux; go_solid mounts its handler on it directly, so
-	// the consumer never wires the endpoint themselves. Required when HMR is
-	// enabled — there is no safe default that works with an arbitrary server.
-	Mux *http.ServeMux
-}
 
 // NormalizeHMRConfig fills defaults and validates. It errors if HMR is enabled
 // without a Mux: defaulting to http.DefaultServeMux would silently mount the
 // endpoint on a mux the consumer's server never serves, so HMR would break with
 // no visible cause. Better to fail loudly at startup.
-func NormalizeHMRConfig(cfg *Config) (*Config, error) {
+func NormalizeHMRConfig(cfg *shared.HMRConfig) (*shared.HMRConfig, error) {
 	if cfg == nil {
-		cfg = &Config{}
+		cfg = &shared.HMRConfig{}
 	}
 	if cfg.HMRPath == "" {
 		cfg.HMRPath = DEFAULT_HMR_PATH
@@ -47,7 +35,7 @@ type Hub struct {
 	conns map[meta.QualifiedName]map[*websocket.Conn]struct{} // componentName -> set of conns
 }
 
-func NewHub(cfg *Config) *Hub {
+func NewHub(cfg *shared.HMRConfig) *Hub {
 	// cfg is accepted for symmetry and future per-hub settings; nothing on it is
 	// needed at construction today.
 	return &Hub{conns: map[meta.QualifiedName]map[*websocket.Conn]struct{}{}}

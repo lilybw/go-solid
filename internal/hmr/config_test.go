@@ -3,6 +3,8 @@ package hmr
 import (
 	"net/http"
 	"testing"
+
+	"github.com/lilybw/go-solid/shared"
 )
 
 func TestNormalizeHMRConfig_NilConfigWithoutMuxErrors(t *testing.T) {
@@ -14,7 +16,7 @@ func TestNormalizeHMRConfig_NilConfigWithoutMuxErrors(t *testing.T) {
 }
 
 func TestNormalizeHMRConfig_MissingMuxErrors(t *testing.T) {
-	_, err := NormalizeHMRConfig(&Config{HMRPath: "/x"})
+	_, err := NormalizeHMRConfig(&shared.HMRConfig{HMRPath: "/x"})
 	if err == nil {
 		t.Fatal("expected error when Mux is nil, got nil")
 	}
@@ -22,7 +24,7 @@ func TestNormalizeHMRConfig_MissingMuxErrors(t *testing.T) {
 
 func TestNormalizeHMRConfig_DefaultsPathWhenEmpty(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&Config{Mux: mux})
+	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,7 +35,7 @@ func TestNormalizeHMRConfig_DefaultsPathWhenEmpty(t *testing.T) {
 
 func TestNormalizeHMRConfig_KeepsExplicitPath(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&Config{Mux: mux, HMRPath: "/custom_hmr"})
+	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux, HMRPath: "/custom_hmr"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -44,7 +46,7 @@ func TestNormalizeHMRConfig_KeepsExplicitPath(t *testing.T) {
 
 func TestNormalizeHMRConfig_PreservesMux(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&Config{Mux: mux})
+	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,7 +59,7 @@ func TestNormalizeHMRConfig_PreservesMux(t *testing.T) {
 // does not panic and does not block. This exercises the snapshot-under-lock path
 // with a zero-length target set.
 func TestHub_ReloadOnEmptyIsNoop(t *testing.T) {
-	h := NewHub(&Config{})
+	h := NewHub(&shared.HMRConfig{})
 	done := make(chan struct{})
 	go func() {
 		h.Reload("ui/NoOne")
