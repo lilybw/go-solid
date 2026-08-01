@@ -6,7 +6,8 @@ import (
 
 	caching "github.com/lilybw/go-solid/internal/caching"
 	"github.com/lilybw/go-solid/internal/meta"
-	networking "github.com/lilybw/go-solid/internal/networking"
+	networking_int "github.com/lilybw/go-solid/internal/networking"
+	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
 type RenderCallBuilder interface {
@@ -32,7 +33,7 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 		data: renderData{
 			component:    componentName,
 			props:        props,
-			htmlHeadTags: networking.NewHTMLHeadSegmentBuilder(),
+			htmlHeadTags: networking_int.NewHTMLHeadSegmentBuilder(),
 			request:      nil,
 		},
 	}
@@ -45,14 +46,14 @@ type renderCallBuilderImpl struct {
 
 func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
 	if this.data.request == nil {
-		this.data.request = networking.NewRequestData(nil, nil)
+		this.data.request = networking_int.NewRequestData(nil, nil)
 	}
-	fn(networking.NewRequestBehaviourBuilder(this.data.request))
+	fn(networking_int.NewRequestBehaviourBuilder(this.data.request))
 	return this
 }
 
 func (this *renderCallBuilderImpl) ForRequest(w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-	this.data.request = networking.NewRequestData(w, r)
+	this.data.request = networking_int.NewRequestData(w, r)
 	return this
 }
 

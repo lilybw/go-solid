@@ -6,7 +6,8 @@ import (
 
 	"github.com/lilybw/go-solid/internal"
 	caching "github.com/lilybw/go-solid/internal/caching"
-	networking "github.com/lilybw/go-solid/internal/networking"
+	networking_int "github.com/lilybw/go-solid/internal/networking"
+	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
 func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
@@ -40,7 +41,7 @@ func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
 }
 
 func getTestHeadSegment() networking.HTMLHeadSegmentBuilder {
-	return networking.NewHTMLHeadSegmentBuilder().
+	return networking_int.NewHTMLHeadSegmentBuilder().
 		DeterministicOutput().
 		SetTitle("test/test")
 }

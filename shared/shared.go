@@ -11,9 +11,15 @@ type HMRConfig struct {
 	// injected client connects. Defaults to "/__go_solid_hmr__".
 	HMRPath string
 	// ServeMux, Router or the like to mount the WebSocket handler on. Required when HMR is enabled.
+	//
 	// Adapters are available for:
 	// 	github.com/gorilla/mux.Router use MuxLikeFromRouterLike
+	// 	http.ServeMux use <self>
 	Mux MuxLike
+}
+
+type VoidBiFunc[T any, U any] interface {
+	Call(t T, u U)
 }
 
 // MuxLike is anything that can register an http.Handler under a string pattern

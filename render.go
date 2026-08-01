@@ -11,7 +11,7 @@ import (
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
-	networking "github.com/lilybw/go-solid/internal/networking"
+	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {

@@ -7,7 +7,7 @@ import (
 	"text/template"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/networking"
+	"github.com/lilybw/go-solid/shared/networking"
 )
 
 var (

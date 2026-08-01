@@ -11,9 +11,10 @@ import (
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
-	networking "github.com/lilybw/go-solid/internal/networking"
+	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/workers"
 	"github.com/lilybw/go-solid/shared"
+	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
 type Config struct {
@@ -107,7 +108,7 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	if cfg.Defaults != nil && cfg.Defaults.HTMLHeadAttributes != nil {
-		networking.SetHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
+		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
 	}
 
 	// Caches are enabled unless explicitly disabled.

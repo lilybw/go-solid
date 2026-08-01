@@ -3,6 +3,8 @@ package networking
 import (
 	"strings"
 	"testing"
+
+	. "github.com/lilybw/go-solid/shared/networking"
 )
 
 func TestNewBuilderHasDefaultTitle(t *testing.T) {
