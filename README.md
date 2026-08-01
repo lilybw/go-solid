@@ -8,7 +8,7 @@ This library uses esbuild-go to generate templates. However, esbuild-go only sup
 
 Thus the need for node workers, and by extension a couple of node modules, which this library uses to apply the solidjs transform. 
 
-To provide these dependencies, include this package.json in your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
+To provide these dependencies, include this package.json in a subfolder of your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
 ```json
 {
   "name": "stub-for-dependencies",
@@ -28,6 +28,7 @@ To provide these dependencies, include this package.json in your project and run
   }
 }
 ```
+
 Then, when configuring the library, direct it to where to find said dependencies. The location defaults to the registry directory. 
 
 ```go
@@ -38,6 +39,7 @@ bundler, err := solid.New(solid.Config{
 })
 ```
 
+Aforementioned package json is also where you can declare any other node dependencies your frontend might have. 
 
 ### Caching
 To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
@@ -112,7 +114,7 @@ mux.HandleFunc("/<route>", func(w http.ResponseWriter, r *http.Request) {
 http.ListenAndServe(":<port>", mux)
 ```
 
-```ForRequest(writer, request)``` sets status code headers
+```ForRequest(writer, request)``` sets status code and content type headers.
 
 All networking behaviour can be altered on a per bundler#Prepare basis using ```SetHTTPBehaviour(configurator)```:
 
