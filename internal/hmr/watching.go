@@ -16,7 +16,6 @@ import (
 
 // Watcher watches the components tree and, on change, inverts through DepIndex
 // to find affected components and asks the Hub to reload the tabs viewing them.
-// Exported so package go_solid can hold and Stop it.
 type Watcher struct {
 	fsw    *fsnotify.Watcher
 	root   string

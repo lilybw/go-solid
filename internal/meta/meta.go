@@ -26,7 +26,7 @@ type Rendered struct {
 }
 
 // RingBuffer keeps the last max bytes written to it, concurrency-safe. Captures
-// worker stderr so that when a worker dies we can report WHY (a Node stack
+// worker stderr so that when a worker dies it can report WHY (a Node stack
 // trace, ERR_MODULE_NOT_FOUND, etc.) instead of a bare "EOF".
 type RingBuffer struct {
 	mu  sync.Mutex
