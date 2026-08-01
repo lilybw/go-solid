@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	caching "github.com/lilybw/go_solid/internal/caching"
+	"github.com/lilybw/go_solid/internal/esbuild"
 	"github.com/lilybw/go_solid/internal/meta"
 	"github.com/lilybw/go_solid/internal/workers"
 )
@@ -97,12 +98,12 @@ func New(cfg Config) (*Bundler, error) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return nil, fmt.Errorf("go_solid: create workspace %q: %w", workspace, err)
 	}
-	scriptLocation, err := materializeWorkerScript(workspace)
+	scriptLocation, err := esbuild.MaterializeWorkerScript(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
 	}
 
-	if missing := peerDepsMissing(cfg.Dependencies, requiredPeerDeps); len(missing) > 0 {
+	if missing := esbuild.PeerDepsMissing(cfg.Dependencies, esbuild.RequiredPeerDeps); len(missing) > 0 {
 		return nil, fmt.Errorf(
 			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
 				"Install them in your frontend project:\n"+

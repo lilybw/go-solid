@@ -51,3 +51,9 @@ func (r *RingBuffer) String() string {
 	defer r.mu.Unlock()
 	return strings.TrimSpace(string(r.buf))
 }
+
+func PanicIfTrue(pred bool, msg string) {
+	if pred {
+		panic(msg)
+	}
+}

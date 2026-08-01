@@ -1,4 +1,4 @@
-package go_solid
+package esbuild
 
 import (
 	"crypto/sha256"
@@ -15,11 +15,11 @@ import (
 // peer dependencies). solid-js is the browser RUNTIME and must be the
 // consumer's version; babel-preset-solid   @babel/core are the compiler.
 // go_solid deliberately does not vendor these.
-var requiredPeerDeps = []string{"solid-js", "babel-preset-solid", "@babel/core"}
+var RequiredPeerDeps = []string{"solid-js", "babel-preset-solid", "@babel/core"}
 
 // peerDepsMissing returns which of pkgs cannot be resolved from startDir,
 // walking up ancestor directories the way Node/esbuild resolve node_modules.
-func peerDepsMissing(startDir meta.AbsoluteDirectoryPath, pkgs []string) []string {
+func PeerDepsMissing(startDir meta.AbsoluteDirectoryPath, pkgs []string) []string {
 	var missing []string
 	for _, pkg := range pkgs {
 		if !peerDepResolvable(startDir, pkg) {
@@ -46,7 +46,7 @@ func peerDepResolvable(start meta.AbsoluteDirectoryPath, pkg string) bool {
 	}
 }
 
-//go:embed internal/worker/transform-worker.mjs
+//go:embed transform-worker.mjs
 var rawEmbeddedWorkerScript []byte
 
 var parsedEmbeddedWorkerScript meta.AbsoluteFilePath
@@ -57,7 +57,7 @@ var parsedEmbeddedWorkerScript meta.AbsoluteFilePath
 // it works even when the module source isn't present at runtime (deployed
 // binaries). Content-hashing means a library upgrade that changes the script
 // lands at a new path automatically; identical content reuses the file.
-func materializeWorkerScript(dir meta.AbsoluteDirectoryPath) (meta.AbsoluteFilePath, error) {
+func MaterializeWorkerScript(dir meta.AbsoluteDirectoryPath) (meta.AbsoluteFilePath, error) {
 	if parsedEmbeddedWorkerScript != "" {
 		return parsedEmbeddedWorkerScript, nil
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -37,7 +38,7 @@ import (
 // index is derived data: it is always rebuildable from the manifests, which are
 // the source of truth. RebuildIndex regenerates it from scratch.
 
-const cacheDirName = "component_cache"
+const CACHE_DIR_NAME = "component_cache"
 const indexFileName = "_index.json"
 
 // diskManifest is the on-disk, human-readable entry descriptor.
@@ -65,15 +66,15 @@ type diskManifest struct {
 
 // DiskCache persists rendered bundles and maintains the reverse dependency index.
 type DiskCache struct {
-	dir     meta.AbsoluteDirectoryPath // <workspace>/component_cache
-	mu      sync.Mutex
-	index   map[meta.AbsoluteFilePath][]string // sourceAbsPath -> []entryKey
-	enabled bool
+	workspace meta.AbsoluteDirectoryPath // <workspace>/component_cache
+	mu        sync.Mutex
+	index     map[meta.AbsoluteFilePath][]string // sourceAbsPath -> []entryKey
+	enabled   bool
 }
 
 func NewDiskCache(workspace string, enabled bool) (*DiskCache, error) {
-	dir := filepath.Join(workspace, cacheDirName)
-	dc := &DiskCache{dir: dir, index: map[meta.AbsoluteFilePath][]string{}, enabled: enabled}
+	dir := filepath.Join(workspace, CACHE_DIR_NAME)
+	dc := &DiskCache{workspace: dir, index: map[meta.AbsoluteFilePath][]string{}, enabled: enabled}
 	if !enabled {
 		return dc, nil
 	}
@@ -190,7 +191,7 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 	man.ServeNames.JS = r.JSName
 	man.ServeNames.CSS = r.CSSName
 
-	base := filepath.Join(dc.dir, stem)
+	base := filepath.Join(dc.workspace, stem)
 	if err := atomicWrite(base+".html", []byte(r.HTML)); err != nil {
 		return err
 	}
@@ -239,7 +240,7 @@ func (dc *DiskCache) RebuildIndex() error {
 
 func (dc *DiskCache) rebuildIndexLocked() error {
 	idx := map[string][]string{}
-	entries, err := os.ReadDir(dc.dir)
+	entries, err := os.ReadDir(dc.workspace)
 	if err != nil {
 		if os.IsNotExist(err) {
 			dc.index = idx
@@ -251,7 +252,7 @@ func (dc *DiskCache) rebuildIndexLocked() error {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
-		man, err := readManifest(filepath.Join(dc.dir, e.Name()))
+		man, err := readManifest(filepath.Join(dc.workspace, e.Name()))
 		if err != nil {
 			continue // skip corrupt manifest; not fatal
 		}
@@ -275,13 +276,13 @@ func (dc *DiskCache) writeIndexLocked() error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(filepath.Join(dc.dir, indexFileName), b)
+	return atomicWrite(filepath.Join(dc.workspace, indexFileName), b)
 }
 
 func (dc *DiskCache) manifestPathForKey(key string) (string, bool) {
 	// The stem includes a 12-char key prefix; scan for the manifest whose Key
 	// matches exactly (prefix could in principle collide, so verify).
-	entries, err := os.ReadDir(dc.dir)
+	entries, err := os.ReadDir(dc.workspace)
 	if err != nil {
 		return "", false
 	}
@@ -289,7 +290,7 @@ func (dc *DiskCache) manifestPathForKey(key string) (string, bool) {
 		if !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
-		p := filepath.Join(dc.dir, e.Name())
+		p := filepath.Join(dc.workspace, e.Name())
 		if man, err := readManifest(p); err == nil && man.Key == key {
 			return p, true
 		}
@@ -329,10 +330,8 @@ func atomicWrite(path string, data []byte) error {
 }
 
 func appendUnique(list []string, v string) []string {
-	for _, x := range list {
-		if x == v {
-			return list
-		}
+	if slices.Contains(list, v) {
+		return list
 	}
 	return append(list, v)
 }

@@ -62,7 +62,7 @@ func TestDiskCache_NewCreatesDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newDiskCache: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(ws, cacheDirName)); err != nil {
+	if _, err := os.Stat(filepath.Join(ws, CACHE_DIR_NAME)); err != nil {
 		t.Errorf("cache dir not created: %v", err)
 	}
 }
@@ -74,7 +74,7 @@ func TestDiskCache_DisabledIsNoop(t *testing.T) {
 		t.Fatalf("newDiskCache(disabled): %v", err)
 	}
 	// Disabled: no dir, put is a noop, get always misses.
-	if _, err := os.Stat(filepath.Join(ws, cacheDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(ws, CACHE_DIR_NAME)); !os.IsNotExist(err) {
 		t.Error("disabled cache should not create its directory")
 	}
 	if err := dc.Put("k", "W", "root", true, sampleRendered(), nil); err != nil {
@@ -159,7 +159,7 @@ func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 	dc.Put("key1", "MyComp", "root-x", true, sampleRendered(), []string{src})
 
 	// Find and parse the manifest as plain JSON — the whole point of the format.
-	cacheDir := filepath.Join(ws, cacheDirName)
+	cacheDir := filepath.Join(ws, CACHE_DIR_NAME)
 	files, _ := os.ReadDir(cacheDir)
 	var manName string
 	for _, f := range files {
@@ -200,7 +200,7 @@ func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 		t.Errorf("expected no CSS, got css=%q name=%q", got.CSS, got.CSSName)
 	}
 	// No .css file on disk.
-	cacheDir := filepath.Join(ws, cacheDirName)
+	cacheDir := filepath.Join(ws, CACHE_DIR_NAME)
 	files, _ := os.ReadDir(cacheDir)
 	for _, f := range files {
 		if strings.HasSuffix(f.Name(), ".css") {
@@ -279,7 +279,7 @@ func TestDiskCache_IndexFileWrittenAndValid(t *testing.T) {
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
 	dc.Put("k", "W", "root", true, sampleRendered(), []string{src})
 
-	idxPath := filepath.Join(ws, cacheDirName, indexFileName)
+	idxPath := filepath.Join(ws, CACHE_DIR_NAME, indexFileName)
 	b, err := os.ReadFile(idxPath)
 	if err != nil {
 		t.Fatalf("index file missing: %v", err)
@@ -326,7 +326,7 @@ func TestDiskCache_RebuildOnStartupHealsDeletedIndex(t *testing.T) {
 	dc.Put("keyA", "A", "root", true, sampleRendered(), []string{shared})
 
 	// Simulate drift: delete the index file but leave manifests.
-	os.Remove(filepath.Join(ws, cacheDirName, indexFileName))
+	os.Remove(filepath.Join(ws, CACHE_DIR_NAME, indexFileName))
 
 	// A fresh cache over the same workspace must rebuild the index on startup.
 	dc2, err := NewDiskCache(ws, true)
@@ -544,7 +544,7 @@ func TestDiskCache_RebuildToleratesCorruptManifest(t *testing.T) {
 	src := writeSource(t, ws, "C.tsx", "x")
 	dc.Put("good", "C", "r", true, sampleRendered(), []string{src})
 
-	os.WriteFile(filepath.Join(dc.dir, "broken.meta.json"), []byte("{not valid"), 0o644)
+	os.WriteFile(filepath.Join(dc.workspace, "broken.meta.json"), []byte("{not valid"), 0o644)
 
 	if err := dc.RebuildIndex(); err != nil {
 		t.Errorf("RebuildIndex failed instead of skipping corrupt manifest: %v", err)

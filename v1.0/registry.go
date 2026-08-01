@@ -19,13 +19,18 @@ type Component struct {
 	// AbsPath is the absolute path to the .tsx/.jsx source file on disk.
 	AbsPath string
 	// Ext is the source extension (".tsx", ".jsx", ".ts", ".js").
-	Ext string
+	Ext         string
+	MountRootID string // optional: if non-empty, the HTML shell will mount this component at this id instead of the default "go-solid-root"
+}
+
+func newComponent(name, absPath, ext string) Component {
+	return Component{Name: name, AbsPath: absPath, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
 }
 
 // Registry maps template names to component source files. It regenerates itself
 // from the contents of a folder, so adding a component is just adding a file.
 type Registry struct {
-	root       string
+	root       meta.AbsoluteDirectoryPath
 	mu         sync.RWMutex
 	components map[meta.QualifiedName]Component
 }
@@ -81,11 +86,11 @@ func (r *Registry) Reload() error {
 
 		// Collision guard: two files resolving to the same name (Foo.tsx and
 		// Foo.jsx) is ambiguous and almost certainly a mistake.
-		if existing, dup := found[meta.QualifiedName(name)]; dup {
+		if existing, dup := found[name]; dup {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.AbsPath, path)
 		}
-		found[meta.QualifiedName(name)] = Component{Name: name, AbsPath: path, Ext: ext}
+		found[name] = newComponent(name, path, ext)
 		return nil
 	})
 	if walkErr != nil {

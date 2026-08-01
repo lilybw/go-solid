@@ -5,7 +5,10 @@ import (
 	"sort"
 )
 
-type Configurator[T any] = func(T)
+type BuilderLike any
+
+// Encapsulated configuration call. Requires BuilderLike to have a fluid interface (i.e. return self on each method call)
+type Configurator[T BuilderLike] = func(T)
 
 type HTMLHeadSegmentBuilder interface {
 	AddUnique(key, value string) HTMLHeadSegmentBuilder
