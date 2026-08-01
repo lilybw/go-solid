@@ -19,6 +19,7 @@ type RequestBehaviourBuilder interface {
 	UponEntryGenerationError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponTempEntryWriteError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponCompBundlingError(fn FailureCaseHandler) RequestBehaviourBuilder
+	SetSuccessCode(code int) RequestBehaviourBuilder
 	TransmitRenderedTemplate(fn func(w http.ResponseWriter, r *http.Request, rendered *caching.Rendered) error) RequestBehaviourBuilder
 }
 
@@ -88,6 +89,11 @@ func (this *requestBehaviourBuilder) TransmitRenderedTemplate(fn func(w http.Res
 	return this
 }
 
+func (this *requestBehaviourBuilder) SetSuccessCode(code int) RequestBehaviourBuilder {
+	this.data.SuccessCode = code
+	return this
+}
+
 type RequestBehaviour struct {
 	W                         http.ResponseWriter
 	R                         *http.Request
@@ -98,6 +104,7 @@ type RequestBehaviour struct {
 	UponTempEntryWriteError   RequestBoundFailureCaseHandler
 	UponCompBundlingError     RequestBoundFailureCaseHandler
 	TransmitRenderedTemplate  func(rendered *caching.Rendered) error
+	SuccessCode               int
 }
 
 // A failure case handler encapsulated with writer and request
@@ -110,22 +117,24 @@ func (this *RequestBehaviour) bind(fn FailureCaseHandler) RequestBoundFailureCas
 }
 
 func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
-	return &RequestBehaviour{
+	instance := &RequestBehaviour{
 		W:                         w,
 		R:                         r,
+		SuccessCode:               200,
 		UponPropsMarshalingError:  defaultHttpErrorHandler500(w, "Failed to marshal props"),
 		UponRegistryReloadError:   defaultHttpErrorHandler500(w, "Failed to reload registry"),
 		UponRegistryLookupFailure: defaultHttpErrorHandler500(w, "Component not found in registry"),
 		UponEntryGenerationError:  defaultHttpErrorHandler500(w, "Failed to generate entry"),
 		UponTempEntryWriteError:   defaultHttpErrorHandler500(w, "Failed to write temporary entry"),
 		UponCompBundlingError:     defaultHttpErrorHandler500(w, "Failed to bundle component"),
-		TransmitRenderedTemplate: func(rendered *caching.Rendered) error {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.WriteHeader(200)
-			_, err := w.Write([]byte(rendered.HTML))
-			return err
-		},
 	}
+	instance.TransmitRenderedTemplate = func(rendered *caching.Rendered) error {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(instance.SuccessCode)
+		_, err := w.Write([]byte(rendered.HTML))
+		return err
+	}
+	return instance
 }
 
 // Prepend msg
