@@ -32,10 +32,12 @@ func (i *functionToMethodWrapper[T]) Handle(pattern string, handler http.Handler
 	i.fn(pattern, handler)
 }
 
-func MuxLikeFromRouterLike(router RouterLike[any]) MuxLike {
-	return &functionToMethodWrapper[func(pattern string, handler http.Handler)]{
-		fn: func(pattern string, handler http.Handler) {
-			router.Handle(pattern, handler)
-		},
-	}
+func MuxLikeFromRouterLike[T any](router RouterLike[T]) MuxLike {
+	return MuxLikeFromFunc(func(pattern string, handler http.Handler) {
+		router.Handle(pattern, handler)
+	})
+}
+
+func MuxLikeFromFunc[T func(pattern string, handler http.Handler)](fn T) MuxLike {
+	return &functionToMethodWrapper[T]{fn: fn}
 }
