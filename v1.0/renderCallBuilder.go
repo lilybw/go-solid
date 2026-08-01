@@ -12,7 +12,7 @@ import (
 type RenderCallBuilder interface {
 	WithRunCtx(ctx context.Context) RenderCallBuilder
 	MountOnRootID(id string) RenderCallBuilder
-	WithHTMLHeadTags(fn Configurator[HTMLHeadSegmentBuilder]) RenderCallBuilder
+	WithHTMLHeadTags(fn meta.Configurator[networking.HTMLHeadSegmentBuilder]) RenderCallBuilder
 	// Automatically route the render call to the given request and response writer.
 	// Includes basic http request handling, status codes and error handling. To
 	// customize the behaviour, use WithHTTPBehaviour(configurator).
@@ -21,7 +21,7 @@ type RenderCallBuilder interface {
 	ForRequest(w http.ResponseWriter, r *http.Request) RenderCallBuilder
 	// Alter default http request behaviour.
 	// If a ResponseWriter and Request have been provided previously, these will carry over, but can be overwritten
-	SetHTTPBehaviour(fn Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder
+	SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder
 
 	Render() (*caching.Rendered, error)
 }
@@ -33,7 +33,7 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 			component:    componentName,
 			props:        props,
 			rootID:       "go-solid-root",
-			htmlHeadTags: newHTMLHeadSegmentBuilder(),
+			htmlHeadTags: networking.NewHTMLHeadSegmentBuilder(),
 			request:      nil,
 		},
 	}
@@ -44,7 +44,7 @@ type renderCallBuilderImpl struct {
 	data    renderData
 }
 
-func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
+func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
 	if this.data.request == nil {
 		this.data.request = networking.NewRequestData(nil, nil)
 	}
@@ -57,7 +57,7 @@ func (this *renderCallBuilderImpl) ForRequest(w http.ResponseWriter, r *http.Req
 	return this
 }
 
-func (this *renderCallBuilderImpl) WithHTMLHeadTags(fn Configurator[HTMLHeadSegmentBuilder]) RenderCallBuilder {
+func (this *renderCallBuilderImpl) WithHTMLHeadTags(fn meta.Configurator[networking.HTMLHeadSegmentBuilder]) RenderCallBuilder {
 	fn(this.data.htmlHeadTags)
 	return this
 }

@@ -22,9 +22,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lilybw/go_solid/internal"
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/esbuild"
 	"github.com/lilybw/go_solid/internal/meta"
+	networking "github.com/lilybw/go_solid/internal/networking"
 	"github.com/lilybw/go_solid/internal/workers"
 )
 
@@ -66,13 +68,13 @@ type Config struct {
 }
 
 type BehaviouralDefaults struct {
-	HTMLHeadAttributes Configurator[HTMLHeadSegmentBuilder]
+	HTMLHeadAttributes meta.Configurator[networking.HTMLHeadSegmentBuilder]
 }
 
 // Bundler is the top-level handle. Construct with New, close with Close.
 type Bundler struct {
 	cfg       Config
-	registry  *Registry
+	registry  *internal.Registry
 	pool      *workers.Pool
 	cache     *caching.MemCache
 	disk      *caching.DiskCache
@@ -110,7 +112,7 @@ func New(cfg Config) (*Bundler, error) {
 				"    npm install --save-dev %s",
 			missing, cfg.Dependencies, strings.Join(missing, " "))
 	}
-	reg, err := NewRegistry(cfg.Components)
+	reg, err := internal.NewRegistry(cfg.Components)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +127,7 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	if cfg.Defaults != nil && cfg.Defaults.HTMLHeadAttributes != nil {
-		setHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
+		networking.SetHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
 	}
 
 	// Disk cache lives in the workspace; enabled outside dev mode (dev bypasses
@@ -172,7 +174,7 @@ func configValidationCheck(cfg Config) error {
 }
 
 // Registry exposes the underlying registry (for dev index pages, warmup, etc.).
-func (b *Bundler) Registry() *Registry { return b.registry }
+func (b *Bundler) Registry() *internal.Registry { return b.registry }
 
 // Close shuts down the worker pool.
 func (b *Bundler) Close() {

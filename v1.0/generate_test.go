@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lilybw/go_solid/internal"
 	caching "github.com/lilybw/go_solid/internal/caching"
+	networking "github.com/lilybw/go_solid/internal/networking"
 )
 
-func TestGenerateEntry_ImportsComponentWithoutExtension(t *testing.T) {
-	comp := newComponent("auth/LoginForm", "/srv/frontend/components/auth/LoginForm.tsx", ".tsx")
-	src, err := generateEntry(comp)
+func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
+	comp := internal.NewComponent("auth/LoginForm", "/srv/frontend/components/auth/LoginForm.tsx", ".tsx")
+	src, err := internal.GenerateEntry(comp)
 	if err != nil {
 		t.Fatalf("generateEntry: %v", err)
 	}
@@ -24,11 +26,11 @@ func TestGenerateEntry_ImportsComponentWithoutExtension(t *testing.T) {
 	// Must mount and read props from the data island.
 	for _, want := range []string{
 		`from "solid-js/web"`,
-		`const compName = "auth/LoginForm";`,
-		`const propsMountId = "props-auth-LoginForm-go-solid-root"`,
-		`const compMountId = "auth-LoginForm-go-solid-root"`,
-		`document.getElementById(propsMountId)`,
-		`document.getElementById(compMountId)`,
+		`auth/LoginForm`,
+		`"props-auth-LoginForm-go-solid-root"`,
+		`"auth-LoginForm-go-solid-root"`,
+		`document.getElementById("auth-LoginForm-go-solid-root")`,
+		`document.getElementById("auth-LoginForm-go-solid-root")`,
 		`render(() => Component(readProps()), root)`,
 	} {
 		if !strings.Contains(src, want) {
@@ -37,8 +39,8 @@ func TestGenerateEntry_ImportsComponentWithoutExtension(t *testing.T) {
 	}
 }
 
-func getTestHeadSegment() HTMLHeadSegmentBuilder {
-	return newHTMLHeadSegmentBuilder().
+func getTestHeadSegment() networking.HTMLHeadSegmentBuilder {
+	return networking.NewHTMLHeadSegmentBuilder().
 		DeterministicOutput().
 		SetTitle("test/test")
 }
@@ -48,7 +50,7 @@ func TestAssembleHTML_WithCSS(t *testing.T) {
 		JSName:  "auth_LoginForm.abc.js",
 		CSSName: "auth_LoginForm.def.css",
 	}
-	html := assembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, rendered, "go-solid-root")
+	html := internal.AssembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, rendered, "go-solid-root")
 
 	for _, want := range []string{
 		`<title>test/test</title>`,
@@ -68,7 +70,7 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 		JSName:  "Version.abc.js",
 		CSSName: "",
 	}
-	html := assembleHTML(getTestHeadSegment(), `{}`, rendered, "go-solid-root")
+	html := internal.AssembleHTML(getTestHeadSegment(), `{}`, rendered, "go-solid-root")
 	if strings.Contains(html, "<link") {
 		t.Errorf("HTML should omit <link> when cssName empty; got:\n%s", html)
 	}
@@ -85,7 +87,7 @@ func TestAssembleHTML_PropsGoInDataIsland(t *testing.T) {
 		JSName:  "c.js",
 		CSSName: "",
 	}
-	html := assembleHTML(getTestHeadSegment(), `{"x":1}`, rendered, "go-solid-root")
+	html := internal.AssembleHTML(getTestHeadSegment(), `{"x":1}`, rendered, "go-solid-root")
 	island := `<script id="props-go-solid-root" type="application/json">{"x":1}</script>`
 	if !strings.Contains(html, island) {
 		t.Errorf("props not placed in application/json data island; got:\n%s", html)

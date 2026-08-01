@@ -1,4 +1,4 @@
-package go_solid
+package networking
 
 import (
 	"strings"
@@ -6,14 +6,14 @@ import (
 )
 
 func TestNewBuilderHasDefaultTitle(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Build()
+	got := NewHTMLHeadSegmentBuilder().Build()
 	if !strings.Contains(got, "<title>go-solid</title>") {
 		t.Errorf("expected default title, got %q", got)
 	}
 }
 
 func TestSetTitleOverridesDefault(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().SetTitle("My Page").Build()
+	got := NewHTMLHeadSegmentBuilder().SetTitle("My Page").Build()
 	if !strings.Contains(got, "<title>My Page</title>") {
 		t.Errorf("expected custom title, got %q", got)
 	}
@@ -23,7 +23,7 @@ func TestSetTitleOverridesDefault(t *testing.T) {
 }
 
 func TestSetTitleLastWins(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().SetTitle("First").SetTitle("Second").Build()
+	got := NewHTMLHeadSegmentBuilder().SetTitle("First").SetTitle("Second").Build()
 	if strings.Count(got, "<title>") != 1 {
 		t.Errorf("expected exactly one title tag, got %q", got)
 	}
@@ -33,14 +33,14 @@ func TestSetTitleLastWins(t *testing.T) {
 }
 
 func TestAddUnique(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().AddUnique("base", "/root/").Build()
+	got := NewHTMLHeadSegmentBuilder().AddUnique("base", "/root/").Build()
 	if !strings.Contains(got, "<base>/root/</base>") {
 		t.Errorf("expected unique tag, got %q", got)
 	}
 }
 
 func TestAddUniqueOverwritesSameKey(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().
+	got := NewHTMLHeadSegmentBuilder().
 		AddUnique("base", "/first/").
 		AddUnique("base", "/second/").
 		Build()
@@ -53,7 +53,7 @@ func TestAddUniqueOverwritesSameKey(t *testing.T) {
 }
 
 func TestAddUniqueCanOverrideTitle(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().AddUnique("title", "Via AddUnique").Build()
+	got := NewHTMLHeadSegmentBuilder().AddUnique("title", "Via AddUnique").Build()
 	if strings.Count(got, "<title>") != 1 {
 		t.Errorf("expected exactly one title tag, got %q", got)
 	}
@@ -63,7 +63,7 @@ func TestAddUniqueCanOverrideTitle(t *testing.T) {
 }
 
 func TestAddTagWithInnerHTML(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Add(HTMLTag{
+	got := NewHTMLHeadSegmentBuilder().Add(HTMLTag{
 		Name:      "script",
 		InnerHTML: "console.log('hi')",
 	}).Build()
@@ -73,14 +73,14 @@ func TestAddTagWithInnerHTML(t *testing.T) {
 }
 
 func TestAddTagWithoutInnerHTML(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Add(HTMLTag{Name: "meta"}).Build()
+	got := NewHTMLHeadSegmentBuilder().Add(HTMLTag{Name: "meta"}).Build()
 	if !strings.Contains(got, "<meta></meta>") {
 		t.Errorf("expected empty meta tag, got %q", got)
 	}
 }
 
 func TestAddTagWithSingleAttribute(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Add(HTMLTag{
+	got := NewHTMLHeadSegmentBuilder().Add(HTMLTag{
 		Name:              "meta",
 		HTMLTagAttributes: map[string]string{"charset": "utf-8"},
 	}).Build()
@@ -93,7 +93,7 @@ func TestAddTagWithSingleAttribute(t *testing.T) {
 }
 
 func TestAddTagWithMultipleAttributes(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Add(HTMLTag{
+	got := NewHTMLHeadSegmentBuilder().Add(HTMLTag{
 		Name: "meta",
 		HTMLTagAttributes: map[string]string{
 			"name":    "viewport",
@@ -113,7 +113,7 @@ func TestAddTagWithMultipleAttributes(t *testing.T) {
 }
 
 func TestAddMultipleTagsAllPresent(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().
+	got := NewHTMLHeadSegmentBuilder().
 		Add(HTMLTag{Name: "meta", HTMLTagAttributes: map[string]string{"charset": "utf-8"}}).
 		Add(HTMLTag{Name: "link", HTMLTagAttributes: map[string]string{"rel": "stylesheet", "href": "/a.css"}}).
 		Build()
@@ -126,7 +126,7 @@ func TestAddMultipleTagsAllPresent(t *testing.T) {
 }
 
 func TestAddDuplicateTagsBothKept(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().
+	got := NewHTMLHeadSegmentBuilder().
 		Add(HTMLTag{Name: "script", HTMLTagAttributes: map[string]string{"src": "/a.js"}}).
 		Add(HTMLTag{Name: "script", HTMLTagAttributes: map[string]string{"src": "/b.js"}}).
 		Build()
@@ -136,7 +136,7 @@ func TestAddDuplicateTagsBothKept(t *testing.T) {
 }
 
 func TestChainingReturnsSameBuilder(t *testing.T) {
-	b := newHTMLHeadSegmentBuilder()
+	b := NewHTMLHeadSegmentBuilder()
 	if b.SetTitle("x") != b {
 		t.Error("SetTitle should return the same builder")
 	}
@@ -149,14 +149,14 @@ func TestChainingReturnsSameBuilder(t *testing.T) {
 }
 
 func TestBuildEndsTagsWithNewline(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().Build()
+	got := NewHTMLHeadSegmentBuilder().Build()
 	if !strings.HasSuffix(got, "\n") {
 		t.Errorf("expected trailing newline, got %q", got)
 	}
 }
 
 func TestFullHeadSegment(t *testing.T) {
-	got := newHTMLHeadSegmentBuilder().
+	got := NewHTMLHeadSegmentBuilder().
 		SetTitle("Home").
 		AddUnique("base", "/app/").
 		Add(HTMLTag{Name: "meta", HTMLTagAttributes: map[string]string{"charset": "utf-8"}}).

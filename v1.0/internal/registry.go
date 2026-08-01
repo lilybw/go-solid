@@ -1,4 +1,4 @@
-package go_solid
+package internal
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ type Component struct {
 	MountRootID string // optional: if non-empty, the HTML shell will mount this component at this id instead of the default "go-solid-root"
 }
 
-func newComponent(name, absPath, ext string) Component {
+func NewComponent(name, absPath, ext string) Component {
 	return Component{Name: name, AbsPath: absPath, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
 }
 
@@ -90,7 +90,7 @@ func (r *Registry) Reload() error {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.AbsPath, path)
 		}
-		found[name] = newComponent(name, path, ext)
+		found[name] = NewComponent(name, path, ext)
 		return nil
 	})
 	if walkErr != nil {

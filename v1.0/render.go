@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 
+	"github.com/lilybw/go_solid/internal"
 	caching "github.com/lilybw/go_solid/internal/caching"
 	"github.com/lilybw/go_solid/internal/esbuild"
 	"github.com/lilybw/go_solid/internal/meta"
@@ -22,7 +22,7 @@ type renderData struct {
 	component    meta.QualifiedName
 	props        any
 	rootID       string
-	htmlHeadTags HTMLHeadSegmentBuilder
+	htmlHeadTags networking.HTMLHeadSegmentBuilder
 	// Nil if not provided
 	request *networking.RequestData
 }
@@ -90,7 +90,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	// 1. Generate the entry module that imports the component and mounts it with
 	//    props read from a data island (keeps server-owned data server-owned).
-	entrySource, err := generateEntry(comp)
+	entrySource, err := internal.GenerateEntry(comp)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestData) error { return req.UponEntryGenerationError(err) })
 		return nil, err
@@ -126,7 +126,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		cssHash := caching.ShortHash(string(bundle.CSS), 8)
 		rendered.CSSName = fmt.Sprintf("%s.%s.css", safeName, cssHash)
 	}
-	rendered.HTML = assembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID)
+	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID)
 
 	bundler.cache.Put(key, rendered)
 	if bundler.disk != nil {
@@ -138,67 +138,12 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		}
 	}
 	// TODO: Send the rendered result to the request bound writer
+	data.ifRequest(func(req *networking.RequestData) error {
+		req.W.Header().Set("Content-Type", "text/html; charset=utf-8")
+		req.W.WriteHeader(200)
+		_, err := req.W.Write([]byte(rendered.HTML))
+		return err
+	})
 
 	return rendered, nil
-}
-
-// generateEntry produces the entry .tsx that imports the component by absolute
-// path and mounts it. Props flow via the data island (window / #hots-bootstrap),
-// keeping the server as the source of truth for data.
-func generateEntry(comp Component) (string, error) {
-	// Absolute import path (without extension) so the generated entry resolves
-	// the component no matter which temp directory esbuild reads it from.
-	importPath := filepath.ToSlash(strings.TrimSuffix(comp.AbsPath, comp.Ext))
-
-	// The mount target and data island id are conventions the HTML shell provides.
-	return fmt.Sprintf(
-		`import { render } from "solid-js/web";
-		import Component from %q;
-
-		const compName = %q;
-		const propsMountId = %q;
-		const compMountId = %q;
-
-		function readProps() {
-			const el = document.getElementById(propsMountId);
-			if (!el || !el.textContent) return {};
-			try { return JSON.parse(el.textContent); } catch (error) { 
-				console.error("go_solid: Component " + comp.Name + " could not read props from data island id " + propsMountId + ": invalid JSON: " + error);
-				return {}; 
-			}
-		}
-
-		const root = document.getElementById(compMountId);
-		if (root) {
-			render(() => Component(readProps()), root);
-		} else {
-			console.error("go_solid: Component " + comp.Name + " could not mount: no element with id " + comp.MountRootID + " found in the HTML shell.");
-		}
-		`, importPath, comp.Name, derivePropsMountIdFromCompRootID(comp.MountRootID), comp.MountRootID), nil
-}
-
-// assembleHTML builds the index.html returned to the client. It embeds props as
-// a JSON data island and references the emitted JS (module) and optional CSS.
-// Asset URLs assume they are served from the static prefix the caller wires up.
-func assembleHTML(headSegment HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID string) string {
-	if rendered.CSSName != "" {
-		headSegment.AddLink("stylesheet", fmt.Sprintf("/static/dist/%s", rendered.CSSName))
-	}
-	return fmt.Sprintf(
-		`<!doctype html>
-		<html>
-		<head>
-		%s
-		</head>
-		<body>
-		<div id="%s"></div>
-		<script id="%s" type="application/json">%s</script>
-		<script type="module" src="/static/dist/%s"></script>
-		</body>
-		</html>
-	`, headSegment.Build(), mountRootID, derivePropsMountIdFromCompRootID(mountRootID), propsJSON, rendered.JSName)
-}
-
-func derivePropsMountIdFromCompRootID(rootID string) string {
-	return fmt.Sprintf("props-%s", rootID)
 }

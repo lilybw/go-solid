@@ -57,3 +57,15 @@ func PanicIfTrue(pred bool, msg string) {
 		panic(msg)
 	}
 }
+
+func Ternary[T any](pred bool, a, b T) T {
+	if pred {
+		return a
+	}
+	return b
+}
+
+type BuilderLike any
+
+// Encapsulated configuration call. Requires BuilderLike to have a fluid interface (i.e. return self on each method call)
+type Configurator[T BuilderLike] = func(T)

@@ -1,14 +1,12 @@
-package go_solid
+package networking
 
 import (
 	"maps"
+	"slices"
 	"sort"
+
+	"github.com/lilybw/go_solid/internal/meta"
 )
-
-type BuilderLike any
-
-// Encapsulated configuration call. Requires BuilderLike to have a fluid interface (i.e. return self on each method call)
-type Configurator[T BuilderLike] = func(T)
 
 type HTMLHeadSegmentBuilder interface {
 	AddUnique(key, value string) HTMLHeadSegmentBuilder
@@ -50,18 +48,18 @@ func generateEmptyHeadSegmentBuilderTemplate() *htmlHeadSegmentBuilder {
 
 var _htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
 
-func setHTMLHeadSegmentTemplate(fn Configurator[HTMLHeadSegmentBuilder]) {
+func SetHTMLHeadSegmentTemplate(fn meta.Configurator[HTMLHeadSegmentBuilder]) {
 	_htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
 	fn(_htmlHeadBuilderTemplate)
 }
 
-func newHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
+func NewHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
 	instance := &htmlHeadSegmentBuilder{
 		unique:        make(map[HTMLTagName]string),
 		rest:          make([]HTMLTag, 0),
 		deterministic: _htmlHeadBuilderTemplate.deterministic,
 	}
-	copy(instance.rest, _htmlHeadBuilderTemplate.rest)
+	instance.rest = slices.Clone(_htmlHeadBuilderTemplate.rest)
 	instance.unique = maps.Clone(_htmlHeadBuilderTemplate.unique)
 	return instance
 }

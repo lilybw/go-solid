@@ -1,4 +1,4 @@
-package go_solid
+package networking
 
 import (
 	"net/http"
