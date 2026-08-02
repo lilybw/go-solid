@@ -52,15 +52,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		propsJSON = string(raw)
 	}
 
-	// Registry hot reload is now its own flag, independent of caching.
-	if bundler.cfg.HotReloadRegistry {
-		if err := bundler.registry.Reload(); err != nil {
-			data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponRegistryReloadError(err) })
-			return nil, err
-		}
-	}
-
-	key := caching.MemCacheKey(data.component, propsJSON, bundler.cfg.Minify)
+	key := caching.NewMemCacheKey(data.component, propsJSON)
 	if cached, ok := bundler.cache.Get(key); ok {
 		return cached, nil
 	}
@@ -98,7 +90,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	defer cleanup()
 
 	// Sourcemaps is now its own flag (last BundleEntry arg), independent of caching.
-	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Minify, bundler.cfg.Sourcemaps)
+	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Generation)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponCompBundlingError(err) })
 		return nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
@@ -126,13 +118,13 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	// the import cycle (hmr already imports internal).
 	hmrScript := ""
 	if bundler.hub != nil {
-		hmrScript = hmr.ClientScript(bundler.cfg.HMR.HMRPath, data.component)
+		hmrScript = hmr.ClientScript(bundler.cfg.HMR.Path, data.component)
 	}
 	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID, hmrScript)
 
 	bundler.cache.Put(key, rendered)
 	if bundler.disk != nil {
-		if err := bundler.disk.Put(key, data.component, data.rootID, bundler.cfg.Minify, rendered, bundle.Sources); err != nil {
+		if err := bundler.disk.Put(key, data.rootID, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
 			bundler.logDiskCacheError(err)
 		}
 	}

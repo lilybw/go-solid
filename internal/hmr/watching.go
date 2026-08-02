@@ -5,13 +5,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/lilybw/go-solid/internal"
 	"github.com/lilybw/go-solid/internal/meta"
+	. "github.com/lilybw/go-solid/shared/registry"
 )
 
 // Watcher watches the components tree and, on change, inverts through DepIndex
@@ -57,16 +57,6 @@ func NewWatcher(root string, index *internal.DependencyIndex, hub *Hub, reg *int
 	return w, nil
 }
 
-func skipDir(base string, path, root string) bool {
-	if base == "node_modules" {
-		return true
-	}
-	if strings.HasPrefix(base, ".") && path != root {
-		return true
-	}
-	return false
-}
-
 func (w *Watcher) addTree(root string) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -75,7 +65,7 @@ func (w *Watcher) addTree(root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if skipDir(d.Name(), path, root) {
+		if SkipDir(d.Name(), path, root) {
 			return fs.SkipDir
 		}
 		if err := w.fsw.Add(path); err != nil {
@@ -139,7 +129,7 @@ func (w *Watcher) handleEvent(event fsnotify.Event, pending map[meta.QualifiedNa
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			base := filepath.Base(event.Name)
-			if !skipDir(base, event.Name, w.root) {
+			if !SkipDir(base, event.Name, w.root) {
 				if err := w.addTree(event.Name); err != nil && w.onErr != nil {
 					w.onErr(err)
 				}

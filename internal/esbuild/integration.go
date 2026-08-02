@@ -12,6 +12,7 @@ import (
 	esbuild "github.com/evanw/esbuild/pkg/api"
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/internal/workers"
+	. "github.com/lilybw/go-solid/shared/esbuild"
 )
 
 type bundleResult struct {
@@ -58,7 +59,7 @@ func SolidPlugin(ctx context.Context, pool *workers.Pool, generate string) esbui
 	}
 }
 
-func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath string, workspace meta.AbsoluteDirectoryPath, minify, dev bool) (*bundleResult, error) {
+func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
 		Bundle:            true,
@@ -69,9 +70,10 @@ func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath st
 		Platform:          esbuild.PlatformBrowser,
 		Target:            esbuild.ES2020,
 		AbsWorkingDir:     workspace,
-		MinifyWhitespace:  minify,
-		MinifyIdentifiers: minify,
-		MinifySyntax:      minify,
+		MinifyWhitespace:  cfg.Minify,
+		MinifyIdentifiers: cfg.Minify,
+		MinifySyntax:      cfg.Minify,
+		Sourcemap:         cfg.Sourcemap,
 		Plugins:           []esbuild.Plugin{SolidPlugin(ctx, pool, generate)},
 		Loader: map[string]esbuild.Loader{
 			".css":   esbuild.LoaderCSS,
@@ -80,9 +82,6 @@ func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath st
 			".woff":  esbuild.LoaderDataURL,
 			".woff2": esbuild.LoaderDataURL,
 		},
-	}
-	if dev {
-		opts.Sourcemap = esbuild.SourceMapInline
 	}
 
 	result := esbuild.Build(opts)

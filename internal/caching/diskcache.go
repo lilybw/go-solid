@@ -39,14 +39,16 @@ import (
 
 const CACHE_DIR_NAME = "component_cache"
 
-// DiskManifest is the on-disk, human-readable entry descriptor.
-type DiskManifest struct {
-	Component   string            `json:"component"`
-	RootID      string            `json:"rootID"`
-	Minify      bool              `json:"minify"`
-	GeneratedAt string            `json:"generatedAt"` // RFC3339, for humans
-	Key         string            `json:"key"`         // cache key (also the base filename stem)
-	Sources     map[string]string `json:"sources"`     // absPath -> "sha256:<hex>"
+type HTMLElementID = string
+
+// ComponentDiskManifest is the on-disk, human-readable entry descriptor.
+type ComponentDiskManifest struct {
+	Component   meta.QualifiedName `json:"component"`
+	RootID      HTMLElementID      `json:"rootID"`
+	Minify      bool               `json:"minify"`
+	GeneratedAt string             `json:"generatedAt"` // RFC3339, for humans
+	Key         string             `json:"key"`         // cache key (also the base filename stem)
+	Sources     map[string]string  `json:"sources"`     // absPath -> "sha256:<hex>"
 	Artifacts   struct {
 		HTML meta.RelativeFilePath `json:"html"`
 		JS   meta.RelativeFilePath `json:"js"`
@@ -92,22 +94,22 @@ func hashFile(file meta.AbsoluteFilePath) (string, bool) {
 }
 
 // entryStem is the human-readable base filename for an entry.
-func entryStem(component, rootID, key string) string {
+func entryStem(key *MemCacheKey, rootID HTMLElementID) string {
 	safe := func(s string) string {
 		s = strings.ReplaceAll(s, "/", "_")
 		s = strings.ReplaceAll(s, string(filepath.Separator), "_")
 		return s
 	}
-	short := key
+	short := key.String()
 	if len(short) > 12 {
 		short = short[:12]
 	}
-	return fmt.Sprintf("%s__%s__%s", safe(component), safe(rootID), short)
+	return fmt.Sprintf("%s__%s__%s", safe(key.Component), safe(rootID), short)
 }
 
 // Get returns a cached Rendered if a valid entry exists for key. Validity means
 // every recorded source still hashes to its recorded value (invalidation).
-func (dc *DiskCache) Get(key string) (*Rendered, bool) {
+func (dc *DiskCache) Get(key *MemCacheKey) (*Rendered, bool) {
 	if !dc.enabled {
 		return nil, false
 	}
@@ -155,19 +157,19 @@ func (dc *DiskCache) Get(key string) (*Rendered, bool) {
 
 // Put writes an entry (manifest + artifacts) and updates the reverse index.
 // sources are the absolute paths from the bundle's metafile.
-func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered, sources []string) error {
+func (dc *DiskCache) Put(key *MemCacheKey, rootID HTMLElementID, minify bool, r *Rendered, sources []string) error {
 	if !dc.enabled {
 		return nil
 	}
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
-	man := DiskManifest{
-		Component:   component,
+	man := ComponentDiskManifest{
+		Component:   key.Component,
 		RootID:      rootID,
 		Minify:      minify,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Key:         key,
+		Key:         key.String(),
 		Sources:     map[string]string{},
 	}
 	for _, src := range sources {
@@ -176,7 +178,7 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 			man.Sources[key] = h
 		}
 	}
-	stem := entryStem(component, rootID, key)
+	stem := entryStem(key, rootID)
 	man.Artifacts.HTML = stem + ".html"
 	man.Artifacts.JS = stem + ".js"
 	if r.CSS != "" {
@@ -208,31 +210,67 @@ func (dc *DiskCache) Put(key, component, rootID string, minify bool, r *Rendered
 	return nil
 }
 
-func (dc *DiskCache) manifestPathForKey(key string) (string, bool) {
+// InvalidateComponent removes every cached entry whose manifest names the given
+// component. Returns the number of entries removed. Safe to call when disabled
+// (no-op) — it just finds nothing.
+func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
+	if !dc.enabled {
+		return 0
+	}
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+
+	entries, err := os.ReadDir(dc.workspace)
+	if err != nil {
+		return 0
+	}
+	removed := 0
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".meta.json") {
+			continue
+		}
+		manifestPath := filepath.Join(dc.workspace, e.Name())
+		man, err := readManifest(manifestPath)
+		if err != nil || man.Component != component {
+			continue
+		}
+		base := strings.TrimSuffix(manifestPath, ".meta.json")
+		// Remove the whole entry set; ignore individual errors (best-effort,
+		// a missing sibling just means it was never written, e.g. no CSS).
+		for _, suffix := range []string{".html", ".js", ".css", ".meta.json"} {
+			_ = os.Remove(base + suffix)
+		}
+		removed++
+	}
+	return removed
+}
+
+func (dc *DiskCache) manifestPathForKey(key *MemCacheKey) (string, bool) {
 	// The stem includes a 12-char key prefix; scan for the manifest whose Key
 	// matches exactly (prefix could in principle collide, so verify).
 	entries, err := os.ReadDir(dc.workspace)
 	if err != nil {
 		return "", false
 	}
+	keyStr := key.String()
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
 		p := filepath.Join(dc.workspace, e.Name())
-		if man, err := readManifest(p); err == nil && man.Key == key {
+		if man, err := readManifest(p); err == nil && man.Key == keyStr {
 			return p, true
 		}
 	}
 	return "", false
 }
 
-func readManifest(path string) (*DiskManifest, error) {
+func readManifest(path string) (*ComponentDiskManifest, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var m DiskManifest
+	var m ComponentDiskManifest
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}

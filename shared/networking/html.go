@@ -14,6 +14,7 @@ type HTMLHeadSegmentBuilder interface {
 }
 
 type HTMLTagName = string
+type HTMLElementID = string
 
 type HTMLTag struct {
 	Name              HTMLTagName

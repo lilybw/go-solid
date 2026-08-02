@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/lilybw/go-solid/shared"
+	. "github.com/lilybw/go-solid/shared/hmr"
 )
 
 // timeoutAfter is the shared deadline channel for "this must not hang" assertions.
@@ -29,9 +29,9 @@ func wsURL(serverURL, path, component string) string {
 // newHubServer wires a Hub's handler onto an httptest server at DEFAULT_HMR_PATH.
 func newHubServer(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
-	h := NewHub(&shared.HMRConfig{})
+	h := NewHub(NIL_HMR_CONFIG)
 	mux := http.NewServeMux()
-	mux.Handle(DEFAULT_HMR_PATH, h.Handler())
+	mux.Handle(NIL_HMR_CONFIG.Path, h.Handler())
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return h, srv
@@ -44,7 +44,7 @@ func TestHubHandler_RejectsMissingComponent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	badURL := strings.Replace(srv.URL, "http://", "ws://", 1) + DEFAULT_HMR_PATH
+	badURL := strings.Replace(srv.URL, "http://", "ws://", 1) + NIL_HMR_CONFIG.Path
 	_, resp, err := websocket.Dial(ctx, badURL, nil)
 	if err == nil {
 		t.Fatal("expected dial to fail without ?c=, but it succeeded")
@@ -60,7 +60,7 @@ func TestHubHandler_ReloadReachesConnectedClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL(srv.URL, DEFAULT_HMR_PATH, "ui/Button"), nil)
+	conn, _, err := websocket.Dial(ctx, wsURL(srv.URL, NIL_HMR_CONFIG.Path, "ui/Button"), nil)
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -95,13 +95,13 @@ func TestHubHandler_ReloadOnlyReachesMatchingComponent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	connA, _, err := websocket.Dial(ctx, wsURL(srv.URL, DEFAULT_HMR_PATH, "ui/A"), nil)
+	connA, _, err := websocket.Dial(ctx, wsURL(srv.URL, NIL_HMR_CONFIG.Path, "ui/A"), nil)
 	if err != nil {
 		t.Fatalf("dial A failed: %v", err)
 	}
 	defer connA.Close(websocket.StatusNormalClosure, "")
 
-	connB, _, err := websocket.Dial(ctx, wsURL(srv.URL, DEFAULT_HMR_PATH, "ui/B"), nil)
+	connB, _, err := websocket.Dial(ctx, wsURL(srv.URL, NIL_HMR_CONFIG.Path, "ui/B"), nil)
 	if err != nil {
 		t.Fatalf("dial B failed: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestHubHandler_DisconnectRemovesFromHub(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	conn, _, err := websocket.Dial(ctx, wsURL(srv.URL, DEFAULT_HMR_PATH, "ui/Ephemeral"), nil)
+	conn, _, err := websocket.Dial(ctx, wsURL(srv.URL, NIL_HMR_CONFIG.Path, "ui/Ephemeral"), nil)
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestHubHandler_MultipleClientsSameComponent(t *testing.T) {
 	const n = 5
 	conns := make([]*websocket.Conn, 0, n)
 	for i := 0; i < n; i++ {
-		c, _, err := websocket.Dial(ctx, wsURL(srv.URL, DEFAULT_HMR_PATH, "ui/Shared"), nil)
+		c, _, err := websocket.Dial(ctx, wsURL(srv.URL, NIL_HMR_CONFIG.Path, "ui/Shared"), nil)
 		if err != nil {
 			t.Fatalf("dial %d failed: %v", i, err)
 		}

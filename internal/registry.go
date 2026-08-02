@@ -33,6 +33,8 @@ type Registry struct {
 	root       meta.AbsoluteDirectoryPath
 	mu         sync.RWMutex
 	components map[meta.QualifiedName]Component
+	// nil if registry is not reactive
+	watcher *RegistryWatcher // optional: if non-nil, watches the components tree and updates the registry on change
 }
 
 // registryExtensions are the file types treated as component entry points.
@@ -54,22 +56,81 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*Registry, error) {
 	if err := r.Reload(); err != nil {
 		return nil, err
 	}
+
 	return r, nil
+}
+
+func (this *Registry) MakeReactive(onDrop func(string), onErr func(error)) error {
+	rw, err := NewRegistryWatcher(
+		string(this.root),
+		this,
+		onDrop,
+		onErr,
+	)
+	if err != nil {
+		return fmt.Errorf("registry: make reactive: %w", err)
+	}
+	this.watcher = rw
+	return nil
+}
+
+// AddFile registers a single file if it's a registry-eligible component.
+// Returns the qualified name and true if a component was added or updated.
+func (this *Registry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if !registryExtensions[ext] {
+		return "", false, nil
+	}
+	rel, err := filepath.Rel(this.root, path)
+	if err != nil {
+		return "", false, err
+	}
+	name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
+
+	this.mu.Lock()
+	defer this.mu.Unlock()
+	if existing, dup := this.components[name]; dup && existing.Path != path {
+		return "", false, fmt.Errorf("registry: duplicate component %q from %s and %s", name, existing.Path, path)
+	}
+	this.components[name] = NewComponent(name, path, ext)
+	return name, true, nil
+}
+
+// RemoveFile drops a component by its absolute path. Returns the qualified
+// name that was removed and true if something was actually removed.
+func (this *Registry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if !registryExtensions[ext] {
+		return "", false
+	}
+	rel, err := filepath.Rel(this.root, path)
+	if err != nil {
+		return "", false
+	}
+	name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
+
+	this.mu.Lock()
+	defer this.mu.Unlock()
+	if _, ok := this.components[name]; !ok {
+		return "", false
+	}
+	delete(this.components, name)
+	return name, true
 }
 
 // Reload rescans the root directory, rebuilding the index from scratch. Safe to
 // call at runtime (e.g. in dev mode on each request, or on a filesystem watch).
-func (r *Registry) Reload() error {
+func (this *Registry) Reload() error {
 	found := make(map[meta.QualifiedName]Component)
 
-	walkErr := filepath.WalkDir(r.root, func(path string, d fs.DirEntry, err error) error {
+	walkErr := filepath.WalkDir(this.root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			// Skip node_modules and dotfolders defensively.
 			base := d.Name()
-			if base == "node_modules" || (strings.HasPrefix(base, ".") && path != r.root) {
+			if base == "node_modules" || (strings.HasPrefix(base, ".") && path != this.root) {
 				return fs.SkipDir
 			}
 			return nil
@@ -78,7 +139,7 @@ func (r *Registry) Reload() error {
 		if !registryExtensions[ext] {
 			return nil
 		}
-		rel, relErr := filepath.Rel(r.root, path)
+		rel, relErr := filepath.Rel(this.root, path)
 		if relErr != nil {
 			return relErr
 		}
@@ -94,20 +155,20 @@ func (r *Registry) Reload() error {
 		return nil
 	})
 	if walkErr != nil {
-		return fmt.Errorf("registry: walk %s: %w", r.root, walkErr)
+		return fmt.Errorf("registry: walk %s: %w", this.root, walkErr)
 	}
 
-	r.mu.Lock()
-	r.components = found
-	r.mu.Unlock()
+	this.mu.Lock()
+	this.components = found
+	this.mu.Unlock()
 	return nil
 }
 
 // Lookup returns the component registered under name, or ok=false.
-func (r *Registry) Lookup(component meta.QualifiedName) (Component, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	c, ok := r.components[component]
+func (this *Registry) Lookup(component meta.QualifiedName) (Component, bool) {
+	this.mu.RLock()
+	defer this.mu.RUnlock()
+	c, ok := this.components[component]
 	return c, ok
 }
 
@@ -121,11 +182,11 @@ func (this QualifiedNameSlice) ToStringSlice() []string {
 
 // Names returns all registered component names, sorted. Useful for debugging
 // and for a dev-mode index page.
-func (r *Registry) Names() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]meta.QualifiedName, 0, len(r.components))
-	for n := range r.components {
+func (this *Registry) Names() []string {
+	this.mu.RLock()
+	defer this.mu.RUnlock()
+	names := make([]meta.QualifiedName, 0, len(this.components))
+	for n := range this.components {
 		names = append(names, n)
 	}
 	sort.Slice(names, func(i, j int) bool {
@@ -135,4 +196,4 @@ func (r *Registry) Names() []string {
 }
 
 // Root returns the absolute components root directory.
-func (r *Registry) Root() string { return r.root }
+func (this *Registry) Root() string { return this.root }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/internal/workers"
+	"github.com/lilybw/go-solid/shared/esbuild"
 )
 
 // -----------------------------------------------------------------------------
@@ -121,8 +122,8 @@ func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bun
 
 	cfg.Components = compDir
 	cfg.Dependencies = modulesParent // already contains node_modules with the toolchain
-	if cfg.PoolSize == 0 {
-		cfg.PoolSize = 1
+	if cfg.Generation == nil {
+		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
 	}
 
 	b, err := New(cfg)
@@ -238,7 +239,9 @@ func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 func TestRender_ProducesSolidBundleAndHTML(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{Minify: false})
+	}, Config{
+		Generation: &esbuild.BundlerConfig{Minify: false},
+	})
 
 	r, err := b.Prepare("Hello", map[string]any{"name": "HOTS"}).WithCtx(context.Background()).Render()
 	if err != nil {
@@ -271,7 +274,7 @@ export default function Styled() { return <div class="styled">hi</div>; }
 		// keywords: esbuild's minifier folds them to hex (rebeccapurple -> #639),
 		// so assert on tokens that survive minification unchanged.
 		"styled.css": `.styled { padding: 4px; letter-spacing: 2px; }`,
-	}, Config{Minify: true})
+	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}})
 
 	r, err := b.Prepare("Styled", nil).WithCtx(context.Background()).Render()
 	if err != nil {
@@ -293,7 +296,7 @@ export default function Styled() { return <div class="styled">hi</div>; }
 func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{Minify: true}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
+	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
 
 	ctx := context.Background()
 	first, err := b.Prepare("Hello", map[string]any{"name": "A"}).WithCtx(ctx).Render()
@@ -446,7 +449,7 @@ func head(s string, n int) string {
 func TestRender_WarmRenderIsFast(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{Minify: true})
+	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}})
 
 	ctx := context.Background()
 

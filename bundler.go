@@ -8,50 +8,67 @@ import (
 
 	"github.com/lilybw/go-solid/internal"
 	caching "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/esbuild"
-	"github.com/lilybw/go-solid/internal/hmr"
+	esbuild_int "github.com/lilybw/go-solid/internal/esbuild"
+	hmr_int "github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/workers"
-	"github.com/lilybw/go-solid/shared"
+	"github.com/lilybw/go-solid/shared/esbuild"
+	"github.com/lilybw/go-solid/shared/hmr"
 	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
 type Config struct {
-	Components   meta.AbsoluteDirectoryPath
+	// The absolute path to the directory containing the solidjs components.
+	// The registry will scan this and all subdirectories, skipping directories prefixed with a dot (.)
+	// or with the exact name "node_modules"
+	Components meta.AbsoluteDirectoryPath
+	// The absolute path to the directory containing the node_modules folder with the node dependencies.
+	// Defaults to the same value as Components if not specified.
 	Dependencies meta.AbsoluteDirectoryPath
-	Workspace    meta.AbsoluteDirectoryPath
-
-	PoolSize int
-	NodeBin  string
+	// The absolute path to the directory where go_solid will place its .go_solid workspace directory, which contains the worker script and the disk cache.
+	// Defaults to Components if not specified.
+	Workspace meta.AbsoluteDirectoryPath
 
 	// DisableCaching bypasses both the in-memory and on-disk caches, so every
-	// render rebuilds from source. Previously implied by Dev.
+	// render rebuilds from source.
 	DisableCaching bool
 
-	// Sourcemaps emits inline sourcemaps from esbuild for easier debugging in
-	// the browser. Independent of caching, so you can debug a cached prod build.
-	// Previously implied by Dev.
-	Sourcemaps bool
+	Generation *esbuild.BundlerConfig
 
-	// HotReloadRegistry rescans the components directory on every render, so new
-	// or renamed component files are picked up without a restart. Previously
-	// implied by Dev. Note this is registry reload only; hot *browser* reload is
-	// the separate HMR feature below.
-	HotReloadRegistry bool
+	// Enable a filewatcher that watches the component dir to trigger registry updates when new component files are added.
+	// This enables usecases which may attempt to ask for procedural component names, since the registry is constant otherwise.
+	ReactiveRegistry bool
+
+	// Pre-bundle and cache all components in the registry on next boot (may take a moment).
+	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
+	//
+	// Do be aware that this disables HMR and ReactiveRegistry as well as ignores the DisableCaching flag since the caches are now mandatory.
+	RasterizeRegistry bool
 
 	// HMR enables hot browser reload in development. When non-nil and not
 	// Disabled, go_solid watches the components tree and pushes reloads to the
 	// tabs viewing an affected template. Requires HMR.Mux so go_solid can mount
 	// its WebSocket handler itself.
-	HMR *shared.HMRConfig
-
-	Minify   bool
+	HMR      *hmr.HMRConfig
 	Defaults *BehaviouralDefaults
 }
 
 type BehaviouralDefaults struct {
-	HTMLHeadAttributes meta.Configurator[networking.HTMLHeadSegmentBuilder]
+	// Define the default elements of the <head> tag to be included in every page.
+	// These defaults can be modified upon any Bundler#Prepare call by using the method: WithHTMLHeadTags
+	HeadSegment meta.Configurator[networking.HTMLHeadSegmentBuilder]
+	// Define the default behaviour of the http request handling. These defaults can be modified upon any Bundler#Prepare call by using the method: SetHTTPBehaviour
+	Requests meta.Configurator[networking.RequestBehaviourBuilder] // TODO: Impliment this
+}
+
+func mkNOOP[T any]() func(T) {
+	return func(_ T) {}
+}
+
+var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
+	HeadSegment: mkNOOP[networking.HTMLHeadSegmentBuilder](),
+	Requests:    mkNOOP[networking.RequestBehaviourBuilder](),
 }
 
 type Bundler struct {
@@ -61,14 +78,14 @@ type Bundler struct {
 	cache    *caching.MemCache
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
-	hub      *hmr.Hub
-	watcher  *hmr.Watcher
+	hub      *hmr_int.Hub
+	watcher  *hmr_int.Watcher
 
 	workspace meta.AbsoluteDirectoryPath // resolved workspace (.go_solid) for worker + temp files
 }
 
 func New(cfg Config) (*Bundler, error) {
-	if err := configValidationCheck(cfg); err != nil {
+	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
 	}
 	if cfg.Dependencies == "" {
@@ -81,12 +98,12 @@ func New(cfg Config) (*Bundler, error) {
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		return nil, fmt.Errorf("go_solid: create workspace %q: %w", workspace, err)
 	}
-	scriptLocation, err := esbuild.MaterializeWorkerScript(workspace)
+	scriptLocation, err := esbuild_int.MaterializeWorkerScript(workspace)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
 	}
 
-	if missing := esbuild.PeerDepsMissing(cfg.Dependencies, esbuild.RequiredPeerDeps); len(missing) > 0 {
+	if missing := esbuild_int.PeerDepsMissing(cfg.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
 		return nil, fmt.Errorf(
 			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
 				"Install them in your frontend project:\n"+
@@ -98,8 +115,8 @@ func New(cfg Config) (*Bundler, error) {
 		return nil, err
 	}
 	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         cfg.PoolSize,
-		NodeBin:      cfg.NodeBin,
+		Size:         cfg.Generation.PoolSize,
+		NodeBin:      cfg.Generation.NodeBin,
 		Script:       scriptLocation,
 		Dependencies: cfg.Dependencies,
 	})
@@ -107,8 +124,8 @@ func New(cfg Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	if cfg.Defaults != nil && cfg.Defaults.HTMLHeadAttributes != nil {
-		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HTMLHeadAttributes)
+	if cfg.Defaults != nil && cfg.Defaults.HeadSegment != nil {
+		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
 	}
 
 	// Caches are enabled unless explicitly disabled.
@@ -118,12 +135,26 @@ func New(cfg Config) (*Bundler, error) {
 		pool.Close()
 		return nil, err
 	}
+	cache := caching.NewMemCache(!cfg.DisableCaching)
+
+	if cfg.ReactiveRegistry {
+		if err := registry.MakeReactive(
+			func(name string) {
+				disk.InvalidateComponent(name) // exact, walks manifests
+				cache.Clear()                  // crude but safe; dev-only event
+			},
+			func(e error) { fmt.Fprintf(os.Stderr, "[go_solid] reactive registry error: %v\n", e) },
+		); err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 
 	bundler := &Bundler{
 		cfg:       cfg,
 		registry:  registry,
 		pool:      pool,
-		cache:     caching.NewMemCache(!cfg.DisableCaching),
+		cache:     cache,
 		disk:      disk,
 		workspace: workspace,
 		index:     internal.NewDepIndex(),
@@ -133,20 +164,20 @@ func New(cfg Config) (*Bundler, error) {
 	// consumer-provided mux. When inactive, none of this is constructed and the
 	// emitted HTML is byte-identical to a plain render.
 	if cfg.HMR != nil && !cfg.HMR.Disabled {
-		normalized, err := hmr.NormalizeHMRConfig(cfg.HMR)
+		normalized, err := hmr_int.NormalizeHMRConfig(cfg.HMR)
 		if err != nil {
 			pool.Close()
 			return nil, err
 		}
 		bundler.cfg.HMR = normalized
 
-		bundler.hub = hmr.NewHub(normalized)
+		bundler.hub = hmr_int.NewHub(normalized)
 		// go_solid registers its own endpoint — the consumer never wires it.
-		normalized.Mux.Handle(normalized.HMRPath, bundler.hub.Handler())
+		normalized.Mux.Handle(normalized.Path, bundler.hub.Handler())
 
 		// NewWatcher starts its own goroutine before returning, so there is no
 		// separate Start call to forget.
-		w, err := hmr.NewWatcher(string(cfg.Components), bundler.index, bundler.hub, registry, func(e error) {
+		w, err := hmr_int.NewWatcher(string(cfg.Components), bundler.index, bundler.hub, registry, func(e error) {
 			fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
 		})
 		if err != nil {
@@ -159,7 +190,8 @@ func New(cfg Config) (*Bundler, error) {
 	return bundler, nil
 }
 
-func configValidationCheck(cfg Config) error {
+// Ensures all fields are valid and non-nil, defaulting to defined DEFAULT_XXXX objects where appropriate to indicate no consumer configuration
+func configValidationAndNormalization(cfg Config) error {
 	if cfg.Components == "" {
 		return fmt.Errorf("go_solid: ComponentsDir is required")
 	}
@@ -181,6 +213,22 @@ func configValidationCheck(cfg Config) error {
 			return fmt.Errorf("go_solid: Expected absolute path to Workspace %q: %w", cfg.Workspace, err)
 		}
 		cfg.Workspace = abs
+	}
+	if cfg.Generation == nil {
+		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
+	}
+	if cfg.Defaults == nil {
+		cfg.Defaults = NIL_BEHAVIOURAL_DEFAULTS
+	} else {
+		if cfg.Defaults.HeadSegment == nil {
+			cfg.Defaults.HeadSegment = NIL_BEHAVIOURAL_DEFAULTS.HeadSegment
+		}
+		if cfg.Defaults.Requests == nil {
+			cfg.Defaults.Requests = NIL_BEHAVIOURAL_DEFAULTS.Requests
+		}
+	}
+	if cfg.HMR == nil {
+		cfg.HMR = hmr.NIL_HMR_CONFIG
 	}
 	return nil
 }

@@ -1,21 +1,25 @@
-package shared
+package hmr
 
-import (
-	"net/http"
-)
+import "net/http"
 
 type HMRConfig struct {
 	// Disabled turns HMR off even when a config is supplied
 	Disabled bool
-	// HMRPath is where go_solid mounts the WebSocket handler and where the
+	// Path is where go_solid mounts the WebSocket handler and where the
 	// injected client connects. Defaults to "/__go_solid_hmr__".
-	HMRPath string
+	Path string
 	// ServeMux, Router or the like to mount the WebSocket handler on. Required when HMR is enabled.
 	//
 	// Adapters are available for:
 	// 	github.com/gorilla/mux.Router use MuxLikeFromRouterLike
 	// 	http.ServeMux use <self>
 	Mux MuxLike
+}
+
+var NIL_HMR_CONFIG = &HMRConfig{ // null object
+	Disabled: true,
+	Path:     "/__go_solid_hmr__",
+	Mux:      nil,
 }
 
 type VoidBiFunc[T any, U any] interface {

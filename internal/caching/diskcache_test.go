@@ -76,10 +76,10 @@ func TestDiskCache_DisabledIsNoop(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, CACHE_DIR_NAME)); !os.IsNotExist(err) {
 		t.Error("disabled cache should not create its directory")
 	}
-	if err := dc.Put("k", "W", "root", true, sampleRendered(), nil); err != nil {
+	if err := dc.Put(&MemCacheKey{Component: "auth/LoginForm"}, "root", true, sampleRendered(), []string{}); err != nil {
 		t.Errorf("disabled put should be noop, got: %v", err)
 	}
-	if _, ok := dc.Get("k"); ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "auth/LoginForm"}); ok {
 		t.Error("disabled get should always miss")
 	}
 }
@@ -116,7 +116,7 @@ func TestHashFile_MissingFile(t *testing.T) {
 // --- entry naming -----------------------------------------------------------
 
 func TestEntryStem_HumanReadableAndSafe(t *testing.T) {
-	stem := entryStem("auth/LoginForm", "root-a", "abcdef0123456789deadbeef")
+	stem := entryStem(&MemCacheKey{Component: "auth/LoginForm"}, "root-a")
 	// Slashes sanitized.
 	if strings.Contains(stem, "/") {
 		t.Errorf("stem contains slash: %q", stem)
@@ -125,9 +125,10 @@ func TestEntryStem_HumanReadableAndSafe(t *testing.T) {
 	if !strings.Contains(stem, "auth_LoginForm") || !strings.Contains(stem, "root-a") {
 		t.Errorf("stem not human-readable: %q", stem)
 	}
-	// Key truncated to 12 chars.
-	if !strings.Contains(stem, "abcdef012345") || strings.Contains(stem, "deadbeef") {
-		t.Errorf("stem key not truncated to 12: %q", stem)
+	// Hash string truncated to 12 chars.
+	str := strings.Split(stem, "__")[2]
+	if len(str) > 12 || len(str) < 6 {
+		t.Errorf("stem hash string not between lengths 6-12: %q", str)
 	}
 }
 
@@ -137,10 +138,10 @@ func TestDiskCache_PutGetRoundTrip(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
 	want := sampleRendered()
-	if err := dc.Put("key1", "W", "root", true, want, []string{src}); err != nil {
+	if err := dc.Put(&MemCacheKey{Component: "auth/LoginForm"}, "root", true, want, []string{src}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	got, ok := dc.Get("key1")
+	got, ok := dc.Get(&MemCacheKey{Component: "auth/LoginForm"})
 	if !ok {
 		t.Fatal("get miss after put")
 	}
@@ -155,7 +156,7 @@ func TestDiskCache_PutGetRoundTrip(t *testing.T) {
 func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put("key1", "MyComp", "root-x", true, sampleRendered(), []string{src})
+	dc.Put(&MemCacheKey{Component: "key1"}, "root-x", true, sampleRendered(), []string{src})
 
 	// Find and parse the manifest as plain JSON — the whole point of the format.
 	cacheDir := filepath.Join(ws, CACHE_DIR_NAME)
@@ -170,7 +171,7 @@ func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 		t.Fatal("no .meta.json written")
 	}
 	// Filename should carry the human-readable identity.
-	if !strings.Contains(manName, "MyComp") || !strings.Contains(manName, "root-x") {
+	if !strings.Contains(manName, "key1") || !strings.Contains(manName, "root-x") {
 		t.Errorf("manifest filename not human-readable: %q", manName)
 	}
 	b, _ := os.ReadFile(filepath.Join(cacheDir, manName))
@@ -189,9 +190,9 @@ func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
 	r := &Rendered{HTML: "<div></div>", JS: "1", JSName: "w.js"} // no CSS
-	dc.Put("k", "W", "root", false, r, []string{src})
+	dc.Put(&MemCacheKey{Component: "k"}, "root", false, r, []string{src})
 
-	got, ok := dc.Get("k")
+	got, ok := dc.Get(&MemCacheKey{Component: "k"})
 	if !ok {
 		t.Fatal("get miss")
 	}
@@ -213,14 +214,14 @@ func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 func TestDiskCache_InvalidatesOnSourceEdit(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put("k", "W", "root", false, sampleRendered(), []string{src})
+	dc.Put(&MemCacheKey{Component: "k"}, "root", false, sampleRendered(), []string{src})
 
-	if _, ok := dc.Get("k"); !ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "k"}); !ok {
 		t.Fatal("expected hit before edit")
 	}
 	// Edit source: hash changes -> entry stale.
 	os.WriteFile(src, []byte("export default 2;"), 0o644)
-	if _, ok := dc.Get("k"); ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "k"}); ok {
 		t.Error("expected stale (miss) after source edit")
 	}
 }
@@ -228,9 +229,9 @@ func TestDiskCache_InvalidatesOnSourceEdit(t *testing.T) {
 func TestDiskCache_InvalidatesOnSourceDelete(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put("k", "W", "root", false, sampleRendered(), []string{src})
+	dc.Put(&MemCacheKey{Component: "k"}, "root", false, sampleRendered(), []string{src})
 	os.Remove(src)
-	if _, ok := dc.Get("k"); ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "k"}); ok {
 		t.Error("expected miss after source deleted (unhashable)")
 	}
 }
@@ -239,11 +240,11 @@ func TestDiskCache_ValidWhenSourceUnchanged(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	a := writeSource(t, ws, "A.tsx", "export default 1;")
 	b := writeSource(t, ws, "sub/B.tsx", "export default 2;")
-	dc.Put("k", "A", "root", true, sampleRendered(), []string{a, b})
+	dc.Put(&MemCacheKey{Component: "k"}, "root", true, sampleRendered(), []string{a, b})
 	// Touch mtime without changing content — must still be valid (hash-based).
 	future := time.Now().Add(48 * time.Hour)
 	os.Chtimes(a, future, future)
-	if _, ok := dc.Get("k"); !ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "k"}); !ok {
 		t.Error("entry should remain valid when content unchanged (mtime must not matter)")
 	}
 }
@@ -290,8 +291,8 @@ func TestDiskCache_ConcurrentPutGet(t *testing.T) {
 			key := "k" + string(rune('0'+n%4))
 			src := srcs[n%4]
 			for j := 0; j < 25; j++ {
-				_ = dc.Put(key, "C", "root", true, sampleRendered(), []string{src})
-				dc.Get(key)
+				_ = dc.Put(&MemCacheKey{Component: key}, "root", true, sampleRendered(), []string{src})
+				dc.Get(&MemCacheKey{Component: key})
 			}
 		}(i)
 	}
@@ -363,13 +364,13 @@ func TestDiskCache_PersistsAcrossNewInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dc1.Put("k", "C", "r", true, sampleRendered(), []string{src})
+	dc1.Put(&MemCacheKey{Component: "k"}, "r", true, sampleRendered(), []string{src})
 
 	dc2, err := NewDiskCache(ws, true) // "restart"
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := dc2.Get("k")
+	got, ok := dc2.Get(&MemCacheKey{Component: "k"})
 	if !ok {
 		t.Fatal("new instance did not see persisted entry")
 	}
@@ -391,9 +392,9 @@ func TestDiskCache_PreservesServingNames(t *testing.T) {
 		JSName:  "comp.abc123.js",
 		CSSName: "comp.def456.css",
 	}
-	dc.Put("k", "C", "r", true, want, []string{src})
+	dc.Put(&MemCacheKey{Component: "k"}, "r", true, want, []string{src})
 
-	got, ok := dc.Get("k")
+	got, ok := dc.Get(&MemCacheKey{Component: "k"})
 	if !ok {
 		t.Fatal("miss")
 	}
@@ -417,11 +418,11 @@ func TestDiskCache_PrefixCollisionSafe(t *testing.T) {
 
 	keyA := "0123456789ab_AAAA"
 	keyB := "0123456789ab_BBBB" // identical first 12 chars
-	dc.Put(keyA, "C", "ra", true, &Rendered{HTML: "A", JS: "jsA", JSName: "a.js"}, []string{src})
-	dc.Put(keyB, "C", "rb", true, &Rendered{HTML: "B", JS: "jsB", JSName: "b.js"}, []string{src})
+	dc.Put(&MemCacheKey{Component: keyA}, "ra", true, &Rendered{HTML: "A", JS: "jsA", JSName: "a.js"}, []string{src})
+	dc.Put(&MemCacheKey{Component: keyB}, "rb", true, &Rendered{HTML: "B", JS: "jsB", JSName: "b.js"}, []string{src})
 
-	gotA, okA := dc.Get(keyA)
-	gotB, okB := dc.Get(keyB)
+	gotA, okA := dc.Get(&MemCacheKey{Component: keyA})
+	gotB, okB := dc.Get(&MemCacheKey{Component: keyB})
 	if !okA || !okB {
 		t.Fatalf("missed one: A=%v B=%v", okA, okB)
 	}
@@ -435,10 +436,10 @@ func TestDiskCache_InvalidatesOnTransitiveSourceEdit(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	a := writeSource(t, ws, "A.tsx", "a1")
 	b := writeSource(t, ws, "sub/B.tsx", "b1")
-	dc.Put("k", "A", "r", false, sampleRendered(), []string{a, b})
+	dc.Put(&MemCacheKey{Component: "k"}, "r", false, sampleRendered(), []string{a, b})
 
 	os.WriteFile(b, []byte("b2-changed"), 0o644) // edit the transitive dep
-	if _, ok := dc.Get("k"); ok {
+	if _, ok := dc.Get(&MemCacheKey{Component: "k"}); ok {
 		t.Error("entry not invalidated when a transitive source changed")
 	}
 }

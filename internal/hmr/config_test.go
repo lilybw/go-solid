@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/lilybw/go-solid/shared"
+	. "github.com/lilybw/go-solid/shared/hmr"
 )
 
 func TestNormalizeHMRConfig_NilConfigWithoutMuxErrors(t *testing.T) {
@@ -16,7 +16,7 @@ func TestNormalizeHMRConfig_NilConfigWithoutMuxErrors(t *testing.T) {
 }
 
 func TestNormalizeHMRConfig_MissingMuxErrors(t *testing.T) {
-	_, err := NormalizeHMRConfig(&shared.HMRConfig{HMRPath: "/x"})
+	_, err := NormalizeHMRConfig(&HMRConfig{Path: "/x"})
 	if err == nil {
 		t.Fatal("expected error when Mux is nil, got nil")
 	}
@@ -24,29 +24,29 @@ func TestNormalizeHMRConfig_MissingMuxErrors(t *testing.T) {
 
 func TestNormalizeHMRConfig_DefaultsPathWhenEmpty(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux})
+	got, err := NormalizeHMRConfig(&HMRConfig{Mux: mux})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.HMRPath != DEFAULT_HMR_PATH {
-		t.Fatalf("expected default path %q, got %q", DEFAULT_HMR_PATH, got.HMRPath)
+	if got.Path != NIL_HMR_CONFIG.Path {
+		t.Fatalf("expected default path %q, got %q", NIL_HMR_CONFIG.Path, got.Path)
 	}
 }
 
 func TestNormalizeHMRConfig_KeepsExplicitPath(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux, HMRPath: "/custom_hmr"})
+	got, err := NormalizeHMRConfig(&HMRConfig{Mux: mux, Path: "/custom_hmr"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.HMRPath != "/custom_hmr" {
-		t.Fatalf("expected /custom_hmr, got %q", got.HMRPath)
+	if got.Path != "/custom_hmr" {
+		t.Fatalf("expected /custom_hmr, got %q", got.Path)
 	}
 }
 
 func TestNormalizeHMRConfig_PreservesMux(t *testing.T) {
 	mux := http.NewServeMux()
-	got, err := NormalizeHMRConfig(&shared.HMRConfig{Mux: mux})
+	got, err := NormalizeHMRConfig(&HMRConfig{Mux: mux})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestNormalizeHMRConfig_PreservesMux(t *testing.T) {
 // does not panic and does not block. This exercises the snapshot-under-lock path
 // with a zero-length target set.
 func TestHub_ReloadOnEmptyIsNoop(t *testing.T) {
-	h := NewHub(&shared.HMRConfig{})
+	h := NewHub(&HMRConfig{})
 	done := make(chan struct{})
 	go func() {
 		h.Reload("ui/NoOne")
