@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/meta"
+	watching_int "github.com/lilybw/go-solid/internal/watching"
+	"github.com/lilybw/go-solid/shared/watching"
 )
 
 // ---- helpers -------------------------------------------------------------
@@ -106,17 +108,19 @@ func newWatchedRegistry(t *testing.T, seed map[string]string) (*ComponentRegistr
 	}
 	drops := newDropRecorder()
 	errs := &errRecorder{}
-	w, err := NewFileCreationWatcher(root,
-		errs.onErr,
-		func(file meta.AbsoluteFilePath) error {
-			_, _, err := reg.AddFile(file)
-			return err
-		},
-		func(file meta.AbsoluteFilePath) error {
-			if qualName, ok := reg.RemoveFile(file); ok {
-				return drops.onDrop(qualName)
-			}
-			return nil
+	w, err := watching_int.NewDirectoryWatcher(root,
+		&watching.DWVoidConfig{
+			OnCreation: func(file meta.AbsoluteFilePath, derived meta.Void) error {
+				_, _, err := reg.AddFile(file)
+				return err
+			},
+			OnDeletion: func(file meta.AbsoluteFilePath, derived meta.Void) error {
+				if qualName, ok := reg.RemoveFile(file); ok {
+					return drops.onDrop(qualName)
+				}
+				return nil
+			},
+			OnErr: errs.onErr,
 		},
 	)
 	if err != nil {
@@ -255,11 +259,7 @@ func TestRegistry_AddFileDuplicateErrors(t *testing.T) {
 func TestRegistryWatcher_StopTerminates(t *testing.T) {
 	root := t.TempDir()
 
-	w, err := NewFileCreationWatcher(root,
-		func(error) {},
-		func(str meta.AbsoluteFilePath) error { return nil },
-		func(str meta.AbsoluteFilePath) error { return nil },
-	)
+	w, err := watching_int.NewDirectoryWatcher(root, watching.NIL_DW_CONFIG)
 	if err != nil {
 		t.Fatalf("NewRegistryWatcher: %v", err)
 	}

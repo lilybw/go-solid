@@ -12,8 +12,10 @@ import (
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
+	"github.com/lilybw/go-solid/internal/noop"
 	static_int "github.com/lilybw/go-solid/internal/static"
 	"github.com/lilybw/go-solid/internal/workers"
+	"github.com/lilybw/go-solid/shared"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	networking "github.com/lilybw/go-solid/shared/networking"
@@ -42,11 +44,11 @@ type Config struct {
 	// This enables usecases which may attempt to ask for procedural component names, since the registry is constant otherwise.
 	ReactiveRegistry bool
 
-	// !! NOT IMPLEMENTED !! Pre-bundle and cache all components in the registry on next boot (may take a moment).
+	// If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
 	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
 	//
 	// Do be aware that this disables HMR and ReactiveRegistry as well as ignores the DisableCaching flag since the caches are now mandatory.
-	RasterizeRegistry bool
+	Rasterization *meta.TBD
 
 	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
 	// that is a 1 to 1 recreation of the structure of the Static.Location directory. This places some limitations upon names of files and sub-directories.
@@ -76,13 +78,9 @@ type BehaviouralDefaults struct {
 	Requests meta.Configurator[networking.RequestBehaviourBuilder] // TODO: Impliment this
 }
 
-func mkNOOP[T any]() func(T) {
-	return func(_ T) {}
-}
-
 var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
-	HeadSegment: mkNOOP[networking.HTMLHeadSegmentBuilder](),
-	Requests:    mkNOOP[networking.RequestBehaviourBuilder](),
+	HeadSegment: noop.T_o_Void[networking.HTMLHeadSegmentBuilder](),
+	Requests:    noop.T_o_Void[networking.RequestBehaviourBuilder](),
 }
 
 type Bundler struct {
@@ -100,7 +98,7 @@ type Bundler struct {
 }
 
 func New(cfg Config) (*Bundler, error) {
-	if err := configValidationAndNormalization(cfg); err != nil {
+	if err := configValidationAndNormalization(&cfg); err != nil {
 		return nil, err
 	}
 	if cfg.Dependencies == "" {
@@ -144,7 +142,7 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	// Caches are enabled unless explicitly disabled.
-	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching)
+	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching && cfg.Rasterization == shared.NIL_RASTERIZATION_CONFIG)
 	if err != nil {
 		// Don't leak the pool if disk cache setup fails.
 		pool.Close()
@@ -206,7 +204,7 @@ func New(cfg Config) (*Bundler, error) {
 }
 
 // Ensures all fields are valid and non-nil, defaulting to defined DEFAULT_XXXX objects where appropriate to indicate no consumer configuration
-func configValidationAndNormalization(cfg Config) error {
+func configValidationAndNormalization(cfg *Config) error {
 	if cfg.Components == "" {
 		return fmt.Errorf("go_solid: ComponentsDir is required")
 	}
@@ -244,6 +242,14 @@ func configValidationAndNormalization(cfg Config) error {
 	}
 	if cfg.HMR == nil {
 		cfg.HMR = hmr.NIL_HMR_CONFIG
+	}
+	if cfg.Static == nil {
+		cfg.Static = static.NIL_STATIC_CONFIG
+	}
+	if cfg.Rasterization == nil {
+		cfg.Rasterization = shared.NIL_RASTERIZATION_CONFIG
+	} else {
+		cfg.DisableCaching = false // rasterization requires caching
 	}
 	return nil
 }

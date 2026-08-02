@@ -11,7 +11,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/lilybw/go-solid/internal"
 	"github.com/lilybw/go-solid/internal/meta"
-	. "github.com/lilybw/go-solid/shared/registry"
+	"github.com/lilybw/go-solid/shared"
 )
 
 // Watcher watches the components tree and, on change, inverts through DepIndex
@@ -65,7 +65,7 @@ func (w *Watcher) addTree(root string) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if SkipDir(d.Name(), path, root) {
+		if shared.SkipDir(d.Name(), path, root) {
 			return fs.SkipDir
 		}
 		if err := w.fsw.Add(path); err != nil {
@@ -129,7 +129,7 @@ func (w *Watcher) handleEvent(event fsnotify.Event, pending map[meta.QualifiedNa
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			base := filepath.Base(event.Name)
-			if !SkipDir(base, event.Name, w.root) {
+			if !shared.SkipDir(base, event.Name, w.root) {
 				if err := w.addTree(event.Name); err != nil && w.onErr != nil {
 					w.onErr(err)
 				}

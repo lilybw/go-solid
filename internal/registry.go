@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/lilybw/go-solid/internal/meta"
+	watching_int "github.com/lilybw/go-solid/internal/watching"
+	watching "github.com/lilybw/go-solid/shared/watching"
 )
 
 // Component is one entry discovered in the components directory.
@@ -34,7 +36,7 @@ type ComponentRegistry struct {
 	mu         sync.RWMutex
 	components map[meta.QualifiedName]Component
 	// nil if registry is not reactive
-	watcher *FileCreationWatcher // optional: if non-nil, watches the components tree and updates the registry on change
+	watcher *watching_int.DirectoryWatcher[meta.Void] // optional: if non-nil, watches the components tree and updates the registry on change
 }
 
 // registryExtensions are the file types treated as component entry points.
@@ -61,18 +63,20 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 }
 
 func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
-	rw, err := NewFileCreationWatcher(
+	rw, err := watching_int.NewDirectoryWatcher(
 		this.root,
-		onErr,
-		func(file meta.AbsoluteFilePath) error {
-			_, _, err := this.AddFile(file)
-			return err
-		},
-		func(file meta.AbsoluteFilePath) error {
-			if qualifiedName, removed := this.RemoveFile(file); removed {
-				onDrop(qualifiedName)
-			}
-			return nil
+		&watching.DWVoidConfig{
+			OnCreation: func(file meta.AbsoluteFilePath, derived meta.Void) error {
+				_, _, err := this.AddFile(file)
+				return err
+			},
+			OnDeletion: func(file meta.AbsoluteFilePath, derived meta.Void) error {
+				if qualifiedName, removed := this.RemoveFile(file); removed {
+					onDrop(qualifiedName)
+				}
+				return nil
+			},
+			OnErr: onErr,
 		},
 	)
 	if err != nil {

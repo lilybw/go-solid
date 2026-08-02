@@ -16,6 +16,19 @@ type RelativeFilePath = string
 
 type RelativeDirectoryPath = string
 
+// void
+type Void any
+
+// void
+var VOID Void = nil
+
+func Zero[T any]() T {
+	var t T
+	return t
+}
+
+type TBD any
+
 // Rendered is the cacheable artifact set for one component+props combination.
 type Rendered struct {
 	HTML    string // index.html referencing the CSS + JS

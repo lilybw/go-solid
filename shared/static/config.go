@@ -9,7 +9,7 @@ type StaticConfig struct {
 	Reactive bool
 }
 
-var NIL_STATIC_CONFIG = StaticConfig{
+var NIL_STATIC_CONFIG = &StaticConfig{
 	Location: meta.AbsoluteDirectoryPath(""),
 	Reactive: false,
 }
