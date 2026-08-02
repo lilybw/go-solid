@@ -17,14 +17,14 @@ type registryInvalidator interface {
 
 type RegistryWatcher struct {
 	fsw    *fsnotify.Watcher
-	reg    *Registry
+	reg    *ComponentRegistry
 	onDrop func(name meta.QualifiedName) // called with the qualified name on delete, for cache cascade
 	onErr  func(error)
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-func NewRegistryWatcher(reg *Registry, onDrop func(meta.QualifiedName), onErr func(error)) (*RegistryWatcher, error) {
+func NewRegistryWatcher(reg *ComponentRegistry, onDrop func(meta.QualifiedName), onErr func(error)) (*RegistryWatcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("go_solid ReactiveRegistry: create watcher: %w", err)

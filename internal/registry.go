@@ -27,9 +27,9 @@ func NewComponent(name meta.QualifiedName, path meta.AbsoluteFilePath, ext strin
 	return Component{Name: name, Path: path, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
 }
 
-// Registry maps template names to component source files. It regenerates itself
+// ComponentRegistry maps template names to component source files. It regenerates itself
 // from the contents of a folder, so adding a component is just adding a file.
-type Registry struct {
+type ComponentRegistry struct {
 	root       meta.AbsoluteDirectoryPath
 	mu         sync.RWMutex
 	components map[meta.QualifiedName]Component
@@ -47,12 +47,12 @@ var registryExtensions = map[string]bool{
 
 // NewRegistry walks root and indexes every component file. The template name is
 // the relative path minus extension: components/auth/LoginForm.tsx => "auth/LoginForm".
-func NewRegistry(root meta.AbsoluteDirectoryPath) (*Registry, error) {
+func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("registry: resolve root: %w", err)
 	}
-	r := &Registry{root: abs, components: make(map[meta.QualifiedName]Component)}
+	r := &ComponentRegistry{root: abs, components: make(map[meta.QualifiedName]Component)}
 	if err := r.Reload(); err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*Registry, error) {
 	return r, nil
 }
 
-func (this *Registry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
+func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
 	rw, err := NewRegistryWatcher(
 		this,
 		onDrop,
@@ -75,7 +75,7 @@ func (this *Registry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(e
 
 // AddFile registers a single file if it's a registry-eligible component.
 // Returns the qualified name and true if a component was added or updated.
-func (this *Registry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool, error) {
+func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !registryExtensions[ext] {
 		return "", false, nil
@@ -97,7 +97,7 @@ func (this *Registry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, b
 
 // RemoveFile drops a component by its absolute path. Returns the qualified
 // name that was removed and true if something was actually removed.
-func (this *Registry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
+func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !registryExtensions[ext] {
 		return "", false
@@ -119,7 +119,7 @@ func (this *Registry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName
 
 // Reload rescans the root directory, rebuilding the index from scratch. Safe to
 // call at runtime (e.g. in dev mode on each request, or on a filesystem watch).
-func (this *Registry) Reload() error {
+func (this *ComponentRegistry) Reload() error {
 	found := make(map[meta.QualifiedName]Component)
 
 	walkErr := filepath.WalkDir(this.root, func(path string, d fs.DirEntry, err error) error {
@@ -164,7 +164,7 @@ func (this *Registry) Reload() error {
 }
 
 // Lookup returns the component registered under name, or ok=false.
-func (this *Registry) Lookup(component meta.QualifiedName) (Component, bool) {
+func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (Component, bool) {
 	this.mu.RLock()
 	defer this.mu.RUnlock()
 	c, ok := this.components[component]
@@ -181,7 +181,7 @@ func (this QualifiedNameSlice) ToStringSlice() []string {
 
 // Names returns all registered component names, sorted. Useful for debugging
 // and for a dev-mode index page.
-func (this *Registry) Names() []string {
+func (this *ComponentRegistry) Names() []string {
 	this.mu.RLock()
 	defer this.mu.RUnlock()
 	names := make([]meta.QualifiedName, 0, len(this.components))
@@ -195,4 +195,4 @@ func (this *Registry) Names() []string {
 }
 
 // Root returns the absolute components root directory.
-func (this *Registry) Root() string { return this.root }
+func (this *ComponentRegistry) Root() string { return this.root }

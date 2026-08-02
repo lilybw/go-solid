@@ -12,10 +12,12 @@ import (
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
+	static_int "github.com/lilybw/go-solid/internal/static"
 	"github.com/lilybw/go-solid/internal/workers"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	networking "github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/static"
 )
 
 type Config struct {
@@ -40,11 +42,23 @@ type Config struct {
 	// This enables usecases which may attempt to ask for procedural component names, since the registry is constant otherwise.
 	ReactiveRegistry bool
 
-	// Pre-bundle and cache all components in the registry on next boot (may take a moment).
+	// !! NOT IMPLEMENTED !! Pre-bundle and cache all components in the registry on next boot (may take a moment).
 	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
 	//
 	// Do be aware that this disables HMR and ReactiveRegistry as well as ignores the DisableCaching flag since the caches are now mandatory.
 	RasterizeRegistry bool
+
+	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
+	// that is a 1 to 1 recreation of the structure of the Static.Location directory. This places some limitations upon names of files and sub-directories.
+	//
+	// In the resulting graph-like js object at props.static, each file becomes a function that returns a corresponding Promise. I.e. font at:
+	//
+	// <StaticConfig.Location>/fonts/Roboto.woff2
+	//
+	// becomes accessible in a component as:
+	//
+	// props.static.fonts.Roboto()
+	Static *static.StaticConfig
 
 	// HMR enables hot browser reload in development. When non-nil and not
 	// Disabled, go_solid watches the components tree and pushes reloads to the
@@ -73,11 +87,12 @@ var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
 
 type Bundler struct {
 	cfg      Config
-	registry *internal.Registry
+	registry *internal.ComponentRegistry
 	pool     *workers.Pool
 	mem      *caching.MemCache
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
+	static   *static_int.StaticRegistry
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
 
@@ -233,7 +248,7 @@ func configValidationAndNormalization(cfg Config) error {
 	return nil
 }
 
-func (b *Bundler) Registry() *internal.Registry { return b.registry }
+func (b *Bundler) Registry() *internal.ComponentRegistry { return b.registry }
 
 func (b *Bundler) Close() {
 	if b == nil {

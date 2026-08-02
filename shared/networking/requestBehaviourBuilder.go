@@ -18,6 +18,7 @@ type RequestBehaviourBuilder interface {
 	UponTempEntryWriteError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponCompBundlingError(fn FailureCaseHandler) RequestBehaviourBuilder
 	SetSuccessCode(code int) RequestBehaviourBuilder
+	// TODO: Ensure caching headers and things
 	TransmitRenderedTemplate(fn func(w http.ResponseWriter, r *http.Request, rendered *caching.Rendered) error) RequestBehaviourBuilder
 }
 

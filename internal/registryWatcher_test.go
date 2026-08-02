@@ -91,7 +91,7 @@ func writeComp(t *testing.T, root, rel, body string) string {
 // newWatchedRegistry builds a Registry rooted at a fresh temp dir (optionally
 // pre-seeded), starts a RegistryWatcher on it, and registers cleanup. It returns
 // the registry, root path, and the drop/err recorders.
-func newWatchedRegistry(t *testing.T, seed map[string]string) (*Registry, string, *dropRecorder, *errRecorder) {
+func newWatchedRegistry(t *testing.T, seed map[string]string) (*ComponentRegistry, string, *dropRecorder, *errRecorder) {
 	t.Helper()
 	root := t.TempDir()
 	for rel, body := range seed {
@@ -111,7 +111,7 @@ func newWatchedRegistry(t *testing.T, seed map[string]string) (*Registry, string
 	return reg, root, drops, errs
 }
 
-func hasComponent(reg *Registry, name string) bool {
+func hasComponent(reg *ComponentRegistry, name string) bool {
 	_, ok := reg.Lookup(name)
 	return ok
 }

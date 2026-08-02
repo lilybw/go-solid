@@ -21,7 +21,7 @@ type Watcher struct {
 	root   string
 	index  *internal.DependencyIndex
 	hub    *Hub
-	reg    *internal.Registry
+	reg    *internal.ComponentRegistry
 	onErr  func(error)
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -33,7 +33,7 @@ type Watcher struct {
 // starts its goroutine before returning. There is no separate Start method: a
 // constructed Watcher is already running, so the caller can't forget to start
 // it. Stop halts it.
-func NewWatcher(root string, index *internal.DependencyIndex, hub *Hub, reg *internal.Registry, onErr func(error)) (*Watcher, error) {
+func NewWatcher(root string, index *internal.DependencyIndex, hub *Hub, reg *internal.ComponentRegistry, onErr func(error)) (*Watcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("go_solid HMR: create watcher: %w", err)
