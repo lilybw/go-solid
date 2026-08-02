@@ -53,11 +53,11 @@ type Config struct {
 	//
 	// In the resulting graph-like js object at props.static, each file becomes a function that returns a corresponding Promise. I.e. font at:
 	//
-	// <StaticConfig.Location>/fonts/Roboto.woff2
+	// <StaticConfig.Location>/svg/homeIcon.svg
 	//
 	// becomes accessible in a component as:
 	//
-	// props.static.fonts.Roboto()
+	// props.static.svg.homeIcon()
 	Static *static.StaticConfig
 
 	// HMR enables hot browser reload in development. When non-nil and not

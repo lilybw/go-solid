@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // ---- helpers -------------------------------------------------------------
@@ -39,7 +41,7 @@ func newDropRecorder() *dropRecorder {
 	return &dropRecorder{ch: make(chan string, 64)}
 }
 
-func (d *dropRecorder) onDrop(name string) {
+func (d *dropRecorder) onDrop(name string) error {
 	d.mu.Lock()
 	d.got = append(d.got, name)
 	d.mu.Unlock()
@@ -47,6 +49,7 @@ func (d *dropRecorder) onDrop(name string) {
 	case d.ch <- name:
 	default:
 	}
+	return nil
 }
 
 func (d *dropRecorder) names() []string {
@@ -103,7 +106,19 @@ func newWatchedRegistry(t *testing.T, seed map[string]string) (*ComponentRegistr
 	}
 	drops := newDropRecorder()
 	errs := &errRecorder{}
-	w, err := NewRegistryWatcher(reg, drops.onDrop, errs.onErr)
+	w, err := NewFileCreationWatcher(root,
+		errs.onErr,
+		func(file meta.AbsoluteFilePath) error {
+			_, _, err := reg.AddFile(file)
+			return err
+		},
+		func(file meta.AbsoluteFilePath) error {
+			if qualName, ok := reg.RemoveFile(file); ok {
+				return drops.onDrop(qualName)
+			}
+			return nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("NewRegistryWatcher: %v", err)
 	}
@@ -239,11 +254,12 @@ func TestRegistry_AddFileDuplicateErrors(t *testing.T) {
 // explicitly by a bounded wait).
 func TestRegistryWatcher_StopTerminates(t *testing.T) {
 	root := t.TempDir()
-	reg, err := NewRegistry(root)
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	w, err := NewRegistryWatcher(reg, func(string) {}, func(error) {})
+
+	w, err := NewFileCreationWatcher(root,
+		func(error) {},
+		func(str meta.AbsoluteFilePath) error { return nil },
+		func(str meta.AbsoluteFilePath) error { return nil },
+	)
 	if err != nil {
 		t.Fatalf("NewRegistryWatcher: %v", err)
 	}

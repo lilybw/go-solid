@@ -15,26 +15,30 @@ type registryInvalidator interface {
 	InvalidateComponent(name string) // disk: exact; you pass a closure that also flushes mem
 }
 
-type RegistryWatcher struct {
-	fsw    *fsnotify.Watcher
-	reg    *ComponentRegistry
-	onDrop func(name meta.QualifiedName) // called with the qualified name on delete, for cache cascade
-	onErr  func(error)
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+type OnCreationCallback func(file meta.AbsoluteFilePath) error
+type onDeletionCallback func(file meta.AbsoluteFilePath) error
+
+type FileCreationWatcher struct {
+	fsw        *fsnotify.Watcher
+	root       meta.AbsoluteDirectoryPath
+	onCreation OnCreationCallback
+	onDeletion onDeletionCallback
+	onErr      func(error)
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
 }
 
-func NewRegistryWatcher(reg *ComponentRegistry, onDrop func(meta.QualifiedName), onErr func(error)) (*RegistryWatcher, error) {
+func NewFileCreationWatcher(root meta.AbsoluteDirectoryPath, onWatcherErr func(error), onCreation OnCreationCallback, onDeletion onDeletionCallback) (*FileCreationWatcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("go_solid ReactiveRegistry: create watcher: %w", err)
 	}
-	w := &RegistryWatcher{
-		fsw: fsw, reg: reg,
-		onDrop: onDrop, onErr: onErr,
+	w := &FileCreationWatcher{
+		fsw: fsw, root: root,
+		onCreation: onCreation, onDeletion: onDeletion,
 		stopCh: make(chan struct{}),
 	}
-	if err := w.addTree(reg.root); err != nil {
+	if err := w.addTree(root); err != nil {
 		fsw.Close()
 		return nil, err
 	}
@@ -43,7 +47,7 @@ func NewRegistryWatcher(reg *ComponentRegistry, onDrop func(meta.QualifiedName),
 	return w, nil
 }
 
-func (w *RegistryWatcher) addTree(root string) error {
+func (w *FileCreationWatcher) addTree(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -58,7 +62,7 @@ func (w *RegistryWatcher) addTree(root string) error {
 	})
 }
 
-func (w *RegistryWatcher) loop() {
+func (w *FileCreationWatcher) loop() {
 	defer w.wg.Done()
 	for {
 		select {
@@ -80,12 +84,12 @@ func (w *RegistryWatcher) loop() {
 	}
 }
 
-func (this *RegistryWatcher) handle(event fsnotify.Event) {
+func (this *FileCreationWatcher) handle(event fsnotify.Event) {
 	// New directory: start watching it so files created inside are seen.
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			base := filepath.Base(event.Name)
-			if !SkipDir(base, event.Name, this.reg.root) {
+			if !SkipDir(base, event.Name, this.root) {
 				if err := this.addTree(event.Name); err != nil && this.onErr != nil {
 					this.onErr(err)
 				}
@@ -96,19 +100,17 @@ func (this *RegistryWatcher) handle(event fsnotify.Event) {
 
 	switch {
 	case event.Op&fsnotify.Create != 0:
-		if _, ok, err := this.reg.AddFile(event.Name); err != nil && this.onErr != nil {
+		if err := this.onCreation(event.Name); err != nil && this.onErr != nil {
 			this.onErr(err)
-		} else if ok && this.onErr == nil {
-			_ = ok
 		}
 	case event.Op&(fsnotify.Remove|fsnotify.Rename) != 0:
-		if name, ok := this.reg.RemoveFile(event.Name); ok && this.onDrop != nil {
-			this.onDrop(name)
+		if err := this.onDeletion(event.Name); err != nil && this.onErr != nil {
+			this.onErr(err)
 		}
 	}
 }
 
-func (w *RegistryWatcher) Stop() {
+func (w *FileCreationWatcher) Stop() {
 	close(w.stopCh)
 	w.wg.Wait()
 	w.fsw.Close()

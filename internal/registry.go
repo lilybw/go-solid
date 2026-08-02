@@ -34,7 +34,7 @@ type ComponentRegistry struct {
 	mu         sync.RWMutex
 	components map[meta.QualifiedName]Component
 	// nil if registry is not reactive
-	watcher *RegistryWatcher // optional: if non-nil, watches the components tree and updates the registry on change
+	watcher *FileCreationWatcher // optional: if non-nil, watches the components tree and updates the registry on change
 }
 
 // registryExtensions are the file types treated as component entry points.
@@ -61,10 +61,19 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 }
 
 func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
-	rw, err := NewRegistryWatcher(
-		this,
-		onDrop,
+	rw, err := NewFileCreationWatcher(
+		this.root,
 		onErr,
+		func(file meta.AbsoluteFilePath) error {
+			_, _, err := this.AddFile(file)
+			return err
+		},
+		func(file meta.AbsoluteFilePath) error {
+			if qualifiedName, removed := this.RemoveFile(file); removed {
+				onDrop(qualifiedName)
+			}
+			return nil
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("registry: make reactive: %w", err)
