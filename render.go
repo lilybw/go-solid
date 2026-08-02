@@ -22,7 +22,7 @@ type renderData struct {
 	ctx          context.Context
 	component    meta.QualifiedName
 	props        any
-	rootID       string
+	root         networking.HTMLElementID
 	htmlHeadTags networking.HTMLHeadSegmentBuilder
 	request      *networking.RequestBehaviour
 }
@@ -52,14 +52,14 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		propsJSON = string(raw)
 	}
 
-	key := caching.NewMemCacheKey(data.component, propsJSON)
-	if cached, ok := bundler.cache.Get(key); ok {
+	key := caching.NewMemCacheKey(data.component, data.root)
+	if cached, ok := bundler.mem.Get(key); ok {
 		return cached, nil
 	}
 
 	if bundler.disk != nil {
 		if cached, ok := bundler.disk.Get(key); ok {
-			bundler.cache.Put(key, cached) // promote to memory
+			bundler.mem.Put(key, cached) // promote to memory
 			return cached, nil
 		}
 	}
@@ -72,8 +72,8 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
 			data.component, strings.Join(bundler.registry.Names(), ", "))
 	}
-	if data.rootID == "" {
-		data.rootID = comp.MountRootID
+	if data.root == "" {
+		data.root = comp.MountRootID
 	}
 
 	entrySource, err := internal.GenerateEntry(comp)
@@ -120,11 +120,11 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if bundler.hub != nil {
 		hmrScript = hmr.ClientScript(bundler.cfg.HMR.Path, data.component)
 	}
-	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.rootID, hmrScript)
+	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.root, hmrScript)
 
-	bundler.cache.Put(key, rendered)
+	bundler.mem.Put(key, rendered)
 	if bundler.disk != nil {
-		if err := bundler.disk.Put(key, data.rootID, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
+		if err := bundler.disk.Put(key, data.root, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
 			bundler.logDiskCacheError(err)
 		}
 	}

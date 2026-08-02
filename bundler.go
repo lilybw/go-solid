@@ -75,7 +75,7 @@ type Bundler struct {
 	cfg      Config
 	registry *internal.Registry
 	pool     *workers.Pool
-	cache    *caching.MemCache
+	mem      *caching.MemCache
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
 	hub      *hmr_int.Hub
@@ -135,13 +135,13 @@ func New(cfg Config) (*Bundler, error) {
 		pool.Close()
 		return nil, err
 	}
-	cache := caching.NewMemCache(!cfg.DisableCaching)
+	mem := caching.NewMemCache(!cfg.DisableCaching)
 
 	if cfg.ReactiveRegistry {
 		if err := registry.MakeReactive(
-			func(name string) {
-				disk.InvalidateComponent(name) // exact, walks manifests
-				cache.Clear()                  // crude but safe; dev-only event
+			func(name meta.QualifiedName) {
+				disk.InvalidateComponent(name)
+				mem.InvalidateComponent(name)
 			},
 			func(e error) { fmt.Fprintf(os.Stderr, "[go_solid] reactive registry error: %v\n", e) },
 		); err != nil {
@@ -154,7 +154,7 @@ func New(cfg Config) (*Bundler, error) {
 		cfg:       cfg,
 		registry:  registry,
 		pool:      pool,
-		cache:     cache,
+		mem:       mem,
 		disk:      disk,
 		workspace: workspace,
 		index:     internal.NewDepIndex(),

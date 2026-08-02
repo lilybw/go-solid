@@ -60,9 +60,8 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*Registry, error) {
 	return r, nil
 }
 
-func (this *Registry) MakeReactive(onDrop func(string), onErr func(error)) error {
+func (this *Registry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
 	rw, err := NewRegistryWatcher(
-		string(this.root),
 		this,
 		onDrop,
 		onErr,

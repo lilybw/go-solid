@@ -17,7 +17,7 @@ func Test_Deterministic(t *testing.T) {
 func Test_Key_SensitiveToEachInput(t *testing.T) {
 	base := NewMemCacheKey("comp", `{"a":1}`)
 
-	cases := map[string]*MemCacheKey{
+	cases := map[string]*CacheKey{
 		"different name":  NewMemCacheKey("other", `{"a":1}`),
 		"different props": NewMemCacheKey("comp", `{"a":2}`),
 	}

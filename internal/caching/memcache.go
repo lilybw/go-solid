@@ -12,40 +12,34 @@ import (
 // component-name + props + build-mode. Concurrency-safe.
 type MemCache struct {
 	mu      sync.RWMutex
-	entries map[MemCacheKey]*Rendered
+	entries map[CacheKey]*Rendered
+	byName  map[meta.QualifiedName]map[CacheKey]struct{}
 	enabled bool
 }
 
 func NewMemCache(enabled bool) *MemCache {
-	return &MemCache{entries: make(map[MemCacheKey]*Rendered), enabled: enabled}
+	return &MemCache{entries: make(map[CacheKey]*Rendered), byName: make(map[meta.QualifiedName]map[CacheKey]struct{}), enabled: enabled}
 }
 
-type MemCacheKey struct {
+type CacheKey struct {
 	Component meta.QualifiedName
-	PropsJSON string
-
-	cached_string string // cached String() result
+	Root      HTMLElementID
 }
 
-func (k MemCacheKey) String() string {
-	if k.cached_string != "" {
-		return k.cached_string
-	}
+func (k *CacheKey) String() string {
 	h := sha256.New()
 	h.Write([]byte(k.Component))
 	h.Write([]byte{0})
-	h.Write([]byte(k.PropsJSON))
-	k.cached_string = hex.EncodeToString(h.Sum(nil))
-
-	return k.cached_string
+	h.Write([]byte(k.Root))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-func NewMemCacheKey(component meta.QualifiedName, propsJSON string) *MemCacheKey {
-	return &MemCacheKey{Component: component, PropsJSON: propsJSON}
+func NewMemCacheKey(component meta.QualifiedName, root HTMLElementID) *CacheKey {
+	return &CacheKey{Component: component, Root: root}
 }
 
 // Panics on nil key
-func (c *MemCache) Get(key *MemCacheKey) (*Rendered, bool) {
+func (c *MemCache) Get(key *CacheKey) (*Rendered, bool) {
 	if !c.enabled {
 		return nil, false
 	}
@@ -56,18 +50,33 @@ func (c *MemCache) Get(key *MemCacheKey) (*Rendered, bool) {
 }
 
 // Panics on nil key
-func (c *MemCache) Put(key *MemCacheKey, r *Rendered) {
+func (c *MemCache) Put(key *CacheKey, r *Rendered) {
 	if !c.enabled {
 		return
 	}
 	c.mu.Lock()
 	c.entries[*key] = r
+	set := c.byName[key.Component]
+	if set == nil {
+		set = make(map[CacheKey]struct{})
+		c.byName[key.Component] = set
+	}
+	set[*key] = struct{}{}
 	c.mu.Unlock()
+}
+
+func (c *MemCache) InvalidateComponent(component meta.QualifiedName) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.byName[component] {
+		delete(c.entries, key)
+	}
+	delete(c.byName, component)
 }
 
 func (c *MemCache) Clear() {
 	c.mu.Lock()
-	c.entries = make(map[MemCacheKey]*Rendered)
+	c.entries = make(map[CacheKey]*Rendered)
 	c.mu.Unlock()
 }
 

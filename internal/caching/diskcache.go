@@ -94,7 +94,7 @@ func hashFile(file meta.AbsoluteFilePath) (string, bool) {
 }
 
 // entryStem is the human-readable base filename for an entry.
-func entryStem(key *MemCacheKey, rootID HTMLElementID) string {
+func entryStem(key *CacheKey, rootID HTMLElementID) string {
 	safe := func(s string) string {
 		s = strings.ReplaceAll(s, "/", "_")
 		s = strings.ReplaceAll(s, string(filepath.Separator), "_")
@@ -109,7 +109,7 @@ func entryStem(key *MemCacheKey, rootID HTMLElementID) string {
 
 // Get returns a cached Rendered if a valid entry exists for key. Validity means
 // every recorded source still hashes to its recorded value (invalidation).
-func (dc *DiskCache) Get(key *MemCacheKey) (*Rendered, bool) {
+func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 	if !dc.enabled {
 		return nil, false
 	}
@@ -157,7 +157,7 @@ func (dc *DiskCache) Get(key *MemCacheKey) (*Rendered, bool) {
 
 // Put writes an entry (manifest + artifacts) and updates the reverse index.
 // sources are the absolute paths from the bundle's metafile.
-func (dc *DiskCache) Put(key *MemCacheKey, rootID HTMLElementID, minify bool, r *Rendered, sources []string) error {
+func (dc *DiskCache) Put(key *CacheKey, rootID HTMLElementID, minify bool, r *Rendered, sources []string) error {
 	if !dc.enabled {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 	return removed
 }
 
-func (dc *DiskCache) manifestPathForKey(key *MemCacheKey) (string, bool) {
+func (dc *DiskCache) manifestPathForKey(key *CacheKey) (string, bool) {
 	// The stem includes a 12-char key prefix; scan for the manifest whose Key
 	// matches exactly (prefix could in principle collide, so verify).
 	entries, err := os.ReadDir(dc.workspace)

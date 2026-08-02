@@ -36,12 +36,6 @@ func (this *requestBehaviourBuilder) UponPropsMarshalingError(fn FailureCaseHand
 	return this
 }
 
-func (this *requestBehaviourBuilder) UponRegistryReloadError(fn FailureCaseHandler) RequestBehaviourBuilder {
-	meta.PanicIfTrue(fn == nil, "UponRegistryReloadError handler cannot be nil")
-	this.data.UponRegistryReloadError = this.data.Bind(fn)
-	return this
-}
-
 func (this *requestBehaviourBuilder) UponRegistryLookupFailure(fn FailureCaseHandler) RequestBehaviourBuilder {
 	meta.PanicIfTrue(fn == nil, "UponRegistryLookupFailure handler cannot be nil")
 	this.data.UponRegistryLookupFailure = this.data.Bind(fn)
@@ -85,7 +79,6 @@ func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
 		R:                         r,
 		SuccessCode:               200,
 		UponPropsMarshalingError:  defaultHttpErrorHandler500(w, "Failed to marshal props"),
-		UponRegistryReloadError:   defaultHttpErrorHandler500(w, "Failed to reload registry"),
 		UponRegistryLookupFailure: defaultHttpErrorHandler500(w, "Component not found in registry"),
 		UponEntryGenerationError:  defaultHttpErrorHandler500(w, "Failed to generate entry"),
 		UponTempEntryWriteError:   defaultHttpErrorHandler500(w, "Failed to write temporary entry"),

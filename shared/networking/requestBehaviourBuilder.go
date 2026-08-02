@@ -13,7 +13,6 @@ type RequestBehaviourBuilder interface {
 	SetWriter(w http.ResponseWriter) RequestBehaviourBuilder
 	SetRequest(r *http.Request) RequestBehaviourBuilder
 	UponPropsMarshalingError(fn FailureCaseHandler) RequestBehaviourBuilder
-	UponRegistryReloadError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponRegistryLookupFailure(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponEntryGenerationError(fn FailureCaseHandler) RequestBehaviourBuilder
 	UponTempEntryWriteError(fn FailureCaseHandler) RequestBehaviourBuilder
@@ -26,7 +25,6 @@ type RequestBehaviour struct {
 	W                         http.ResponseWriter
 	R                         *http.Request
 	UponPropsMarshalingError  RequestBoundFailureCaseHandler
-	UponRegistryReloadError   RequestBoundFailureCaseHandler
 	UponRegistryLookupFailure RequestBoundFailureCaseHandler
 	UponEntryGenerationError  RequestBoundFailureCaseHandler
 	UponTempEntryWriteError   RequestBoundFailureCaseHandler

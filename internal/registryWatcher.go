@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/registry"
 )
 
@@ -16,25 +17,24 @@ type registryInvalidator interface {
 
 type RegistryWatcher struct {
 	fsw    *fsnotify.Watcher
-	root   string
 	reg    *Registry
-	onDrop func(name string) // called with the qualified name on delete, for cache cascade
+	onDrop func(name meta.QualifiedName) // called with the qualified name on delete, for cache cascade
 	onErr  func(error)
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 }
 
-func NewRegistryWatcher(root string, reg *Registry, onDrop func(string), onErr func(error)) (*RegistryWatcher, error) {
+func NewRegistryWatcher(reg *Registry, onDrop func(meta.QualifiedName), onErr func(error)) (*RegistryWatcher, error) {
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("go_solid ReactiveRegistry: create watcher: %w", err)
 	}
 	w := &RegistryWatcher{
-		fsw: fsw, root: root, reg: reg,
+		fsw: fsw, reg: reg,
 		onDrop: onDrop, onErr: onErr,
 		stopCh: make(chan struct{}),
 	}
-	if err := w.addTree(root); err != nil {
+	if err := w.addTree(reg.root); err != nil {
 		fsw.Close()
 		return nil, err
 	}
@@ -80,14 +80,14 @@ func (w *RegistryWatcher) loop() {
 	}
 }
 
-func (w *RegistryWatcher) handle(event fsnotify.Event) {
+func (this *RegistryWatcher) handle(event fsnotify.Event) {
 	// New directory: start watching it so files created inside are seen.
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			base := filepath.Base(event.Name)
-			if !SkipDir(base, event.Name, w.root) {
-				if err := w.addTree(event.Name); err != nil && w.onErr != nil {
-					w.onErr(err)
+			if !SkipDir(base, event.Name, this.reg.root) {
+				if err := this.addTree(event.Name); err != nil && this.onErr != nil {
+					this.onErr(err)
 				}
 			}
 			return
@@ -96,14 +96,14 @@ func (w *RegistryWatcher) handle(event fsnotify.Event) {
 
 	switch {
 	case event.Op&fsnotify.Create != 0:
-		if _, ok, err := w.reg.AddFile(event.Name); err != nil && w.onErr != nil {
-			w.onErr(err)
-		} else if ok && w.onErr == nil {
+		if _, ok, err := this.reg.AddFile(event.Name); err != nil && this.onErr != nil {
+			this.onErr(err)
+		} else if ok && this.onErr == nil {
 			_ = ok
 		}
 	case event.Op&(fsnotify.Remove|fsnotify.Rename) != 0:
-		if name, ok := w.reg.RemoveFile(event.Name); ok && w.onDrop != nil {
-			w.onDrop(name)
+		if name, ok := this.reg.RemoveFile(event.Name); ok && this.onDrop != nil {
+			this.onDrop(name)
 		}
 	}
 }

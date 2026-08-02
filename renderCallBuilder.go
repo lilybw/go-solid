@@ -68,7 +68,7 @@ func (this *renderCallBuilderImpl) WithCtx(ctx context.Context) RenderCallBuilde
 }
 
 func (this *renderCallBuilderImpl) MountOnRootID(id string) RenderCallBuilder {
-	this.data.rootID = id
+	this.data.root = id
 	return this
 }
 
