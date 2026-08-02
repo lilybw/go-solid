@@ -30,3 +30,4 @@ package-lock.json
 node_modules
 .testing_ground
 *.rasterized.txt
+rasterize.ps1
