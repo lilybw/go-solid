@@ -143,10 +143,10 @@ export default function Hello(props: { name?: string }) {
 
 func TestPool_TransformProducesSolidOutput(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         1,
-		Dependencies: modulesParent,
-		Script:       script,
+	pool, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       1,
+		Dependencies:   modulesParent,
+		ScriptLocation: script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -176,10 +176,10 @@ func TestPool_TransformProducesSolidOutput(t *testing.T) {
 
 func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         2,
-		Dependencies: modulesParent,
-		Script:       script,
+	pool, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       2,
+		Dependencies:   modulesParent,
+		ScriptLocation: script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -207,10 +207,10 @@ func TestPool_HandlesConcurrentTransforms(t *testing.T) {
 
 func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         1,
-		Dependencies: modulesParent,
-		Script:       script,
+	pool, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       1,
+		Dependencies:   modulesParent,
+		ScriptLocation: script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -366,11 +366,11 @@ func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
 	script, modulesParent := integrationEnv(t)
 	// Very short timeout so the first transform is interrupted and its worker
 	// killed — exercising the respawn path.
-	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         1,
-		Dependencies: modulesParent,
-		Timeout:      1 * time.Millisecond,
-		Script:       script,
+	pool, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       1,
+		Dependencies:   modulesParent,
+		Timeout:        1 * time.Millisecond,
+		ScriptLocation: script,
 	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
@@ -408,7 +408,11 @@ func TestPool_SurvivesCleanTransformError(t *testing.T) {
 	// A babel error (bad JSX) must NOT kill the worker — it's a clean, expected
 	// failure. The same worker must serve the next request.
 	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(workers.PoolConfig{Size: 1, Dependencies: modulesParent, Script: script})
+	pool, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       1,
+		Dependencies:   modulesParent,
+		ScriptLocation: script,
+	})
 	if err != nil {
 		t.Fatalf("newPool: %v", err)
 	}
@@ -482,7 +486,11 @@ func TestPool_StartupFailureIsLegible(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(`import "this-module-does-not-exist-xyz";`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := workers.NewPool(workers.PoolConfig{Size: 1, Dependencies: dir, Script: bad})
+	_, err := workers.NewPool(&esbuild.BundlerConfig{
+		PoolSize:       1,
+		Dependencies:   dir,
+		ScriptLocation: bad,
+	})
 	if err == nil {
 		t.Fatal("expected startup failure, got nil")
 	}

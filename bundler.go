@@ -30,7 +30,9 @@ type Config struct {
 	Components meta.AbsoluteDirectoryPath
 	// The absolute path to the directory containing the node_modules folder with the node dependencies.
 	// Defaults to the same value as Components if not specified.
-	Dependencies meta.AbsoluteDirectoryPath
+	//
+	// This field is a shorthand and overwritten by Config#Generation#Dependencies if present
+	Dependencies meta.AbsoluteDirectoryPath // easy access field, single source of truth is the BundlerConfig
 	// The absolute path to the directory where go_solid will place its .go_solid workspace directory, which contains the worker script and the disk cache.
 	// Defaults to Components if not specified.
 	Workspace meta.AbsoluteDirectoryPath
@@ -100,12 +102,10 @@ func New(cfg *Config) (*Bundler, error) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.Workspace, 0o755); err != nil {
-		return nil, fmt.Errorf("go_solid: create workspace %q: %w", cfg.Workspace, err)
-	}
-	scriptLocation, err := esbuild_int.MaterializeWorkerScript(cfg.Workspace)
-	if err != nil {
-		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
+
+	if cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS {
+		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
+		networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
 	}
 
 	if missing := esbuild_int.PeerDepsMissing(cfg.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
@@ -115,29 +115,15 @@ func New(cfg *Config) (*Bundler, error) {
 				"    npm install --save-dev %s",
 			missing, cfg.Dependencies, strings.Join(missing, " "))
 	}
+
 	registry, err := internal.NewRegistry(cfg.Components)
 	if err != nil {
 		return nil, err
 	}
-	pool, err := workers.NewPool(workers.PoolConfig{
-		Size:         cfg.Generation.PoolSize,
-		NodeBin:      cfg.Generation.NodeBin,
-		Script:       scriptLocation,
-		Dependencies: cfg.Dependencies,
-	})
+
+	pool, err := workers.NewPool(cfg.Generation)
 	if err != nil {
 		return nil, err
-	}
-
-	if cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS {
-		// func cannot be compared to another lambda, only nil... given the usage of null objects the NOOP lambda is alway run
-		// thus these nil checks are in vain right now
-		if cfg.Defaults.HeadSegment != nil {
-			networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
-		}
-		if cfg.Defaults.Requests != nil {
-			networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
-		}
 	}
 
 	// Caches are enabled unless explicitly disabled.
@@ -188,7 +174,7 @@ func New(cfg *Config) (*Bundler, error) {
 	// Hot browser reload: opt-in, and go_solid mounts its own handler on the
 	// consumer-provided mux. When inactive, none of this is constructed and the
 	// emitted HTML is byte-identical to a plain render.
-	if cfg.HMR != hmr.NIL_HMR_CONFIG && !cfg.HMR.Disabled {
+	if cfg.isHMROn() {
 		normalized, err := hmr_int.NormalizeHMRConfig(cfg.HMR)
 		if err != nil {
 			pool.Close()
@@ -215,8 +201,13 @@ func New(cfg *Config) (*Bundler, error) {
 	return bundler, nil
 }
 
+func (cfg *Config) isHMROn() bool {
+	return cfg.HMR != hmr.NIL_HMR_CONFIG && !cfg.HMR.Disabled && cfg.Rasterization.ExpectCompleted == false
+}
+
 // Ensures all fields are valid and non-nil, defaulting to defined DEFAULT_XXXX objects where appropriate to indicate no consumer configuration
 func configValidationAndNormalization(cfg *Config) error {
+	// POLYFILL
 	if cfg.Components == "" {
 		return fmt.Errorf("go_solid: ComponentsDir is required")
 	}
@@ -243,8 +234,29 @@ func configValidationAndNormalization(cfg *Config) error {
 	} else {
 		cfg.Workspace = filepath.Join(cfg.Components, ".go_solid")
 	}
+
+	// Check if workspace exists or can be made
+	if err := os.MkdirAll(cfg.Workspace, 0o755); err != nil {
+		return fmt.Errorf("go_solid: create workspace %q: %w", cfg.Workspace, err)
+	}
+
 	if cfg.Generation == nil {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
+	} else {
+		if cfg.Generation.NodeBin == "" {
+			cfg.Generation.NodeBin = esbuild.NIL_BUNDLER_CONFIG.NodeBin
+		}
+		if cfg.Generation.PoolSize <= 0 {
+			cfg.Generation.PoolSize = esbuild.NIL_BUNDLER_CONFIG.PoolSize
+		}
+		if cfg.Generation.ScriptLocation == "" {
+			cfg.Generation.ScriptLocation = esbuild.NIL_BUNDLER_CONFIG.ScriptLocation
+		}
+		// no need for minify: defaults to false
+		// no need for sourcemap: defaults to 0 aka SourceMapNone
+		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
+			cfg.Generation.Dependencies = cfg.Dependencies
+		}
 	}
 	if cfg.Defaults == nil {
 		cfg.Defaults = NIL_BEHAVIOURAL_DEFAULTS
@@ -275,8 +287,19 @@ func configValidationAndNormalization(cfg *Config) error {
 			}
 			cfg.HMR.Disabled = true // expecting completed rasterization disables HMR
 			cfg.ReactiveRegistry = false
+			cfg.Generation.Disabled = true // expecting completed rasterization disables esbuild and node workers
 		}
 	}
+
+	// Resolve generation settings
+	if cfg.Generation.ScriptLocation == esbuild.NIL_BUNDLER_CONFIG.ScriptLocation {
+		scriptLocation, err := esbuild_int.MaterializeWorkerScript(cfg.Workspace)
+		if err != nil {
+			return fmt.Errorf("go_solid: materialize worker script: %w", err)
+		}
+		cfg.Generation.ScriptLocation = scriptLocation
+	}
+
 	return nil
 }
 

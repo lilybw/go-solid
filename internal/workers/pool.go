@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/esbuild"
 )
 
 // TransformRequest / transformResponse mirror the NDJSON protocol spoken by
@@ -46,47 +47,28 @@ type Worker struct {
 // interface is identical either way, so concurrency can be tuned later without
 // touching call sites. Dead workers are replaced on demand.
 type Pool struct {
+	cfg     *esbuild.BundlerConfig
 	workers chan *Worker
 	nextID  atomic.Int64
-	nodeBin string
-	script  meta.AbsoluteFilePath
-	deps    meta.AbsoluteDirectoryPath
-	timeout time.Duration
-	closed  atomic.Bool
+	closed  *atomic.Bool
 }
 
-// PoolConfig configures worker startup.
-type PoolConfig struct {
-	Size         int                        // number of Node processes; <=0 means 1
-	NodeBin      string                     // path to node; "" means "node" on PATH
-	Script       meta.AbsoluteFilePath      // absolute path to transform-worker.mjs
-	Dependencies meta.AbsoluteDirectoryPath // cwd for workers (must resolve babel-preset-solid)
-	Timeout      time.Duration              // per-transform timeout; 0 means 30s
-}
+func NewPool(cfg *esbuild.BundlerConfig) (*Pool, error) {
 
-func NewPool(cfg PoolConfig) (*Pool, error) {
-	size := cfg.Size
-	if size <= 0 {
-		size = 1
-	}
-	node := cfg.NodeBin
-	if node == "" {
-		node = "node"
-	}
-	timeout := cfg.Timeout
-	if timeout == 0 {
-		timeout = 30 * time.Second
-	}
+	closed := atomic.Bool{}
+	closed.Store(cfg.Disabled)
 
 	p := &Pool{
-		workers: make(chan *Worker, size),
-		nodeBin: node,
-		script:  cfg.Script,
-		deps:    cfg.Dependencies,
-		timeout: timeout,
+		workers: make(chan *Worker, cfg.PoolSize),
+		cfg:     cfg,
+		closed:  &closed,
 	}
 
-	for i := 0; i < size; i++ {
+	if cfg.Disabled {
+		return p, nil
+	}
+
+	for i := 0; i < cfg.PoolSize; i++ {
 		w, err := p.spawn()
 		if err != nil {
 			p.Close()
@@ -94,12 +76,13 @@ func NewPool(cfg PoolConfig) (*Pool, error) {
 		}
 		p.workers <- w
 	}
+
 	return p, nil
 }
 
 func (p *Pool) spawn() (*Worker, error) {
-	cmd := exec.Command(p.nodeBin, p.script, p.deps)
-	cmd.Dir = p.deps
+	cmd := exec.Command(p.cfg.NodeBin, p.cfg.ScriptLocation, p.cfg.Dependencies)
+	cmd.Dir = p.cfg.Dependencies
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -120,7 +103,7 @@ func (p *Pool) spawn() (*Worker, error) {
 	go io.Copy(errBuf, stderr)            //nolint:errcheck // best-effort diagnostics
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start node (%s %s): %w", p.nodeBin, p.script, err)
+		return nil, fmt.Errorf("start node (%s %s): %w", p.cfg.NodeBin, p.cfg.ScriptLocation, err)
 	}
 
 	w := &Worker{
@@ -223,7 +206,7 @@ func (p *Pool) Transform(ctx context.Context, req TransformRequest) (string, err
 func (p *Pool) run(ctx context.Context, w *Worker, req TransformRequest) (string, error) {
 	req.ID = p.nextID.Add(1)
 
-	tctx, cancel := context.WithTimeout(ctx, p.timeout)
+	tctx, cancel := context.WithTimeout(ctx, p.cfg.Timeout)
 	defer cancel()
 
 	out, err := w.roundtrip(tctx, req)

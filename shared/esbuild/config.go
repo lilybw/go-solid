@@ -1,7 +1,10 @@
 package esbuild
 
 import (
+	"time"
+
 	esbuild "github.com/evanw/esbuild/pkg/api"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 type BundlerConfig struct {
@@ -15,11 +18,26 @@ type BundlerConfig struct {
 	NodeBin string
 
 	Minify bool
+	// absolute path to transform-worker.mjs, materialized by go-solid.
+	// Can be set, but will resolve itself by default.
+	ScriptLocation meta.AbsoluteFilePath
+	// The absolute path to the directory containing the node_modules folder with the node dependencies.
+	// Defaults to the same value as Components if not specified.
+	Dependencies meta.AbsoluteDirectoryPath // cwd for workers (must resolve babel-preset-solid)
+	// per-transform timeout; 0 means 30s
+	Timeout time.Duration
+	// disables all bundling and transpilation, so the transform workers are never spawned.
+	// Automatically set to true if RasterizationConfig#ExpectCompleted is true
+	Disabled bool
 }
 
 var NIL_BUNDLER_CONFIG = &BundlerConfig{ // null object
-	Minify:    true,
-	Sourcemap: esbuild.SourceMapNone,
-	PoolSize:  1,
-	NodeBin:   "node",
+	Minify:         true,
+	Sourcemap:      esbuild.SourceMapNone,
+	PoolSize:       1,
+	NodeBin:        "node",
+	ScriptLocation: "",
+	Dependencies:   "",
+	Timeout:        30 * time.Second,
+	Disabled:       false,
 }
