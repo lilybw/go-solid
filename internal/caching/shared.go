@@ -8,3 +8,5 @@ type Rendered struct {
 	CSSName string // predictable filename, e.g. "auth_LoginForm.<hash>.css"
 	JSName  string
 }
+
+const CACHE_DIR_NAME = "component_cache"

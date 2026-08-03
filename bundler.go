@@ -13,12 +13,13 @@ import (
 	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/noop"
+	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
 	static_int "github.com/lilybw/go-solid/internal/static"
 	"github.com/lilybw/go-solid/internal/workers"
-	"github.com/lilybw/go-solid/shared"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	networking "github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/rasterization"
 	"github.com/lilybw/go-solid/shared/static"
 )
 
@@ -44,11 +45,11 @@ type Config struct {
 	// This enables usecases which may attempt to ask for procedural component names, since the registry is constant otherwise.
 	ReactiveRegistry bool
 
-	// If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
+	// !! NOT IMPLEMENTED !! If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
 	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
 	//
-	// Do be aware that this disables HMR and ReactiveRegistry as well as ignores the DisableCaching flag since the caches are now mandatory.
-	Rasterization *meta.TBD
+	// Do be aware that this disables HMR and ReactiveRegistry as well as overwrites the DisableCaching flag since the caches are now mandatory.
+	Rasterization *rasterization.RasterizationConfig
 
 	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
 	// that is a 1 to 1 recreation of the structure of the Static.Location directory. This places some limitations upon names of files and sub-directories.
@@ -142,7 +143,7 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	// Caches are enabled unless explicitly disabled.
-	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching && cfg.Rasterization == shared.NIL_RASTERIZATION_CONFIG)
+	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching)
 	if err != nil {
 		// Don't leak the pool if disk cache setup fails.
 		pool.Close()
@@ -219,6 +220,8 @@ func configValidationAndNormalization(cfg *Config) error {
 			return fmt.Errorf("go_solid: Expected absolute path to Dependencies %q: %w", cfg.Dependencies, err)
 		}
 		cfg.Dependencies = abs
+	} else {
+		cfg.Dependencies = cfg.Components
 	}
 	if cfg.Workspace != "" {
 		abs, err := filepath.Abs(cfg.Workspace)
@@ -226,6 +229,8 @@ func configValidationAndNormalization(cfg *Config) error {
 			return fmt.Errorf("go_solid: Expected absolute path to Workspace %q: %w", cfg.Workspace, err)
 		}
 		cfg.Workspace = abs
+	} else {
+		cfg.Workspace = cfg.Components
 	}
 	if cfg.Generation == nil {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
@@ -247,9 +252,17 @@ func configValidationAndNormalization(cfg *Config) error {
 		cfg.Static = static.NIL_STATIC_CONFIG
 	}
 	if cfg.Rasterization == nil {
-		cfg.Rasterization = shared.NIL_RASTERIZATION_CONFIG
+		cfg.Rasterization = rasterization.NIL_RASTERIZATION_CONFIG
 	} else {
 		cfg.DisableCaching = false // rasterization requires caching
+		if cfg.Rasterization.Location == "" {
+			cfg.Rasterization.Location = cfg.Workspace
+		}
+		if cfg.Rasterization.ExpectCompleted {
+			if err := rasterization_int.ExpectCompletedValidationCheck(cfg.Rasterization); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

@@ -19,7 +19,7 @@ import (
 // -----------------------------------------------------------------------------
 // Disk-backed component cache
 // -----------------------------------------------------------------------------
-// Entries live under <workspace>/component_cache/ as human-readable, inspectable
+// Entries live under <caching/shared.go#CACHE_DIR_NAME> as human-readable, inspectable
 // files. Each cache entry is a set of sibling files sharing a base name:
 //
 //   auth_LoginForm__root-a__<hash>.meta.json   manifest (component, sources, ...)
@@ -32,12 +32,10 @@ import (
 // hashes to the recorded value. generatedAt is stored for humans, never used for
 // correctness.
 //
-// A reverse index (component_cache/_index.json) maps each source file to the
+// A reverse index (<caching/shared.go#CACHE_DIR_NAME>/_index.json) maps each source file to the
 // entry keys that depend on it, for fast "what must I invalidate" queries. The
 // index is derived data: it is always rebuildable from the manifests, which are
 // the source of truth. RebuildIndex regenerates it from scratch.
-
-const CACHE_DIR_NAME = "component_cache"
 
 type HTMLElementID = string
 
@@ -64,16 +62,35 @@ type ComponentDiskManifest struct {
 	} `json:"serveNames"`
 }
 
+func (m *ComponentDiskManifest) Validate() error {
+	if m.Component == "" {
+		return fmt.Errorf("manifest: missing component name")
+	}
+	if m.RootID == "" {
+		return fmt.Errorf("manifest: missing rootID") // TODO: remove root id from manifest, its irrelevant for mounting in DOM
+	}
+	if m.Key == "" {
+		return fmt.Errorf("manifest: missing key")
+	}
+	if m.Artifacts.HTML == "" {
+		return fmt.Errorf("manifest: missing HTML artifact")
+	}
+	if m.Artifacts.JS == "" {
+		return fmt.Errorf("manifest: missing JS artifact")
+	}
+	return nil
+}
+
 // DiskCache persists rendered bundles and maintains the reverse dependency index.
 type DiskCache struct {
-	workspace meta.AbsoluteDirectoryPath // <workspace>/component_cache
+	directory meta.AbsoluteDirectoryPath
 	mu        sync.Mutex
 	enabled   bool
 }
 
 func NewDiskCache(workspace string, enabled bool) (*DiskCache, error) {
 	dir := filepath.Join(workspace, CACHE_DIR_NAME)
-	dc := &DiskCache{workspace: dir, enabled: enabled}
+	dc := &DiskCache{directory: dir, enabled: enabled}
 	if !enabled {
 		return dc, nil
 	}
@@ -120,7 +137,7 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 	if !ok {
 		return nil, false
 	}
-	man, err := readManifest(manifestPath)
+	man, err := ReadManifest(manifestPath)
 	if err != nil {
 		return nil, false
 	}
@@ -187,7 +204,7 @@ func (dc *DiskCache) Put(key *CacheKey, rootID HTMLElementID, minify bool, r *Re
 	man.ServeNames.JS = r.JSName
 	man.ServeNames.CSS = r.CSSName
 
-	base := filepath.Join(dc.workspace, stem)
+	base := filepath.Join(dc.directory, stem)
 	if err := atomicWrite(base+".html", []byte(r.HTML)); err != nil {
 		return err
 	}
@@ -220,7 +237,7 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
-	entries, err := os.ReadDir(dc.workspace)
+	entries, err := os.ReadDir(dc.directory)
 	if err != nil {
 		return 0
 	}
@@ -229,8 +246,8 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 		if !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
-		manifestPath := filepath.Join(dc.workspace, e.Name())
-		man, err := readManifest(manifestPath)
+		manifestPath := filepath.Join(dc.directory, e.Name())
+		man, err := ReadManifest(manifestPath)
 		if err != nil || man.Component != component {
 			continue
 		}
@@ -248,7 +265,7 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 func (dc *DiskCache) manifestPathForKey(key *CacheKey) (string, bool) {
 	// The stem includes a 12-char key prefix; scan for the manifest whose Key
 	// matches exactly (prefix could in principle collide, so verify).
-	entries, err := os.ReadDir(dc.workspace)
+	entries, err := os.ReadDir(dc.directory)
 	if err != nil {
 		return "", false
 	}
@@ -257,15 +274,15 @@ func (dc *DiskCache) manifestPathForKey(key *CacheKey) (string, bool) {
 		if !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
-		p := filepath.Join(dc.workspace, e.Name())
-		if man, err := readManifest(p); err == nil && man.Key == keyStr {
+		p := filepath.Join(dc.directory, e.Name())
+		if man, err := ReadManifest(p); err == nil && man.Key == keyStr {
 			return p, true
 		}
 	}
 	return "", false
 }
 
-func readManifest(path string) (*ComponentDiskManifest, error) {
+func ReadManifest(path string) (*ComponentDiskManifest, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

@@ -15,6 +15,8 @@ var (
 	_htmlTemplate = template.Must(template.New("html").Parse(htmlTemplateText))
 )
 
+// TODO: The component itself knows nothing of the root HTML element id, nor cares for it. Thus it should not be part of the cache key.
+// as the same component can easily be mounted on multiple ids
 const jsTemplateText = `
 	import { render } from "solid-js/web";
 	import Component from {{.ImportPath}};
