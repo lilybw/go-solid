@@ -47,7 +47,7 @@ type Config struct {
 	// This enables usecases which may attempt to ask for procedural component names, since the registry is constant otherwise.
 	ReactiveRegistry bool
 
-	// !! NOT IMPLEMENTED !! If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
+	// If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
 	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
 	//
 	// Do be aware that this disables HMR, ReactiveRegistry and DisableCaching (caches are now mandatory).
@@ -258,6 +258,7 @@ func configValidationAndNormalization(cfg *Config) error {
 			cfg.Generation.Dependencies = cfg.Dependencies
 		}
 	}
+
 	if cfg.Defaults == nil {
 		cfg.Defaults = NIL_BEHAVIOURAL_DEFAULTS
 	} else {
@@ -268,6 +269,7 @@ func configValidationAndNormalization(cfg *Config) error {
 			cfg.Defaults.Requests = NIL_BEHAVIOURAL_DEFAULTS.Requests
 		}
 	}
+
 	if cfg.HMR == nil {
 		cfg.HMR = hmr.NIL_HMR_CONFIG
 	}

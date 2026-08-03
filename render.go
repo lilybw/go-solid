@@ -133,7 +133,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	bundler.mem.Put(key, rendered)
 	if bundler.disk != nil {
-		if err := bundler.disk.Put(key, data.root, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
+		if err := bundler.disk.Put(key, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
 			bundler.logDiskCacheError(err)
 		}
 	}

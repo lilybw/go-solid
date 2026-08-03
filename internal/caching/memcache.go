@@ -29,8 +29,6 @@ type CacheKey struct {
 func (k *CacheKey) String() string {
 	h := sha256.New()
 	h.Write([]byte(k.Component))
-	h.Write([]byte{0})
-	h.Write([]byte(k.Root))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

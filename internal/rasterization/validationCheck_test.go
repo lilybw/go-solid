@@ -20,7 +20,7 @@ func writeValidLayout(t *testing.T) string {
 	root := t.TempDir()
 
 	// transform-worker.*.js at the top level
-	mustWrite(t, filepath.Join(root, "transform-worker.abc123.js"), "// worker")
+	mustWrite(t, filepath.Join(root, "transform-worker.abc123.mjs"), "// worker")
 
 	// component_cache/ subdir
 	cacheDir := filepath.Join(root, caching_int.CACHE_DIR_NAME)
@@ -46,7 +46,6 @@ func writeEntry(t *testing.T, cacheDir, stem string, mutate func(*caching_int.Co
 
 	var m caching_int.ComponentDiskManifest
 	m.Component = "auth/LoginForm"
-	m.RootID = "root-a"
 	m.Key = "deadbeefcafe"
 	m.Artifacts.HTML = meta.RelativeFilePath(stem + ".html")
 	m.Artifacts.JS = meta.RelativeFilePath(stem + ".js")
@@ -102,7 +101,7 @@ func TestExpectCompletedValidationCheck_Failures(t *testing.T) {
 		{
 			name: "missing transform-worker",
 			mutate: func(t *testing.T, root string) {
-				removeGlob(t, filepath.Join(root, "transform-worker.*.js"))
+				removeGlob(t, filepath.Join(root, "transform-worker.*.mjs"))
 			},
 			wantSub: "does not contain transform-worker",
 		},
@@ -125,13 +124,6 @@ func TestExpectCompletedValidationCheck_Failures(t *testing.T) {
 				mustWrite(t, p, "not a dir")
 			},
 			wantSub: "component_cache is not a directory",
-		},
-		{
-			name: "missing _index.json",
-			mutate: func(t *testing.T, root string) {
-				rm(t, filepath.Join(root, caching_int.CACHE_DIR_NAME, "_index.json"))
-			},
-			wantSub: "does not contain _index.json",
 		},
 		{
 			name: "no meta.json files",

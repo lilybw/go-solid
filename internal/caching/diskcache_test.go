@@ -76,7 +76,7 @@ func TestDiskCache_DisabledIsNoop(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, CACHE_DIR_NAME)); !os.IsNotExist(err) {
 		t.Error("disabled cache should not create its directory")
 	}
-	if err := dc.Put(&CacheKey{Component: "auth/LoginForm"}, "root", true, sampleRendered(), []string{}); err != nil {
+	if err := dc.Put(&CacheKey{Component: "auth/LoginForm"}, true, sampleRendered(), []string{}); err != nil {
 		t.Errorf("disabled put should be noop, got: %v", err)
 	}
 	if _, ok := dc.Get(&CacheKey{Component: "auth/LoginForm"}); ok {
@@ -116,17 +116,17 @@ func TestHashFile_MissingFile(t *testing.T) {
 // --- entry naming -----------------------------------------------------------
 
 func TestEntryStem_HumanReadableAndSafe(t *testing.T) {
-	stem := entryStem(&CacheKey{Component: "auth/LoginForm"}, "root-a")
+	stem := entryStem(&CacheKey{Component: "auth/LoginForm"})
 	// Slashes sanitized.
 	if strings.Contains(stem, "/") {
 		t.Errorf("stem contains slash: %q", stem)
 	}
 	// Component and rootID visible for debugging.
-	if !strings.Contains(stem, "auth_LoginForm") || !strings.Contains(stem, "root-a") {
+	if !strings.Contains(stem, "auth_LoginForm") {
 		t.Errorf("stem not human-readable: %q", stem)
 	}
 	// Hash string truncated to 12 chars.
-	str := strings.Split(stem, "__")[2]
+	str := strings.Split(stem, "__")[1]
 	if len(str) > 12 || len(str) < 6 {
 		t.Errorf("stem hash string not between lengths 6-12: %q", str)
 	}
@@ -138,7 +138,7 @@ func TestDiskCache_PutGetRoundTrip(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
 	want := sampleRendered()
-	if err := dc.Put(&CacheKey{Component: "auth/LoginForm"}, "root", true, want, []string{src}); err != nil {
+	if err := dc.Put(&CacheKey{Component: "auth/LoginForm"}, true, want, []string{src}); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	got, ok := dc.Get(&CacheKey{Component: "auth/LoginForm"})
@@ -156,7 +156,7 @@ func TestDiskCache_PutGetRoundTrip(t *testing.T) {
 func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put(&CacheKey{Component: "key1"}, "root-x", true, sampleRendered(), []string{src})
+	dc.Put(&CacheKey{Component: "key1"}, true, sampleRendered(), []string{src})
 
 	// Find and parse the manifest as plain JSON — the whole point of the format.
 	cacheDir := filepath.Join(ws, CACHE_DIR_NAME)
@@ -171,7 +171,7 @@ func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 		t.Fatal("no .meta.json written")
 	}
 	// Filename should carry the human-readable identity.
-	if !strings.Contains(manName, "key1") || !strings.Contains(manName, "root-x") {
+	if !strings.Contains(manName, "key1") {
 		t.Errorf("manifest filename not human-readable: %q", manName)
 	}
 	b, _ := os.ReadFile(filepath.Join(cacheDir, manName))
@@ -179,7 +179,7 @@ func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatalf("manifest not valid JSON: %v", err)
 	}
-	for _, field := range []string{"component", "rootID", "generatedAt", "sources", "artifacts"} {
+	for _, field := range []string{"component", "generatedAt", "sources", "artifacts"} {
 		if _, ok := m[field]; !ok {
 			t.Errorf("manifest missing field %q", field)
 		}
@@ -190,7 +190,7 @@ func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
 	r := &Rendered{HTML: "<div></div>", JS: "1", JSName: "w.js"} // no CSS
-	dc.Put(&CacheKey{Component: "k"}, "root", false, r, []string{src})
+	dc.Put(&CacheKey{Component: "k"}, false, r, []string{src})
 
 	got, ok := dc.Get(&CacheKey{Component: "k"})
 	if !ok {
@@ -214,7 +214,7 @@ func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 func TestDiskCache_InvalidatesOnSourceEdit(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put(&CacheKey{Component: "k"}, "root", false, sampleRendered(), []string{src})
+	dc.Put(&CacheKey{Component: "k"}, false, sampleRendered(), []string{src})
 
 	if _, ok := dc.Get(&CacheKey{Component: "k"}); !ok {
 		t.Fatal("expected hit before edit")
@@ -229,7 +229,7 @@ func TestDiskCache_InvalidatesOnSourceEdit(t *testing.T) {
 func TestDiskCache_InvalidatesOnSourceDelete(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	dc.Put(&CacheKey{Component: "k"}, "root", false, sampleRendered(), []string{src})
+	dc.Put(&CacheKey{Component: "k"}, false, sampleRendered(), []string{src})
 	os.Remove(src)
 	if _, ok := dc.Get(&CacheKey{Component: "k"}); ok {
 		t.Error("expected miss after source deleted (unhashable)")
@@ -240,7 +240,7 @@ func TestDiskCache_ValidWhenSourceUnchanged(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	a := writeSource(t, ws, "A.tsx", "export default 1;")
 	b := writeSource(t, ws, "sub/B.tsx", "export default 2;")
-	dc.Put(&CacheKey{Component: "k"}, "root", true, sampleRendered(), []string{a, b})
+	dc.Put(&CacheKey{Component: "k"}, true, sampleRendered(), []string{a, b})
 	// Touch mtime without changing content — must still be valid (hash-based).
 	future := time.Now().Add(48 * time.Hour)
 	os.Chtimes(a, future, future)
@@ -291,7 +291,7 @@ func TestDiskCache_ConcurrentPutGet(t *testing.T) {
 			key := "k" + string(rune('0'+n%4))
 			src := srcs[n%4]
 			for j := 0; j < 25; j++ {
-				_ = dc.Put(&CacheKey{Component: key}, "root", true, sampleRendered(), []string{src})
+				_ = dc.Put(&CacheKey{Component: key}, true, sampleRendered(), []string{src})
 				dc.Get(&CacheKey{Component: key})
 			}
 		}(i)
@@ -364,7 +364,7 @@ func TestDiskCache_PersistsAcrossNewInstance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dc1.Put(&CacheKey{Component: "k"}, "r", true, sampleRendered(), []string{src})
+	dc1.Put(&CacheKey{Component: "k"}, true, sampleRendered(), []string{src})
 
 	dc2, err := NewDiskCache(ws, true) // "restart"
 	if err != nil {
@@ -392,7 +392,7 @@ func TestDiskCache_PreservesServingNames(t *testing.T) {
 		JSName:  "comp.abc123.js",
 		CSSName: "comp.def456.css",
 	}
-	dc.Put(&CacheKey{Component: "k"}, "r", true, want, []string{src})
+	dc.Put(&CacheKey{Component: "k"}, true, want, []string{src})
 
 	got, ok := dc.Get(&CacheKey{Component: "k"})
 	if !ok {
@@ -418,8 +418,8 @@ func TestDiskCache_PrefixCollisionSafe(t *testing.T) {
 
 	keyA := "0123456789ab_AAAA"
 	keyB := "0123456789ab_BBBB" // identical first 12 chars
-	dc.Put(&CacheKey{Component: keyA}, "ra", true, &Rendered{HTML: "A", JS: "jsA", JSName: "a.js"}, []string{src})
-	dc.Put(&CacheKey{Component: keyB}, "rb", true, &Rendered{HTML: "B", JS: "jsB", JSName: "b.js"}, []string{src})
+	dc.Put(&CacheKey{Component: keyA}, true, &Rendered{HTML: "A", JS: "jsA", JSName: "a.js"}, []string{src})
+	dc.Put(&CacheKey{Component: keyB}, true, &Rendered{HTML: "B", JS: "jsB", JSName: "b.js"}, []string{src})
 
 	gotA, okA := dc.Get(&CacheKey{Component: keyA})
 	gotB, okB := dc.Get(&CacheKey{Component: keyB})
@@ -436,7 +436,7 @@ func TestDiskCache_InvalidatesOnTransitiveSourceEdit(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	a := writeSource(t, ws, "A.tsx", "a1")
 	b := writeSource(t, ws, "sub/B.tsx", "b1")
-	dc.Put(&CacheKey{Component: "k"}, "r", false, sampleRendered(), []string{a, b})
+	dc.Put(&CacheKey{Component: "k"}, false, sampleRendered(), []string{a, b})
 
 	os.WriteFile(b, []byte("b2-changed"), 0o644) // edit the transitive dep
 	if _, ok := dc.Get(&CacheKey{Component: "k"}); ok {

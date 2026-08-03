@@ -29,15 +29,8 @@ func ExpectCompletedValidationCheck(cfg *RasterizationConfig) error {
 	}
 
 	// component_cache should contain:
-	// _index.json
 
-	if _ /*file*/, found, err := FindFirstFileByPattern(filepath.Join(cfg.Location, caching_int.CACHE_DIR_NAME), "_index.json"); err != nil {
-		return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, error occurred while searching for _index.json: %w", cfg.Location, err)
-	} else if !found {
-		return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, does not contain _index.json", cfg.Location)
-	}
-
-	// as well as at least 1 *.meta.json file
+	// at least 1 *.meta.json file
 	if manifestFile, found, err := FindFirstFileByPattern(filepath.Join(cfg.Location, caching_int.CACHE_DIR_NAME), "*.meta.json"); err != nil {
 		return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, error occurred while searching for *.meta.json: %w", cfg.Location, err)
 	} else if !found {

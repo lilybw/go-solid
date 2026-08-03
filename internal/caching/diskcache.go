@@ -42,7 +42,6 @@ type HTMLElementID = string
 // ComponentDiskManifest is the on-disk, human-readable entry descriptor.
 type ComponentDiskManifest struct {
 	Component   meta.QualifiedName `json:"component"`
-	RootID      HTMLElementID      `json:"rootID"`
 	Minify      bool               `json:"minify"`
 	GeneratedAt string             `json:"generatedAt"` // RFC3339, for humans
 	Key         string             `json:"key"`         // cache key (also the base filename stem)
@@ -65,9 +64,6 @@ type ComponentDiskManifest struct {
 func (m *ComponentDiskManifest) Validate() error {
 	if m.Component == "" {
 		return fmt.Errorf("manifest: missing component name")
-	}
-	if m.RootID == "" {
-		return fmt.Errorf("manifest: missing rootID") // TODO: remove root id from manifest, its irrelevant for mounting in DOM
 	}
 	if m.Key == "" {
 		return fmt.Errorf("manifest: missing key")
@@ -111,7 +107,7 @@ func hashFile(file meta.AbsoluteFilePath) (string, bool) {
 }
 
 // entryStem is the human-readable base filename for an entry.
-func entryStem(key *CacheKey, rootID HTMLElementID) string {
+func entryStem(key *CacheKey) string {
 	safe := func(s string) string {
 		s = strings.ReplaceAll(s, "/", "_")
 		s = strings.ReplaceAll(s, string(filepath.Separator), "_")
@@ -121,7 +117,7 @@ func entryStem(key *CacheKey, rootID HTMLElementID) string {
 	if len(short) > 12 {
 		short = short[:12]
 	}
-	return fmt.Sprintf("%s__%s__%s", safe(key.Component), safe(rootID), short)
+	return fmt.Sprintf("%s__%s", safe(key.Component), short)
 }
 
 // Get returns a cached Rendered if a valid entry exists for key. Validity means
@@ -174,7 +170,7 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 
 // Put writes an entry (manifest + artifacts) and updates the reverse index.
 // sources are the absolute paths from the bundle's metafile.
-func (dc *DiskCache) Put(key *CacheKey, rootID HTMLElementID, minify bool, r *Rendered, sources []string) error {
+func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []string) error {
 	if !dc.enabled {
 		return nil
 	}
@@ -183,7 +179,6 @@ func (dc *DiskCache) Put(key *CacheKey, rootID HTMLElementID, minify bool, r *Re
 
 	man := ComponentDiskManifest{
 		Component:   key.Component,
-		RootID:      rootID,
 		Minify:      minify,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Key:         key.String(),
@@ -195,7 +190,7 @@ func (dc *DiskCache) Put(key *CacheKey, rootID HTMLElementID, minify bool, r *Re
 			man.Sources[key] = h
 		}
 	}
-	stem := entryStem(key, rootID)
+	stem := entryStem(key)
 	man.Artifacts.HTML = stem + ".html"
 	man.Artifacts.JS = stem + ".js"
 	if r.CSS != "" {
