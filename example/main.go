@@ -13,7 +13,7 @@ import (
 
 func main() {
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(solid.Config{
+	b, err := solid.New(&solid.Config{
 		Components:   filepath.Join(wd, "components"),
 		Dependencies: wd,
 	})
@@ -61,7 +61,7 @@ func init() {
 		return
 	}
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(solid.Config{Components: filepath.Join(wd, "components"), Dependencies: wd, DisableCaching: true})
+	b, err := solid.New(&solid.Config{Components: filepath.Join(wd, "components"), Dependencies: wd, DisableCaching: true})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

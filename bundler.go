@@ -76,7 +76,7 @@ type BehaviouralDefaults struct {
 	// These defaults can be modified upon any Bundler#Prepare call by using the method: WithHTMLHeadTags
 	HeadSegment meta.Configurator[networking.HTMLHeadSegmentBuilder]
 	// Define the default behaviour of the http request handling. These defaults can be modified upon any Bundler#Prepare call by using the method: SetHTTPBehaviour
-	Requests meta.Configurator[networking.RequestBehaviourBuilder] // TODO: Impliment this
+	Requests meta.Configurator[networking.RequestBehaviourBuilder]
 }
 
 var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
@@ -85,7 +85,7 @@ var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
 }
 
 type Bundler struct {
-	cfg      Config
+	cfg      *Config
 	registry *internal.ComponentRegistry
 	pool     *workers.Pool
 	mem      *caching.MemCache
@@ -94,25 +94,16 @@ type Bundler struct {
 	static   *static_int.StaticRegistry
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
-
-	workspace meta.AbsoluteDirectoryPath // resolved workspace (.go_solid) for worker + temp files
 }
 
-func New(cfg Config) (*Bundler, error) {
-	if err := configValidationAndNormalization(&cfg); err != nil {
+func New(cfg *Config) (*Bundler, error) {
+	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
 	}
-	if cfg.Dependencies == "" {
-		cfg.Dependencies = cfg.Components
+	if err := os.MkdirAll(cfg.Workspace, 0o755); err != nil {
+		return nil, fmt.Errorf("go_solid: create workspace %q: %w", cfg.Workspace, err)
 	}
-	workspace := cfg.Workspace
-	if workspace == "" {
-		workspace = filepath.Join(cfg.Components, ".go_solid")
-	}
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		return nil, fmt.Errorf("go_solid: create workspace %q: %w", workspace, err)
-	}
-	scriptLocation, err := esbuild_int.MaterializeWorkerScript(workspace)
+	scriptLocation, err := esbuild_int.MaterializeWorkerScript(cfg.Workspace)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid: materialize worker script: %w", err)
 	}
@@ -150,7 +141,7 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	// Caches are enabled unless explicitly disabled.
-	disk, err := caching.NewDiskCache(workspace, !cfg.DisableCaching)
+	disk, err := caching.NewDiskCache(cfg.Workspace, !cfg.DisableCaching)
 	if err != nil {
 		// Don't leak the pool if disk cache setup fails.
 		pool.Close()
@@ -173,26 +164,24 @@ func New(cfg Config) (*Bundler, error) {
 	}
 
 	bundler := &Bundler{
-		cfg:       cfg,
-		registry:  registry,
-		pool:      pool,
-		mem:       mem,
-		disk:      disk,
-		workspace: workspace,
-		index:     internal.NewDepIndex(),
+		// if a bundler is correctly made through New(), the config is at this point assured to be validated, all fields present, and all field values correctly assigned.
+		cfg:      cfg,
+		registry: registry,
+		pool:     pool,
+		mem:      mem,
+		disk:     disk,
+		index:    internal.NewDepIndex(),
 	}
 
 	if cfg.Rasterization != rasterization.NIL_RASTERIZATION_CONFIG && !cfg.Rasterization.ExpectCompleted {
 		// begin only rasterization when BehaviouralDefaults have been applied
-		// TODO: BUG: Rasterization allows for any folder to be pulled to and from.
-		// however the bundler assumes the workspace to become .go_solid always right now
-		// which will mean that all rasterization will always fail cause the folder that is validated
-		// to read from during ExpectCompleted, will be but the parent cause the bundler
-		// used to generate rasterized cache will still make the .go_solid folder to place things within.
-		// FIX 01: Have rasterization check fo .go_solid presence in targeted folder and redirect itself.
-		// FIX 02: Have everything always expect .go_solid. More consistent.
 		for _, comp := range registry.Names() {
-			bundler.Prepare(comp, nil).Render() // pre-render all components with disk cache enabled
+			// pre-render all components with disk cache enabled
+			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
+			if err != nil {
+				pool.Close()
+				return nil, fmt.Errorf("go_solid: rasterization failed for component %q: %w", comp, err)
+			}
 		}
 	}
 
@@ -252,7 +241,7 @@ func configValidationAndNormalization(cfg *Config) error {
 		}
 		cfg.Workspace = abs
 	} else {
-		cfg.Workspace = cfg.Components
+		cfg.Workspace = filepath.Join(cfg.Components, ".go_solid")
 	}
 	if cfg.Generation == nil {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG

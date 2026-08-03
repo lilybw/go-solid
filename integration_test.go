@@ -86,7 +86,7 @@ func hasSolidToolchain(nodeModules string) bool {
 
 // newTestBundler builds a Bundler over a temp components dir, symlinking the
 // discovered node_modules so esbuild and the worker can resolve packages.
-func newTestBundler(t *testing.T, components map[string]string, cfg Config) *Bundler {
+func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bundler {
 	t.Helper()
 	_, modulesParent := integrationEnv(t)
 
@@ -239,7 +239,7 @@ func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
 func TestRender_ProducesSolidBundleAndHTML(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{
+	}, &Config{
 		Generation: &esbuild.BundlerConfig{Minify: false},
 	})
 
@@ -274,7 +274,7 @@ export default function Styled() { return <div class="styled">hi</div>; }
 		// keywords: esbuild's minifier folds them to hex (rebeccapurple -> #639),
 		// so assert on tokens that survive minification unchanged.
 		"styled.css": `.styled { padding: 4px; letter-spacing: 2px; }`,
-	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}})
+	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
 
 	r, err := b.Prepare("Styled", nil).WithCtx(context.Background()).Render()
 	if err != nil {
@@ -296,7 +296,7 @@ export default function Styled() { return <div class="styled">hi</div>; }
 func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
+	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
 
 	ctx := context.Background()
 	first, err := b.Prepare("Hello", map[string]any{"name": "A"}).WithCtx(ctx).Render()
@@ -324,7 +324,7 @@ func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 func TestRender_UnknownComponentErrors(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{DisableCaching: true})
+	}, &Config{DisableCaching: true})
 
 	_, err := b.Prepare("does/not/exist", nil).WithCtx(context.Background()).Render()
 	if err == nil {
@@ -338,7 +338,7 @@ func TestRender_UnknownComponentErrors(t *testing.T) {
 func TestRender_DevModeBypassesCache(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{DisableCaching: true})
+	}, &Config{DisableCaching: true})
 
 	ctx := context.Background()
 	first, err := b.Prepare("Hello", nil).WithCtx(ctx).Render()
@@ -357,7 +357,7 @@ func TestRender_DevModeBypassesCache(t *testing.T) {
 
 func TestNew_RequiresMandatoryConfig(t *testing.T) {
 	// Missing everything: should error without needing Node.
-	if _, err := New(Config{}); err == nil {
+	if _, err := New(&Config{}); err == nil {
 		t.Error("New with empty Config should error")
 	}
 }
@@ -449,7 +449,7 @@ func head(s string, n int) string {
 func TestRender_WarmRenderIsFast(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, Config{Generation: &esbuild.BundlerConfig{Minify: true}})
+	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
 
 	ctx := context.Background()
 

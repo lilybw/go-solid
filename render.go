@@ -91,7 +91,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		return nil, err
 	}
 
-	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.workspace, entrySource)
+	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponTempEntryWriteError(err) })
 		return nil, err
