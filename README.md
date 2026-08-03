@@ -1,7 +1,9 @@
 # GO Solid 
 SolidJS templating for Go with HMR. 
 
-Also this readme uses the words "template" and "component" (solidjs component) interchangably.
+#### Maturity
+Core API is defined and not likely to change significantly. However, breaking changes are still introduced regularly. 
+Tagged versions are available however.
 
 ## Requirements
 This library uses esbuild-go to generate templates. However, esbuild-go only supports React inherently. 

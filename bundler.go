@@ -48,7 +48,7 @@ type Config struct {
 	// !! NOT IMPLEMENTED !! If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
 	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
 	//
-	// Do be aware that this disables HMR and ReactiveRegistry as well as overwrites the DisableCaching flag since the caches are now mandatory.
+	// Do be aware that this disables HMR, ReactiveRegistry and DisableCaching (caches are now mandatory).
 	Rasterization *rasterization.RasterizationConfig
 
 	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
@@ -138,8 +138,15 @@ func New(cfg Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	if cfg.Defaults != nil && cfg.Defaults.HeadSegment != nil {
-		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
+	if cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS {
+		// func cannot be compared to another lambda, only nil... given the usage of null objects the NOOP lambda is alway run
+		// thus these nil checks are in vain right now
+		if cfg.Defaults.HeadSegment != nil {
+			networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
+		}
+		if cfg.Defaults.Requests != nil {
+			networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
+		}
 	}
 
 	// Caches are enabled unless explicitly disabled.
@@ -149,6 +156,7 @@ func New(cfg Config) (*Bundler, error) {
 		pool.Close()
 		return nil, err
 	}
+
 	mem := caching.NewMemCache(!cfg.DisableCaching)
 
 	if cfg.ReactiveRegistry {
@@ -174,10 +182,18 @@ func New(cfg Config) (*Bundler, error) {
 		index:     internal.NewDepIndex(),
 	}
 
+	if cfg.Rasterization != rasterization.NIL_RASTERIZATION_CONFIG && !cfg.Rasterization.ExpectCompleted {
+		// begin only rasterization when BehaviouralDefaults have been applied
+		// TODO: enable request beahviour base template
+		for _, comp := range registry.Names() {
+			bundler.Prepare(comp, nil).Render() // pre-render all components with disk cache enabled
+		}
+	}
+
 	// Hot browser reload: opt-in, and go_solid mounts its own handler on the
 	// consumer-provided mux. When inactive, none of this is constructed and the
 	// emitted HTML is byte-identical to a plain render.
-	if cfg.HMR != nil && !cfg.HMR.Disabled {
+	if cfg.HMR != hmr.NIL_HMR_CONFIG && !cfg.HMR.Disabled {
 		normalized, err := hmr_int.NormalizeHMRConfig(cfg.HMR)
 		if err != nil {
 			pool.Close()
@@ -262,6 +278,8 @@ func configValidationAndNormalization(cfg *Config) error {
 			if err := rasterization_int.ExpectCompletedValidationCheck(cfg.Rasterization); err != nil {
 				return err
 			}
+			cfg.HMR.Disabled = true // expecting completed rasterization disables HMR
+			cfg.ReactiveRegistry = false
 		}
 	}
 	return nil

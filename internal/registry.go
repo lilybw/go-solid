@@ -192,9 +192,8 @@ func (this QualifiedNameSlice) ToStringSlice() []string {
 	return out
 }
 
-// Names returns all registered component names, sorted. Useful for debugging
-// and for a dev-mode index page.
-func (this *ComponentRegistry) Names() []string {
+// Names returns all registered component names, sorted.
+func (this *ComponentRegistry) Names() []meta.QualifiedName {
 	this.mu.RLock()
 	defer this.mu.RUnlock()
 	names := make([]meta.QualifiedName, 0, len(this.components))

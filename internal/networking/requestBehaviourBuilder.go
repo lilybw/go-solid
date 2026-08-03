@@ -5,6 +5,7 @@ import (
 
 	caching "github.com/lilybw/go-solid/internal/caching"
 	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/internal/noop"
 	. "github.com/lilybw/go-solid/shared/networking"
 )
 
@@ -12,10 +13,18 @@ type requestBehaviourBuilder struct {
 	data *RequestBehaviour
 }
 
+var requestBehaviourBuilderTemplate = noop.T_o_Void[RequestBehaviourBuilder]()
+
+func SetRequestBehaviourTemplate(fn meta.Configurator[RequestBehaviourBuilder]) {
+	requestBehaviourBuilderTemplate = fn
+}
+
 func NewRequestBehaviourBuilder(data *RequestBehaviour) RequestBehaviourBuilder {
-	return &requestBehaviourBuilder{
+	instance := &requestBehaviourBuilder{
 		data: data,
 	}
+	requestBehaviourBuilderTemplate(instance)
+	return instance
 }
 
 func (this *requestBehaviourBuilder) SetWriter(w http.ResponseWriter) RequestBehaviourBuilder {

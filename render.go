@@ -14,8 +14,17 @@ import (
 	networking "github.com/lilybw/go-solid/shared/networking"
 )
 
+// TODO: expand props to varparam, construct props js object from safe-made reflect.Type and let an interface be implemented to enable a props property key overwrite
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {
 	return newRenderCallBuilder(this, component, props)
+}
+
+func (this *Bundler) Render(component meta.QualifiedName, configurator meta.Configurator[RenderCallBuilder], props any) (*caching.Rendered, error) {
+	builder := this.Prepare(component, props)
+	if configurator != nil {
+		configurator(builder)
+	}
+	return builder.Render()
 }
 
 type renderData struct {
