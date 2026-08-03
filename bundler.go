@@ -184,7 +184,13 @@ func New(cfg Config) (*Bundler, error) {
 
 	if cfg.Rasterization != rasterization.NIL_RASTERIZATION_CONFIG && !cfg.Rasterization.ExpectCompleted {
 		// begin only rasterization when BehaviouralDefaults have been applied
-		// TODO: enable request beahviour base template
+		// TODO: BUG: Rasterization allows for any folder to be pulled to and from.
+		// however the bundler assumes the workspace to become .go_solid always right now
+		// which will mean that all rasterization will always fail cause the folder that is validated
+		// to read from during ExpectCompleted, will be but the parent cause the bundler
+		// used to generate rasterized cache will still make the .go_solid folder to place things within.
+		// FIX 01: Have rasterization check fo .go_solid presence in targeted folder and redirect itself.
+		// FIX 02: Have everything always expect .go_solid. More consistent.
 		for _, comp := range registry.Names() {
 			bundler.Prepare(comp, nil).Render() // pre-render all components with disk cache enabled
 		}
