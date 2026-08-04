@@ -121,7 +121,7 @@ func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bu
 	}
 
 	cfg.Components = compDir
-	cfg.Dependencies = modulesParent // already contains node_modules with the toolchain
+	cfg.Generation.Dependencies = modulesParent // already contains node_modules with the toolchain
 	if cfg.Generation == nil {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
 	}

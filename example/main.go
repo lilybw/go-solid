@@ -9,13 +9,14 @@ import (
 	"time"
 
 	solid "github.com/lilybw/go-solid"
+	"github.com/lilybw/go-solid/shared/esbuild"
 )
 
 func main() {
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(&solid.Config{
-		Components:   filepath.Join(wd, "components"),
-		Dependencies: wd,
+		Components: filepath.Join(wd, "components"),
+		Generation: &esbuild.BundlerConfig{Dependencies: wd},
 	})
 	if err != nil {
 		fmt.Println("New failed:", err)
@@ -61,7 +62,10 @@ func init() {
 		return
 	}
 	wd, _ := filepath.Abs(".")
-	b, err := solid.New(&solid.Config{Components: filepath.Join(wd, "components"), Dependencies: wd, DisableCaching: true})
+	b, err := solid.New(&solid.Config{
+		Components:     filepath.Join(wd, "components"),
+		Generation:     &esbuild.BundlerConfig{Dependencies: wd},
+		DisableCaching: true})
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)

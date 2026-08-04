@@ -28,11 +28,7 @@ type Config struct {
 	// The registry will scan this and all subdirectories, skipping directories prefixed with a dot (.)
 	// or with the exact name "node_modules"
 	Components meta.AbsoluteDirectoryPath
-	// The absolute path to the directory containing the node_modules folder with the node dependencies.
-	// Defaults to the same value as Components if not specified.
-	//
-	// This field is a shorthand and overwritten by Config#Generation#Dependencies if present
-	Dependencies meta.AbsoluteDirectoryPath // easy access field, single source of truth is the BundlerConfig
+
 	// The absolute path to the directory where go_solid will place its .go_solid workspace directory, which contains the worker script and the disk cache.
 	// Defaults to Components if not specified.
 	Workspace meta.AbsoluteDirectoryPath
@@ -108,12 +104,12 @@ func New(cfg *Config) (*Bundler, error) {
 		networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
 	}
 
-	if missing := esbuild_int.PeerDepsMissing(cfg.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
+	if missing := esbuild_int.PeerDepsMissing(cfg.Generation.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
 		return nil, fmt.Errorf(
 			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
 				"Install them in your frontend project:\n"+
 				"    npm install --save-dev %s",
-			missing, cfg.Dependencies, strings.Join(missing, " "))
+			missing, cfg.Generation.Dependencies, strings.Join(missing, " "))
 	}
 
 	registry, err := internal.NewRegistry(cfg.Components)
@@ -216,15 +212,6 @@ func configValidationAndNormalization(cfg *Config) error {
 		return fmt.Errorf("go_solid: Expected absolute path to ComponentsDir %q: %w", cfg.Components, err)
 	}
 	cfg.Components = abs
-	if cfg.Dependencies != "" {
-		abs, err := filepath.Abs(cfg.Dependencies)
-		if err != nil {
-			return fmt.Errorf("go_solid: Expected absolute path to Dependencies %q: %w", cfg.Dependencies, err)
-		}
-		cfg.Dependencies = abs
-	} else {
-		cfg.Dependencies = cfg.Components
-	}
 	if cfg.Workspace != "" {
 		abs, err := filepath.Abs(cfg.Workspace)
 		if err != nil {
@@ -255,8 +242,14 @@ func configValidationAndNormalization(cfg *Config) error {
 		// no need for minify: defaults to false
 		// no need for sourcemap: defaults to 0 aka SourceMapNone
 		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
-			cfg.Generation.Dependencies = cfg.Dependencies
+			cfg.Generation.Dependencies = cfg.Components
 		}
+	}
+
+	if abs, err := filepath.Abs(cfg.Generation.Dependencies); err != nil {
+		return fmt.Errorf("go_solid: Expected absolute path to Dependencies %q: %w", cfg.Generation.Dependencies, err)
+	} else {
+		cfg.Generation.Dependencies = abs
 	}
 
 	if cfg.Defaults == nil {

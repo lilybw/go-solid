@@ -26,7 +26,7 @@ import { join } from "node:path";
 // resolve it relative to THIS file's location and fail. Instead anchor resolution at depsDir explicitly.
 const depsDir = process.argv[2];
 if (!depsDir) {
-  process.stderr.write("[transform-worker] fatal: missing deps directory (argv[2])\n");
+  process.stderr.write("[transform-worker] fatal: missing deps directory. Expected directory at: \n\"" + depsDir + "\"");
   process.exit(2);
 }
 

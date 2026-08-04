@@ -99,7 +99,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	defer cleanup()
 
 	// Sourcemaps is now its own flag (last BundleEntry arg), independent of caching.
-	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Dependencies, bundler.cfg.Generation)
+	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponCompBundlingError(err) })
 		return nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
