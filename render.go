@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lilybw/go-solid/internal"
 	caching "github.com/lilybw/go-solid/internal/caching"
+	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
@@ -85,7 +85,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		data.root = comp.MountRootID
 	}
 
-	entrySource, err := internal.GenerateEntry(comp)
+	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponEntryGenerationError(err) })
 		return nil, err
@@ -129,7 +129,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if bundler.hub != nil {
 		hmrScript = hmr.ClientScript(bundler.cfg.HMR.Path, data.component)
 	}
-	rendered.HTML = internal.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.root, hmrScript)
+	rendered.HTML = code_gen.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.root, hmrScript)
 
 	bundler.mem.Put(key, rendered)
 	if bundler.disk != nil {

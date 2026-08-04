@@ -4,15 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go-solid/internal"
 	caching "github.com/lilybw/go-solid/internal/caching"
+	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	networking "github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
-	comp := internal.NewComponent("auth/LoginForm", "/srv/frontend/components/auth/LoginForm.tsx", ".tsx")
-	src, err := internal.GenerateEntry(comp)
+	comp := registry.NewComponent("auth/LoginForm", "/srv/frontend/components/auth/LoginForm.tsx", ".tsx")
+	src, err := code_gen.GenerateEntry(comp)
 	if err != nil {
 		t.Fatalf("generateEntry: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestAssembleHTML_WithCSS(t *testing.T) {
 		CSSName: "auth_LoginForm.def.css",
 		CSS:     "/* css to be included */",
 	}
-	html := internal.AssembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, rendered, "go-solid-root", "")
+	html := code_gen.AssembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, rendered, "go-solid-root", "")
 
 	for _, want := range []string{
 		`<title>test/test</title>`,
@@ -72,7 +73,7 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 		JSName:  "Version.abc.js",
 		CSSName: "",
 	}
-	html := internal.AssembleHTML(getTestHeadSegment(), `{}`, rendered, "go-solid-root", "")
+	html := code_gen.AssembleHTML(getTestHeadSegment(), `{}`, rendered, "go-solid-root", "")
 	if strings.Contains(html, "<link") {
 		t.Errorf("HTML should omit <link> when cssName empty; got:\n%s", html)
 	}
@@ -86,7 +87,7 @@ func TestAssembleHTML_PropsGoInDataIsland(t *testing.T) {
 		JSName:  "c.js",
 		CSSName: "",
 	}
-	html := internal.AssembleHTML(getTestHeadSegment(), `{"x":1}`, rendered, "go-solid-root", "")
+	html := code_gen.AssembleHTML(getTestHeadSegment(), `{"x":1}`, rendered, "go-solid-root", "")
 	island := `<script id="props-go-solid-root" type="application/json">{"x":1}</script>`
 	if !strings.Contains(html, island) {
 		t.Errorf("props not placed in application/json data island; got:\n%s", html)

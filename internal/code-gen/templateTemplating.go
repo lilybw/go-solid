@@ -1,4 +1,4 @@
-package internal
+package code_gen
 
 import (
 	"path/filepath"
@@ -8,6 +8,7 @@ import (
 
 	caching "github.com/lilybw/go-solid/internal/caching"
 	"github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 var (
@@ -75,7 +76,7 @@ type htmlTemplateData struct {
 	HMRScript    string // "" when HMR inactive; injected reload client otherwise
 }
 
-func GenerateEntry(comp Component) (string, error) {
+func GenerateEntry(comp registry.Component) (string, error) {
 	importPath := filepath.ToSlash(strings.TrimSuffix(comp.Path, comp.Ext))
 
 	data := entryTemplateData{
