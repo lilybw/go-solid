@@ -10,7 +10,10 @@ This library uses esbuild-go to generate templates. However, esbuild-go only sup
 
 Thus the need for node workers, and by extension a couple of node modules, which this library uses to apply the solidjs transform. 
 
-To provide these dependencies, include this package.json in a subfolder of your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
+Since v0.0.13 it is now possible to have the libary pre-apply all transforms and write a prepared cache to a specified location (see ```Config#Rasterization```), so that node, and all node
+dependencies*, can be excluded upon deployment.
+
+To provide node dependencies during development, include this package.json in a subfolder of your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
 ```json
 {
   "name": "stub-for-dependencies",
@@ -42,6 +45,8 @@ bundler, err := solid.New(solid.Config{
 ```
 
 Aforementioned package json is also where you can declare any other node dependencies your frontend might have. 
+
+*Depends on how they are bundled and how they work. 
 
 ### Caching
 To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
@@ -136,11 +141,3 @@ bundler.Prepare("ComponentName", props).
 If you would like for go_solid to work for your server framework/library of choice, I see no issue in introducing multiple variants of ForRequest.
 
 I.e. ForFiberRequest, ForGinRequest... etc. 
-
-## On the Subject of Node
-I would love to remove the node dependency and worker pool as it introduces a lot of possible points of failure (not to mention cross-process performance overhead). 
-
-However, it doesnt appear feasible until someone ports first the babel abstract syntax tree, then the solidjs transform and compiler to Go. 
-
-So in the meantime I am working on a way, to enable a setting that disables all node workers and thus only pre-cached components can be called upon. By disabling workers, node is no longer called upon, however no components can be rebundled. 
-Not ideal for development, but given that the cache is configurable, it should be able to be copied over during any deployment.
