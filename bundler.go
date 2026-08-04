@@ -148,6 +148,11 @@ func New(cfg *Config) (*Bundler, error) {
 		}
 	}
 
+	static, err := static_int.NewStaticRegistry(cfg.Static)
+	if err != nil {
+		return nil, err
+	}
+
 	bundler := &Bundler{
 		// if a bundler is correctly made through New(), the config is at this point assured to be validated, all fields present, and all field values correctly assigned.
 		cfg:      cfg,
@@ -156,6 +161,7 @@ func New(cfg *Config) (*Bundler, error) {
 		mem:      mem,
 		disk:     disk,
 		index:    internal.NewDepIndex(),
+		static:   static,
 	}
 
 	if cfg.Rasterization != rasterization.NIL_RASTERIZATION_CONFIG && !cfg.Rasterization.ExpectCompleted {
