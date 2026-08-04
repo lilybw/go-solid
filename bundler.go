@@ -37,6 +37,9 @@ type Config struct {
 	// render rebuilds from source.
 	DisableCaching bool
 
+	// Settings for code generation, solidjs transform application, worker pool size, and the like.
+	//
+	// Expects node_modules to be located within Config#Components by default. Can be overwritten using this sub-config.
 	Generation *esbuild.BundlerConfig
 
 	// Enable a filewatcher that watches the component dir to trigger registry updates when new component files are added.
