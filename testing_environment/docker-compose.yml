@@ -5,6 +5,8 @@ services:
       dockerfile: ./testing_environment/Dockerfile.Unix
     image: go-solid-test:unix
     container_name: go-solid-unix
+    volumes:
+      - ./logs-unix:/logs
 
   windows:
     build:
@@ -12,3 +14,5 @@ services:
       dockerfile: ./testing_environment/Dockerfile.Windows
     image: go-solid-test:windows
     container_name: go-solid-windows
+    volumes:
+      - ./logs-windows:/logs

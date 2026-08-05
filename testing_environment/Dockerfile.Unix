@@ -15,4 +15,4 @@ RUN npm install
 # compile-check at build time
 RUN ["go", "build", "./..." ]         
 # tests run at container start# tests run at container start; capture output, never fail the container
-CMD go test ./... > /test-log.txt 2>&1; echo "exit: $?" >> /test-log.txt; sleep infinity
+CMD go test ./... > /logs/test-log.txt 2>&1; echo "exit: $?" >> /logs/test-log.txt
