@@ -9,18 +9,28 @@ import (
 	. "github.com/lilybw/go-solid/shared/static"
 )
 
-type StaticRegistry struct {
+type StaticRegistry interface {
+}
+
+type enabledStaticRegistry struct {
 	cfg   *StaticConfig
 	graph *Node[os.DirEntry]
 }
 
-func NewStaticRegistry(cfg *StaticConfig) (*StaticRegistry, error) {
+func NewStaticRegistry(cfg *StaticConfig) (StaticRegistry, error) {
+	if cfg == NIL_STATIC_CONFIG {
+		return &disabledStaticRegistry{
+			cfg:   cfg,
+			graph: nil,
+		}, nil
+	}
+
 	graph, err := Scan(cfg.Location, noop.T_o_T[os.DirEntry](), cfg.Ignore...)
 	if err != nil {
 		return nil, err
 	}
 
-	return &StaticRegistry{
+	return &enabledStaticRegistry{
 		cfg:   cfg,
 		graph: graph,
 	}, nil
@@ -30,6 +40,11 @@ type Node[T any] struct {
 	Self   T
 	Leaves []T
 	Nodes  []Node[T]
+}
+
+type disabledStaticRegistry struct {
+	cfg   *StaticConfig
+	graph *Node[os.DirEntry]
 }
 
 // Construct any graph representation of directory contents

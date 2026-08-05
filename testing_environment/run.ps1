@@ -1,1 +1,1 @@
-docker compose build --no-cache unix ; docker compose run --rm unix
+docker compose build --no-cache unix && docker cp go-solid-unix:/test-log.txt ./test-log.txt && docker compose run --rm unix

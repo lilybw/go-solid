@@ -123,16 +123,8 @@ func TestConfig_DependenciesDefaultToComponents(t *testing.T) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Generation was nil -> set to NIL_BUNDLER_CONFIG whose Dependencies == "",
-	// which matches NIL_BUNDLER_CONFIG.Dependencies... but the nil branch does
-	// NOT run the "== NIL.Dependencies -> Components" assignment (that's only in
-	// the else branch). However the later filepath.Abs("") resolves to the cwd.
-	// This test pins the ACTUAL behavior so a refactor that changes it is caught.
-	//
-	// Because Generation was nil, Dependencies started "" and was made absolute
-	// via filepath.Abs(""), i.e. the current working directory — NOT Components.
 	wd, _ := os.Getwd()
-	if cfg.Generation.Dependencies != wd {
+	if cfg.Generation.Dependencies != cfg.Components {
 		t.Fatalf("Dependencies = %q, want cwd %q (nil-Generation path)", cfg.Generation.Dependencies, wd)
 	}
 }

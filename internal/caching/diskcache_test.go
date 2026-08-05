@@ -302,7 +302,10 @@ func TestDiskCache_ConcurrentPutGet(t *testing.T) {
 // --- extractSources (metafile parsing, pure) --------------------------------
 
 func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
-	// Minimal esbuild-metafile-shaped JSON.
+	workspace := t.TempDir()
+
+	// Minimal esbuild-metafile-shaped JSON. Input keys are relative, forward-slashed
+	// (as esbuild emits); ExtractSourcesFromMetafile joins them against workspace.
 	meta := `{
       "inputs": {
         "components/A.tsx": {"bytes": 1},
@@ -311,7 +314,8 @@ func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
         ".go_solid/.tmp123/entry.jsx": {"bytes": 1}
       }
     }`
-	got := esbuild.ExtractSourcesFromMetafile(meta, "C:/work")
+	got := esbuild.ExtractSourcesFromMetafile(meta, workspace)
+
 	// Only the two consumer sources survive; node_modules and temp entry dropped.
 	var hasA, hasB, hasNM, hasEntry bool
 	for _, s := range got {
@@ -335,7 +339,7 @@ func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
 	if hasEntry {
 		t.Error("temp entry leaked into sources")
 	}
-	// Paths must be absolute (joined with workDir).
+	// Paths must be absolute (joined with workspace).
 	for _, s := range got {
 		if !filepath.IsAbs(s) {
 			t.Errorf("source not absolute: %q", s)

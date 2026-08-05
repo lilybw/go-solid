@@ -96,7 +96,7 @@ type Bundler struct {
 	mem      *caching.MemCache
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
-	static   *static_int.StaticRegistry
+	static   static_int.StaticRegistry
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
 }
