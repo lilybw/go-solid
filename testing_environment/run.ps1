@@ -1,0 +1,1 @@
+docker compose build --no-cache unix ; docker compose run --rm unix

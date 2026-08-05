@@ -1,0 +1,11 @@
+FROM golang:1.27rc2-windowsservercore-ltsc2025
+
+WORKDIR /go-solid
+
+# Make sure to update and maintain .dockerignore
+# Alsdo build ctx is set to go-solid dir in docker-compose
+COPY . . 
+# compile-check at build time
+RUN go build ./...          
+# tests run at container start
+CMD ["go", "test", "./..."] 

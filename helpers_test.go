@@ -89,7 +89,9 @@ func componentsDirWith(t *testing.T, files map[string]string) string {
 // disabledGeneration returns a BundlerConfig whose Disabled flag prevents any
 // Node worker from spawning. Use this in every New() integration test.
 func disabledGeneration() *shared_esbuild.BundlerConfig {
-	return &shared_esbuild.BundlerConfig{Disabled: true}
+	return &shared_esbuild.BundlerConfig{
+		Disabled: true,
+	}
 }
 
 // mustAbs is filepath.Abs with a test failure on error.

@@ -1,0 +1,18 @@
+FROM golang:1.27rc2-alpine3.24
+
+WORKDIR /go-solid
+
+# Make sure to update and maintain .dockerignore
+# Alsdo build ctx is set to go-solid dir in docker-compose
+COPY . . 
+
+COPY package.json .
+
+RUN apk add --no-cache nodejs npm
+
+RUN npm install
+
+# compile-check at build time
+RUN ["go", "build", "./..." ]         
+# tests run at container start# tests run at container start; capture output, never fail the container
+CMD go test ./... > /test-log.txt 2>&1; echo "exit: $?" >> /test-log.txt; sleep infinity

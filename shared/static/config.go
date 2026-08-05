@@ -16,4 +16,5 @@ type StaticConfig struct {
 var NIL_STATIC_CONFIG = &StaticConfig{
 	Location: meta.AbsoluteDirectoryPath(""),
 	Reactive: false,
+	Ignore:   make([]FileSelectorPattern, 0),
 }

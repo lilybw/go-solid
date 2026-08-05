@@ -10,6 +10,7 @@ import (
 	caching "github.com/lilybw/go-solid/internal/caching"
 	esbuild_int "github.com/lilybw/go-solid/internal/esbuild"
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
+	log_int "github.com/lilybw/go-solid/internal/logging"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/noop"
@@ -18,6 +19,7 @@ import (
 	"github.com/lilybw/go-solid/internal/workers"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
+	logging "github.com/lilybw/go-solid/shared/logging"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/rasterization"
 	"github.com/lilybw/go-solid/shared/static"
@@ -32,6 +34,8 @@ type Config struct {
 	// The absolute path to the directory where go_solid will place its .go_solid workspace directory, which contains the worker script and the disk cache.
 	// Defaults to Components if not specified.
 	Workspace meta.AbsoluteDirectoryPath
+
+	LogLevel logging.LogLevel
 
 	// DisableCaching bypasses both the in-memory and on-disk caches, so every
 	// render rebuilds from source.
@@ -75,9 +79,9 @@ type Config struct {
 type BehaviouralDefaults struct {
 	// Define the default elements of the <head> tag to be included in every page.
 	// These defaults can be modified upon any Bundler#Prepare call by using the method: WithHTMLHeadTags
-	HeadSegment meta.Configurator[networking.HTMLHeadSegmentBuilder]
+	HeadSegment meta.Configurator[networking.HTMLHeadSegmentBuilder] `json:"-"`
 	// Define the default behaviour of the http request handling. These defaults can be modified upon any Bundler#Prepare call by using the method: SetHTTPBehaviour
-	Requests meta.Configurator[networking.RequestBehaviourBuilder]
+	Requests meta.Configurator[networking.RequestBehaviourBuilder] `json:"-"`
 }
 
 var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
@@ -212,6 +216,11 @@ func (cfg *Config) isHMROn() bool {
 
 // Ensures all fields are valid and non-nil, defaulting to defined DEFAULT_XXXX objects where appropriate to indicate no consumer configuration
 func configValidationAndNormalization(cfg *Config) error {
+	if cfg.LogLevel == 0 {
+		cfg.LogLevel = logging.LEVEL_DEBUG
+	}
+
+	log_int.LogJSON(logging.LEVEL_TRACE, "[bundler.go#configValidationAndNormalization] user config:", cfg)
 	// POLYFILL
 	if cfg.Components == "" {
 		return fmt.Errorf("go_solid: ComponentsDir is required")
@@ -238,6 +247,7 @@ func configValidationAndNormalization(cfg *Config) error {
 
 	if cfg.Generation == nil {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
+		cfg.Generation.Dependencies = cfg.Components
 	} else {
 		if cfg.Generation.NodeBin == "" {
 			cfg.Generation.NodeBin = esbuild.NIL_BUNDLER_CONFIG.NodeBin
@@ -277,6 +287,13 @@ func configValidationAndNormalization(cfg *Config) error {
 	}
 	if cfg.Static == nil {
 		cfg.Static = static.NIL_STATIC_CONFIG
+	} else {
+		if cfg.Static.Ignore == nil {
+			cfg.Static.Ignore = static.NIL_STATIC_CONFIG.Ignore
+		}
+		if cfg.Static.Location == "" {
+			return fmt.Errorf("Static config provided yet location unset. Kindly state.")
+		}
 	}
 	if cfg.Rasterization == nil {
 		cfg.Rasterization = rasterization.NIL_RASTERIZATION_CONFIG
@@ -304,6 +321,7 @@ func configValidationAndNormalization(cfg *Config) error {
 		cfg.Generation.ScriptLocation = scriptLocation
 	}
 
+	log_int.LogJSON(logging.LEVEL_DEBUG, "normalized configuration: ", cfg)
 	return nil
 }
 

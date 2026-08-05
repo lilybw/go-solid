@@ -27,7 +27,9 @@ func TestNew_MissingPeerDepsFails(t *testing.T) {
 	// runs before the registry walk).
 	writeFile(t, comps, "A.tsx", "export default () => null;")
 
-	_, err := New(&Config{Components: comps, Generation: disabledGeneration()})
+	_, err := New(&Config{
+		Components: comps, Generation: disabledGeneration(),
+	})
 	if err == nil {
 		t.Fatal("expected missing-peer-deps error, got nil")
 	}
