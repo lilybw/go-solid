@@ -10,6 +10,7 @@ import (
 
 	"github.com/lilybw/go-solid/internal/meta"
 	watching_int "github.com/lilybw/go-solid/internal/watching"
+	"github.com/lilybw/go-solid/shared/registry"
 	. "github.com/lilybw/go-solid/shared/registry"
 	watching "github.com/lilybw/go-solid/shared/watching"
 )
@@ -89,7 +90,7 @@ func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.Qualifi
 	if existing, dup := this.components[name]; dup && existing.Path != path {
 		return "", false, fmt.Errorf("registry: duplicate component %q from %s and %s", name, existing.Path, path)
 	}
-	this.components[name] = NewComponent(name, path, ext)
+	this.components[name] = *NewComponent(name, path, ext)
 	return name, true, nil
 }
 
@@ -148,7 +149,7 @@ func (this *ComponentRegistry) Reload() error {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.Path, path)
 		}
-		found[name] = NewComponent(name, path, ext)
+		found[name] = *registry.NewComponent(name, path, ext)
 		return nil
 	})
 	if walkErr != nil {
@@ -162,11 +163,11 @@ func (this *ComponentRegistry) Reload() error {
 }
 
 // Lookup returns the component registered under name, or ok=false.
-func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (Component, bool) {
+func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (*Component, bool) {
 	this.mu.RLock()
 	defer this.mu.RUnlock()
 	c, ok := this.components[component]
-	return c, ok
+	return &c, ok
 }
 
 type QualifiedNameSlice []meta.QualifiedName

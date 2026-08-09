@@ -342,3 +342,32 @@ func (b *Bundler) Close() {
 func (b *Bundler) logDiskCacheError(err error) {
 	fmt.Fprintf(os.Stderr, "[go_solid] disk cache write failed (non-fatal): %v\n", err)
 }
+
+func (b *Bundler) FromDisk(key *caching.CacheKey) (*caching.Rendered, bool) {
+	if b.disk != nil {
+		if cached, ok := b.disk.Get(key); ok {
+			b.mem.Put(key, cached) // promote to memory
+			return cached, true
+		}
+	}
+	return nil, false
+}
+
+func (b *Bundler) searchCaches(key *caching.CacheKey) (*caching.Rendered, bool) {
+	if cached, ok := b.mem.Get(key); ok {
+		return cached, true
+	}
+	return b.FromDisk(key)
+}
+
+func (b *Bundler) constructHMRScript(component meta.QualifiedName) string {
+	// Inject the hot-reload client only when HMR is active. Generated here in
+	// package go_solid (which imports both hmr and internal) and passed to
+	// AssembleHTML as a plain string, so internal never imports hmr — avoiding
+	// the import cycle (hmr already imports internal).
+	hmrScript := ""
+	if b.hub != nil {
+		hmrScript = hmr_int.ClientScript(b.cfg.HMR.Path, component)
+	}
+	return hmrScript
+}

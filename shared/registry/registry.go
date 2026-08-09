@@ -19,6 +19,6 @@ type Component struct {
 	MountRootID string // optional: if non-empty, the HTML shell will mount this component at this id instead of the default "go-solid-root"
 }
 
-func NewComponent(name meta.QualifiedName, path meta.AbsoluteFilePath, ext string) Component {
-	return Component{Name: name, Path: path, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
+func NewComponent(name meta.QualifiedName, path meta.AbsoluteFilePath, ext string) *Component {
+	return &Component{Name: name, Path: path, Ext: ext, MountRootID: fmt.Sprintf("%s-go-solid-root", strings.ReplaceAll(name, "/", "-"))}
 }

@@ -9,9 +9,9 @@ import (
 	caching "github.com/lilybw/go-solid/internal/caching"
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
-	"github.com/lilybw/go-solid/internal/hmr"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking "github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 // TODO: expand props to varparam, construct props js object from safe-made reflect.Type and let an interface be implemented to enable a props property key overwrite
@@ -46,37 +46,64 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 }
 
 // TODO: Move to internal alongside renderData and ifRequest if possible
+// compiled is the props-independent, cacheable half: JS/CSS + asset names.
+// It is what lives in the caches. It is never mutated after construction.
+// (This is just caching.Rendered with HTML left empty; see note below.)
+
 func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	if err := data.ctx.Err(); err != nil {
 		return nil, err // caller already cancelled / deadline exceeded
 	}
 
-	propsJSON := "{}"
-	if data.props != nil {
-		raw, err := json.Marshal(data.props)
-		if err != nil {
-			data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponPropsMarshalingError(err) })
-			return nil, fmt.Errorf("go_solid#Render: marshal props: %w", err)
-		}
-		propsJSON = string(raw)
+	propsJSON, err := marshalProps(data)
+	if err != nil {
+		return nil, err
 	}
 
+	artifact, err := bundler.compiledArtifact(data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assemble a request-local response. Never mutate the cached artifact:
+	// HTML carries props/root/HMR, which vary per call.
+	resp := assembleResponse(bundler, data, artifact, propsJSON)
+
+	data.ifRequest(func(req *networking.RequestBehaviour) error {
+		return req.TransmitRenderedTemplate(resp)
+	})
+	return resp, nil
+}
+
+// marshalProps isolates the props->JSON step and its request error hook.
+func marshalProps(data renderData) (string, error) {
+	if data.props == nil {
+		return "{}", nil
+	}
+	raw, err := json.Marshal(data.props)
+	if err != nil {
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.UponPropsMarshalingError(err)
+		})
+		return "", fmt.Errorf("go_solid#Render: marshal props: %w", err)
+	}
+	return string(raw), nil
+}
+
+// compiledArtifact returns the props-independent JS/CSS artifact for this
+// component, from cache if present, otherwise by bundling and caching it.
+// The returned *Rendered is shared and must be treated as read-only.
+func (bundler *Bundler) compiledArtifact(data renderData) (*caching.Rendered, error) {
 	key := caching.NewMemCacheKey(data.component, data.root)
-	if cached, ok := bundler.mem.Get(key); ok {
+	if cached, ok := bundler.searchCaches(key); ok {
 		return cached, nil
-	}
-
-	if bundler.disk != nil {
-		if cached, ok := bundler.disk.Get(key); ok {
-			bundler.mem.Put(key, cached) // promote to memory
-			return cached, nil
-		}
 	}
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponRegistryLookupFailure(fmt.Errorf("component %q not found in registry", data.component))
+			return req.UponRegistryLookupFailure(
+				fmt.Errorf("component %q not found in registry", data.component))
 		})
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
 			data.component, strings.Join(bundler.registry.Names(), ", "))
@@ -85,60 +112,83 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 		data.root = comp.MountRootID
 	}
 
+	artifact, sources, err := bundler.bundleComponent(data, comp)
+	if err != nil {
+		return nil, err
+	}
+
+	bundler.mem.Put(key, artifact)
+	if bundler.disk != nil {
+		if err := bundler.disk.Put(key, bundler.cfg.Generation.Minify, artifact, sources); err != nil {
+			bundler.logDiskCacheError(err)
+		}
+	}
+	return artifact, nil
+}
+
+// bundleComponent runs the esbuild pipeline and packages the JS/CSS artifact.
+// It does not assemble HTML and does not touch the caches.
+func (bundler *Bundler) bundleComponent(
+	data renderData, comp *registry.Component, // adjust to your real type
+) (*caching.Rendered, []meta.AbsoluteFilePath, error) {
+
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponEntryGenerationError(err) })
-		return nil, err
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.UponEntryGenerationError(err)
+		})
+		return nil, nil, err
 	}
 
 	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponTempEntryWriteError(err) })
-		return nil, err
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.UponTempEntryWriteError(err)
+		})
+		return nil, nil, err
 	}
 	defer cleanup()
 
-	// Sourcemaps is now its own flag (last BundleEntry arg), independent of caching.
-	bundle, err := esbuild.BundleEntry(data.ctx, bundler.pool, "dom", entryPath, bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
+	bundle, err := esbuild.BundleEntry(
+		data.ctx, bundler.pool, "dom", entryPath,
+		bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error { return req.UponCompBundlingError(err) })
-		return nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.UponCompBundlingError(err)
+		})
+		return nil, nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
 	}
 
-	// Maintain the dependency graph on every render regardless of cache settings;
-	// the watcher inverts it to decide which tabs to reload.
+	// Keep the dependency graph current regardless of cache settings; the
+	// watcher inverts it to decide which tabs to reload.
 	bundler.index.Record(data.component, bundle.Sources)
 
 	safeName := strings.ReplaceAll(data.component, "/", "_")
-	jsHash := caching.ShortHash(string(bundle.JS), 8)
-	rendered := &caching.Rendered{
+	artifact := &caching.Rendered{
 		JS:     string(bundle.JS),
 		CSS:    string(bundle.CSS),
-		JSName: fmt.Sprintf("%s.%s.js", safeName, jsHash),
+		JSName: fmt.Sprintf("%s.%s.js", safeName, caching.ShortHash(string(bundle.JS), 8)),
 	}
 	if len(bundle.CSS) > 0 {
-		cssHash := caching.ShortHash(string(bundle.CSS), 8)
-		rendered.CSSName = fmt.Sprintf("%s.%s.css", safeName, cssHash)
+		artifact.CSSName = fmt.Sprintf("%s.%s.css", safeName, caching.ShortHash(string(bundle.CSS), 8))
 	}
+	return artifact, bundle.Sources, nil
+}
 
-	// Inject the hot-reload client only when HMR is active. Generated here in
-	// package go_solid (which imports both hmr and internal) and passed to
-	// AssembleHTML as a plain string, so internal never imports hmr — avoiding
-	// the import cycle (hmr already imports internal).
-	hmrScript := ""
-	if bundler.hub != nil {
-		hmrScript = hmr.ClientScript(bundler.cfg.HMR.Path, data.component)
-	}
-	rendered.HTML = code_gen.AssembleHTML(data.htmlHeadTags, propsJSON, rendered, data.root, hmrScript)
-
-	bundler.mem.Put(key, rendered)
-	if bundler.disk != nil {
-		if err := bundler.disk.Put(key, bundler.cfg.Generation.Minify, rendered, bundle.Sources); err != nil {
-			bundler.logDiskCacheError(err)
-		}
-	}
-
-	data.ifRequest(func(req *networking.RequestBehaviour) error { return req.TransmitRenderedTemplate(rendered) })
-
-	return rendered, nil
+// assembleResponse builds the request-local Rendered: a shallow copy of the
+// cached artifact with freshly assembled HTML. The cached artifact is never
+// mutated, so concurrent renders of the same component don't clobber each other.
+func assembleResponse(
+	bundler *Bundler, data renderData,
+	artifact *caching.Rendered, propsJSON string,
+) *caching.Rendered {
+	resp := *artifact // copy JS/CSS/JSName/CSSName by value
+	resp.HTML = code_gen.AssembleHTML(
+		data.htmlHeadTags,
+		propsJSON,
+		&resp,
+		data.root,
+		bundler.constructHMRScript(data.component),
+	)
+	return &resp
 }

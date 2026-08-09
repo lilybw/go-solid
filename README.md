@@ -53,7 +53,7 @@ To try and remain performant, the library uses a mem cache, but also writes bund
 
 Caching can be configured in the Config and likewise can the location for the cached js, html, and css files and metafiles be set or overwritten there. 
 
-Given that this library does interact with your filesystem, and potentially project structure, directly, only windows has been verified to work reliably. Linux should work too, but please report and bugs you find. 
+Given that this library does interact with your filesystem, and potentially project structure, directly, testing suites are run in docker on both linux and windows. More testing environments can be added.
 
 To direct the library where to place its cache, set the Workspace field in the Config:
 

@@ -76,7 +76,7 @@ type htmlTemplateData struct {
 	HMRScript    string // "" when HMR inactive; injected reload client otherwise
 }
 
-func GenerateEntry(comp registry.Component) (string, error) {
+func GenerateEntry(comp *registry.Component) (string, error) {
 	importPath := filepath.ToSlash(strings.TrimSuffix(comp.Path, comp.Ext))
 
 	data := entryTemplateData{
