@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      tag-prefix:
+        description: "Prefix for the release tag (Go modules conventionally use 'v')"
+        type: string
+        required: false
+        default: "v"
+    outputs:
+      version:
+        description: "The version tag that was released"
+        value: ${{ jobs.release.outputs.version }}
+
+permissions:
+  contents: write   # required to create tags and releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history/tags for version computation
+
+      - name: Compute next version (m.k.n+1)
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: ${{ inputs.tag-prefix }}
+        run: |
+          latest=$(gh release list --limit 1 --json tagName --jq '.[0].tagName // ""')
+          if [ -z "$latest" ]; then
+            echo "no previous release, starting from 0.0.0"
+            m=0; k=0; n=0
+          else
+            echo "previous release: $latest"
+            ver="${latest#$PREFIX}"            # strip optional leading prefix (e.g. v)
+            m="${ver%%.*}"; rest="${ver#*.}"
+            k="${rest%%.*}"; n="${rest#*.}"
+          fi
+          next="${PREFIX}${m}.${k}.$((n + 1))"
+          echo "next version: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The git tag IS the artifact for a Go module — consumers fetch it via
+          # `go get github.com/lilybw/go-solid@${{ steps.version.outputs.version }}`.
+          gh release create "${{ steps.version.outputs.version }}" \
+            --target "${{ github.sha }}" \
+            --title "Release ${{ steps.version.outputs.version }}" \
+            --generate-notes

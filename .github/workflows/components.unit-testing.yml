@@ -1,0 +1,51 @@
+name: Unit Tests
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go toolchain version to test against"
+        type: string
+        required: false
+        default: "1.27.0-rc.2"
+      node-version:
+        description: "Node.js version (kept present for transform-worker.mjs)"
+        type: string
+        required: false
+        default: "20"
+
+jobs:
+  unit-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: go.sum
+
+      # Node is installed on both runners so any test that materializes or spawns
+      # transform-worker.mjs has a runtime available. Safe even if unused.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install npm deps (if package.json present)
+        shell: bash
+        run: |
+          if [ -f package.json ]; then
+            npm install
+          else
+            echo "no package.json at repo root; skipping npm install"
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test -v ./...

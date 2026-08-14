@@ -1,0 +1,48 @@
+name: Test Environment
+
+# Optional component that runs the docker-compose harness
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "docker-compose service to build+run (unix or windows)"
+        type: string
+        required: false
+        default: unix
+      compose-path:
+        description: "Directory containing docker-compose.yml"
+        type: string
+        required: false
+        default: testing_environment
+
+jobs:
+  compose-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run the ${{ inputs.service }} test container
+        working-directory: ${{ inputs.compose-path }}
+        run: |
+          docker compose build --no-cache ${{ inputs.service }}
+          docker compose run --rm ${{ inputs.service }}
+
+      - name: Show captured test log
+        if: always()
+        working-directory: ${{ inputs.compose-path }}
+        run: |
+          log="logs-${{ inputs.service }}/test-log.txt"
+          if [ -f "$log" ]; then
+            echo "===== $log ====="
+            cat "$log"
+          else
+            echo "no log file at $log"
+          fi
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-test-log-${{ inputs.service }}
+          path: ${{ inputs.compose-path }}/logs-${{ inputs.service }}/test-log.txt
+          if-no-files-found: ignore

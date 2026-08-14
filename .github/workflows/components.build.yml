@@ -1,0 +1,30 @@
+name: Build
+
+# For a Go library there is no image/binary to publish; the "build" is a
+# cross-platform compile check that everything still builds from source.
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go toolchain version to build against"
+        type: string
+        required: false
+        default: "1.27.0-rc.2"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: go.sum
+
+      - name: Compile-check all packages
+        run: go build ./...
