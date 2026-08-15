@@ -1,0 +1,2 @@
+# go-solid materializes its worker + component cache under the components dir
+testdata/frontend/components/.go_solid/

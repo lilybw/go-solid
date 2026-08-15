@@ -1,0 +1,1 @@
+This directory contains testing scenarious extracted from other codebases using go-solid to ensure, that the usecase issues that were identified then, never re-occurs.

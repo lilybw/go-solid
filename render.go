@@ -11,6 +11,7 @@ import (
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/meta"
 	networking "github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/networking/events"
 	"github.com/lilybw/go-solid/shared/registry"
 )
 
@@ -37,11 +38,12 @@ type renderData struct {
 }
 
 func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) {
-	if this.request != nil {
-		err := fn(this.request)
-		if err != nil {
-			panic(fmt.Sprintf("go_solid: request-bound failure handler returned an error: %v", err))
-		}
+	if this.request == nil {
+		return
+	}
+	err := fn(this.request)
+	if err != nil {
+		panic(fmt.Sprintf("go_solid: request-bound failure handler returned an error: %v", err))
 	}
 }
 
@@ -57,6 +59,9 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	propsJSON, err := marshalProps(data)
 	if err != nil {
+		data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return networking.ExecHandlers(req, events.NewPropsMarshalingFailure(err))
+		})
 		return nil, err
 	}
 
@@ -70,7 +75,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	resp := assembleResponse(bundler, data, artifact, propsJSON)
 
 	data.ifRequest(func(req *networking.RequestBehaviour) error {
-		return req.TransmitRenderedTemplate(resp)
+		return networking.ExecHandlers(req, events.NewTransmitRenderedTemplate(resp))
 	})
 	return resp, nil
 }
@@ -82,9 +87,6 @@ func marshalProps(data renderData) (string, error) {
 	}
 	raw, err := json.Marshal(data.props)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponPropsMarshalingError(err)
-		})
 		return "", fmt.Errorf("go_solid#Render: marshal props: %w", err)
 	}
 	return string(raw), nil
@@ -102,8 +104,8 @@ func (bundler *Bundler) compiledArtifact(data renderData) (*caching.Rendered, er
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponRegistryLookupFailure(
-				fmt.Errorf("component %q not found in registry", data.component))
+			return networking.ExecHandlers(req, events.NewRegistryLookupFailure(
+				fmt.Errorf("component %q not found in registry", data.component)))
 		})
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
 			data.component, strings.Join(bundler.registry.Names(), ", "))
@@ -135,7 +137,7 @@ func (bundler *Bundler) bundleComponent(
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponEntryGenerationError(err)
+			return networking.ExecHandlers(req, events.NewEntryGenerationFailure(err))
 		})
 		return nil, nil, err
 	}
@@ -143,7 +145,7 @@ func (bundler *Bundler) bundleComponent(
 	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponTempEntryWriteError(err)
+			return networking.ExecHandlers(req, events.NewTempEntryWriteFailure(err))
 		})
 		return nil, nil, err
 	}
@@ -154,7 +156,7 @@ func (bundler *Bundler) bundleComponent(
 		bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
 	if err != nil {
 		data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.UponCompBundlingError(err)
+			return networking.ExecHandlers(req, events.NewCompBundlingFailure(err))
 		})
 		return nil, nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
 	}

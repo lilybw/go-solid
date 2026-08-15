@@ -1,0 +1,10 @@
+{
+  "name": "go-solid-slice-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "devDependencies": {
+    "solid-js": "^1.9.3",
+    "babel-preset-solid": "^1.9.3",
+    "@babel/core": "^7.26.0"
+  }
+}

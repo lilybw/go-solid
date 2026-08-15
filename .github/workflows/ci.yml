@@ -13,12 +13,18 @@ jobs:
   unit-tests:
     uses: ./.github/workflows/components.unit-testing.yml
 
+  # End-to-end scenario tests run in their own cross-platform matrix, in
+  # parallel with the unit tests above (one job per {scenario x os} pairing).
+  scenario-tests:
+    uses: ./.github/workflows/components.scenario-testing.yml
+
   build:
     uses: ./.github/workflows/components.build.yml
 
   # Auto-release only on pushes to main (not on PRs), and only once the
-  # cross-platform tests and the build compile-check have passed.
+  # cross-platform unit tests, the scenario tests, and the build compile-check
+  # have all passed.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [unit-tests, build]
+    needs: [unit-tests, scenario-tests, build]
     uses: ./.github/workflows/components.release.yml

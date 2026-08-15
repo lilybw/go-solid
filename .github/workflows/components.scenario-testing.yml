@@ -1,0 +1,123 @@
+name: Scenario Tests
+
+# End-to-end "scenario" tests live under testing_environment/scenarios/<name>/.
+# Each scenario is a package in the root module that drives go-solid through its
+# public API (New / Prepare / ForRequest / Render) against real SolidJS
+# components, exercising the full registry -> esbuild -> node transform ->
+# HTML pipeline.
+#
+# This workflow discovers every scenario dynamically and runs each one on both
+# Ubuntu and Windows. Every {scenario x os} pairing is its own matrix job, so
+# they run in parallel alongside the unit tests (fail-fast is off, so one
+# failing pairing does not cancel the others).
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: "Go toolchain version to test against"
+        type: string
+        required: false
+        default: "1.27.0-rc.2"
+      node-version:
+        description: "Node.js version (required: scenarios spawn the solid transform worker)"
+        type: string
+        required: false
+        default: "20"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Discover scenarios: emit a JSON array of directory names under
+  #    testing_environment/scenarios that contain Go test files. Runs once on a
+  #    cheap Linux runner; its output feeds the matrix of the next job.
+  # ---------------------------------------------------------------------------
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      scenarios: ${{ steps.find.outputs.scenarios }}
+      any: ${{ steps.find.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover scenario directories
+        id: find
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="testing_environment/scenarios"
+          names=()
+          if [ -d "$root" ]; then
+            while IFS= read -r d; do
+              # a scenario is any immediate subdir containing *_test.go
+              if ls "$d"/*_test.go >/dev/null 2>&1; then
+                names+=("$(basename "$d")")
+              fi
+            done < <(find "$root" -mindepth 1 -maxdepth 1 -type d | sort)
+          fi
+
+          json="["
+          for i in "${!names[@]}"; do
+            [ "$i" -gt 0 ] && json+=","
+            json+="\"${names[$i]}\""
+          done
+          json+="]"
+
+          echo "discovered scenarios: $json"
+          echo "scenarios=$json" >> "$GITHUB_OUTPUT"
+          if [ "${#names[@]}" -gt 0 ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. Run each scenario on each OS in parallel.
+  # ---------------------------------------------------------------------------
+  scenario-tests:
+    needs: discover
+    if: needs.discover.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        scenario: ${{ fromJSON(needs.discover.outputs.scenarios) }}
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.scenario }} (${{ matrix.os }})
+    env:
+      # Make the scenario genuinely run: a missing/broken toolchain becomes a
+      # hard failure instead of a silent skip.
+      GO_SOLID_REQUIRE_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      # Pre-install the scenario's JS peer deps if it ships a package.json under
+      # testdata/frontend. The test itself will also auto-install on demand, so
+      # this step is an optimization (and keeps npm output in its own log), not
+      # a hard requirement.
+      - name: Install scenario peer deps (if present)
+        shell: bash
+        run: |
+          set -euo pipefail
+          fe="testing_environment/scenarios/${{ matrix.scenario }}/testdata/frontend"
+          if [ -f "$fe/package.json" ]; then
+            echo "installing peer deps in $fe"
+            if [ -f "$fe/package-lock.json" ]; then
+              npm --prefix "$fe" ci --no-audit --no-fund || npm --prefix "$fe" install --no-audit --no-fund
+            else
+              npm --prefix "$fe" install --no-audit --no-fund
+            fi
+          else
+            echo "no testdata/frontend/package.json for scenario '${{ matrix.scenario }}'; the test will self-provision if needed"
+          fi
+
+      - name: Run scenario
+        shell: bash
+        run: go test -v ./testing_environment/scenarios/${{ matrix.scenario }}/...

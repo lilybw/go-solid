@@ -47,5 +47,13 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      - name: go test
-        run: go test -v ./...
+      # Unit tests cover everything except the end-to-end scenarios under
+      # testing_environment/scenarios/, which run in their own cross-platform
+      # matrix (components.scenario-testing.yml). Excluding them here keeps the
+      # two jobs' responsibilities disjoint and avoids running the heavier
+      # scenario suites twice.
+      - name: go test (unit, excluding scenarios)
+        shell: bash
+        run: |
+          pkgs=$(go list ./... | grep -v '/testing_environment/scenarios/')
+          go test -v $pkgs
