@@ -49,7 +49,7 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 // It is what lives in the caches. It is never mutated after construction.
 // (This is just caching.Rendered with HTML left empty; see note below.)
 
-func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
+func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	if err := data.ctx.Err(); err != nil {
 		return nil, err // caller already cancelled / deadline exceeded
 	}
@@ -79,7 +79,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 }
 
 // marshalProps isolates the props->JSON step and its request error hook.
-func marshalProps(data renderData) (string, error) {
+func marshalProps(data *renderData) (string, error) {
 	if data.props == nil {
 		return "{}", nil
 	}
@@ -93,7 +93,7 @@ func marshalProps(data renderData) (string, error) {
 // compiledArtifact returns the props-independent JS/CSS artifact for this
 // component, from cache if present, otherwise by bundling and caching it.
 // The returned *Rendered is shared and must be treated as read-only.
-func (bundler *Bundler) compiledArtifact(data renderData) (*caching.Rendered, error) {
+func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, error) {
 	key := caching.NewMemCacheKey(data.component, data.root)
 	if cached, ok := bundler.searchCaches(key); ok {
 		return cached, nil
@@ -129,7 +129,7 @@ func (bundler *Bundler) compiledArtifact(data renderData) (*caching.Rendered, er
 // bundleComponent runs the esbuild pipeline and packages the JS/CSS artifact.
 // It does not assemble HTML and does not touch the caches.
 func (bundler *Bundler) bundleComponent(
-	data renderData, comp *registry.Component, // adjust to your real type
+	data *renderData, comp *registry.Component, // adjust to your real type
 ) (*caching.Rendered, []meta.AbsoluteFilePath, error) {
 
 	entrySource, err := code_gen.GenerateEntry(comp)
@@ -179,7 +179,7 @@ func (bundler *Bundler) bundleComponent(
 // cached artifact with freshly assembled HTML. The cached artifact is never
 // mutated, so concurrent renders of the same component don't clobber each other.
 func assembleResponse(
-	bundler *Bundler, data renderData,
+	bundler *Bundler, data *renderData,
 	artifact *caching.Rendered, propsJSON string,
 ) *caching.Rendered {
 	resp := *artifact // copy JS/CSS/JSName/CSSName by value

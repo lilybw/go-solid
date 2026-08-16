@@ -30,7 +30,7 @@ type RenderCallBuilder interface {
 func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, props any) RenderCallBuilder {
 	return &renderCallBuilderImpl{
 		bundler: bundler,
-		data: renderData{
+		data: &renderData{
 			component:    componentName,
 			props:        props,
 			htmlHeadTags: networking_int.NewHTMLHeadSegmentBuilder(),
@@ -41,7 +41,7 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 
 type renderCallBuilderImpl struct {
 	bundler *Bundler
-	data    renderData
+	data    *renderData
 }
 
 func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
