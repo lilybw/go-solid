@@ -21,32 +21,38 @@ type RequestBehaviour struct {
 	Handlers *HandlerMap
 }
 
-// Bind adapts an http-shaped event handler into a request-bound handler by
-// capturing this behaviour's writer and request. The returned handler is the
-// uniform stored element type, so it can be handed straight to AddRaw.
 func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler[events.NetworkingEvent]) RequestBoundHandler[events.NetworkingEvent] {
 	return func(event events.NetworkingEvent) error {
 		return fn(this.W, this.R, event)
 	}
 }
 
-// ExecHandlers dispatches event to every handler registered under its dynamic
-// type. Parallel groups run concurrently; each sequential chain runs in order
-// and stops at its first error. Returns the first error across all groups.
-//
-// Dispatch keys on the DYNAMIC type of event (reflect.TypeOf), not on T — so
-// emitting a value typed statically as the interface still finds the concrete
-// handlers registered under the concrete type.
 func ExecHandlers[T events.NetworkingEvent](rb *RequestBehaviour, event T) error {
 	if rb == nil || rb.Handlers == nil {
 		return nil
 	}
-	key := reflect.TypeOf(event)
-	sv, ok := rb.Handlers.GetType(key)
-	if !ok {
-		return nil
+
+	var firstErr error
+	run := func(key reflect.Type) {
+		if sv, ok := rb.Handlers.GetType(key); ok {
+			if err := dispatchStored(sv, event); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
 	}
-	return dispatchStored(sv, event)
+
+	// Specific handlers for this concrete event type.
+	run(reflect.TypeOf(event))
+
+	// Category fallback: whichever capability interface the event implements.
+	switch any(event).(type) {
+	case events.SuccessEvent:
+		run(events.EVENTS.SuccessEvent)
+	case events.FailureEvent:
+		run(events.EVENTS.FailureEvent)
+	}
+
+	return firstErr
 }
 
 // RequestBoundHandler is a handler bound to a specific request (writer/request

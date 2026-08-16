@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/lilybw/go-solid/internal/meta"
@@ -67,9 +68,53 @@ func (this *requestBehaviourBuilder) CodeUpon(event events.EventType, statusCode
 }
 
 func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
+	// TODO: LOAD DEFAULTS
+	handlers := NewHandlerMap()
+	AddRaw(handlers, events.EVENTS.FailureEvent, func(event events.NetworkingEvent) error {
+
+		var msg = fmt.Sprintf("go_solid: default failure event handler called with failure event not correctly castable to events.FailureEvent. Observed: %v", event)
+		cast, ok := event.(events.FailureEvent)
+		if !ok {
+			w.Write([]byte(msg))
+		} else {
+			w.Write([]byte(cast.Err().Error()))
+		}
+
+		eventCode := meta.Ternary(event.HTTPCode() == 0, 500, event.HTTPCode())
+		w.WriteHeader(int(eventCode))
+		return nil
+	}, HANDLER_MODE_REPLACE)
+	AddRaw(handlers, events.EVENTS.SuccessEvent, func(event events.NetworkingEvent) error {
+
+		_, ok := event.(events.SuccessEvent)
+		if !ok {
+			w.Write([]byte("go_solid: default success event handler called with success event not correctly castable to events.SuccessEvent"))
+		} else {
+			w.Write([]byte("success"))
+		}
+
+		eventCode := meta.Ternary(event.HTTPCode() == 0, 200, event.HTTPCode())
+		w.WriteHeader(int(eventCode))
+
+		return nil
+	}, HANDLER_MODE_REPLACE)
+	AddRaw(handlers, events.EVENTS.TransmitRenderedTemplate, func(event events.NetworkingEvent) error {
+		cast, ok := event.(events.TransmitRenderedTemplateEvent)
+		if !ok {
+			w.Write([]byte("go_solid: default TransmitRenderedTemplateEvent handler called with event not correctly castable to events.TransmitRenderedTemplateEvent"))
+			w.WriteHeader(500)
+			return nil
+		}
+		eventCode := meta.Ternary(event.HTTPCode() == 0, 200, event.HTTPCode())
+		w.WriteHeader(int(eventCode))
+		w.Write([]byte(cast.Rendered.HTML))
+		return nil
+	}, HANDLER_MODE_REPLACE)
+
+	// TODO: SET AND LOAD TEMPLATE
 	return &RequestBehaviour{
 		W:        w,
 		R:        r,
-		Handlers: NewHandlerMap(),
+		Handlers: handlers,
 	}
 }

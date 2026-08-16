@@ -11,8 +11,20 @@ import (
 type EventType = reflect.Type
 
 type NetworkingEvent interface {
-	isNetworkingEvent()
+	HTTPCode() uint
 }
+
+type networkingEventBase struct {
+	httpCode uint
+}
+
+func (b networkingEventBase) HTTPCode() uint {
+	if b.httpCode == 0 {
+		return 200 // default when unset
+	}
+	return b.httpCode
+}
+
 type FailureEvent interface {
 	NetworkingEvent
 	Err() error
@@ -24,10 +36,6 @@ type SuccessEvent interface {
 }
 
 // --- embeddable bases -----------------------------------------------------
-
-type networkingEventBase struct{}
-
-func (networkingEventBase) isNetworkingEvent() {}
 
 type failureBase struct {
 	networkingEventBase
@@ -97,6 +105,9 @@ var EVENTS = struct {
 	CompBundlingFailure      EventType
 	TransmitRenderedTemplate EventType
 
+	FailureEvent EventType
+	SuccessEvent EventType
+
 	Values []reflect.Type
 }{
 	PropsMarshalingFailure:   reflect.TypeFor[PropsMarshalingFailureEvent](),
@@ -105,6 +116,10 @@ var EVENTS = struct {
 	TempEntryWriteFailure:    reflect.TypeFor[TempEntryWriteFailureEvent](),
 	CompBundlingFailure:      reflect.TypeFor[CompBundlingFailureEvent](),
 	TransmitRenderedTemplate: reflect.TypeFor[TransmitRenderedTemplateEvent](),
+
+	// Comes with universal fallback handlers
+	FailureEvent: reflect.TypeFor[FailureEvent](),
+	SuccessEvent: reflect.TypeFor[SuccessEvent](),
 }
 
 func init() {
@@ -115,5 +130,7 @@ func init() {
 		EVENTS.TempEntryWriteFailure,
 		EVENTS.CompBundlingFailure,
 		EVENTS.TransmitRenderedTemplate,
+		EVENTS.FailureEvent,
+		EVENTS.SuccessEvent,
 	}
 }
