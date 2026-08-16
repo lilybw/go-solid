@@ -17,14 +17,17 @@ import (
 // Watcher watches the components tree and, on change, inverts through DepIndex
 // to find affected components and asks the Hub to reload the tabs viewing them.
 type Watcher struct {
-	fsw    *fsnotify.Watcher
-	root   string
-	index  *internal.DependencyIndex
-	hub    *Hub
-	reg    *internal.ComponentRegistry
-	onErr  func(error)
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	fsw   *fsnotify.Watcher
+	root  string
+	index *internal.DependencyIndex
+	hub   *Hub
+	reg   *internal.ComponentRegistry
+	onErr func(error)
+	// invalidate drops cached artifacts for a component. It must run before the
+	// browser is told to reload, or the reload re-fetches the stale bundle.
+	invalidate func(meta.QualifiedName)
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
 
 	debounce time.Duration
 }
@@ -33,20 +36,31 @@ type Watcher struct {
 // starts its goroutine before returning. There is no separate Start method: a
 // constructed Watcher is already running, so the caller can't forget to start
 // it. Stop halts it.
-func NewWatcher(root string, index *internal.DependencyIndex, hub *Hub, reg *internal.ComponentRegistry, onErr func(error)) (*Watcher, error) {
+func NewWatcher(
+	root string,
+	index *internal.DependencyIndex,
+	hub *Hub,
+	reg *internal.ComponentRegistry,
+	invalidate func(meta.QualifiedName),
+	onErr func(error),
+) (*Watcher, error) {
+	if invalidate == nil {
+		invalidate = func(meta.QualifiedName) {}
+	}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("go_solid HMR: create watcher: %w", err)
 	}
 	w := &Watcher{
-		fsw:      fsw,
-		root:     root,
-		index:    index,
-		hub:      hub,
-		reg:      reg,
-		onErr:    onErr,
-		stopCh:   make(chan struct{}),
-		debounce: 80 * time.Millisecond,
+		fsw:        fsw,
+		root:       root,
+		index:      index,
+		hub:        hub,
+		reg:        reg,
+		invalidate: invalidate,
+		onErr:      onErr,
+		stopCh:     make(chan struct{}),
+		debounce:   80 * time.Millisecond,
 	}
 	if err := w.addTree(root); err != nil {
 		fsw.Close()
@@ -115,6 +129,7 @@ func (w *Watcher) loop() {
 
 		case <-timerCh:
 			for name := range pending {
+				w.invalidate(name) // must precede Reload
 				w.hub.Reload(name)
 				delete(pending, name)
 			}

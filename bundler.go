@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/lilybw/go-solid/internal"
@@ -138,13 +139,29 @@ func New(cfg *Config) (*Bundler, error) {
 	}
 
 	mem := caching.NewMemCache(!cfg.DisableCaching)
+	index := internal.NewDepIndex()
+
+	invalidateComponent := func(name meta.QualifiedName) {
+		disk.InvalidateComponent(name)
+		mem.InvalidateComponent(name)
+	}
+
+	// A touched file invalidates the component it backs plus every component
+	// that bundled it as a dependency.
+	invalidateForSource := func(file meta.AbsoluteFilePath) {
+		affected := index.DependentsOf(file)
+		if name, ok := registry.NameForFile(file); ok && !slices.Contains(affected, name) {
+			affected = append(affected, name)
+		}
+		for _, name := range affected {
+			invalidateComponent(name)
+		}
+	}
 
 	if cfg.ReactiveRegistry {
 		if err := registry.MakeReactive(
-			func(name meta.QualifiedName) {
-				disk.InvalidateComponent(name)
-				mem.InvalidateComponent(name)
-			},
+			invalidateComponent,
+			invalidateForSource,
 			func(e error) { fmt.Fprintf(os.Stderr, "[go_solid] reactive registry error: %v\n", e) },
 		); err != nil {
 			pool.Close()
@@ -164,7 +181,7 @@ func New(cfg *Config) (*Bundler, error) {
 		pool:     pool,
 		mem:      mem,
 		disk:     disk,
-		index:    internal.NewDepIndex(),
+		index:    index,
 		static:   static,
 	}
 
@@ -197,9 +214,12 @@ func New(cfg *Config) (*Bundler, error) {
 
 		// NewWatcher starts its own goroutine before returning, so there is no
 		// separate Start call to forget.
-		w, err := hmr_int.NewWatcher(string(cfg.Components), bundler.index, bundler.hub, registry, func(e error) {
-			fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
-		})
+		w, err := hmr_int.NewWatcher(
+			string(cfg.Components), bundler.index, bundler.hub, registry,
+			invalidateComponent,
+			func(e error) {
+				fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
+			})
 		if err != nil {
 			pool.Close()
 			return nil, err
@@ -333,6 +353,10 @@ func (b *Bundler) Close() {
 	}
 	if b.watcher != nil {
 		b.watcher.Stop()
+		b.watcher = nil
+	}
+	if b.registry != nil {
+		b.registry.Close() // reactive registry watcher, if MakeReactive ran
 	}
 	if b.pool != nil {
 		b.pool.Close()

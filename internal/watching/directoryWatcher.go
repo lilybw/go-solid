@@ -132,7 +132,9 @@ func (this *DirectoryWatcher[T]) handle(event fsnotify.Event) {
 			this.cfg.OnErr(err)
 		}
 	case event.Op&fsnotify.Write != 0:
-		// ignore writes for now, since we don't have a way to invalidate the registry for them yet
+		if err := this.cfg.OnMutation(event.Name, this.cfg.DeriveAndInclude(event)); err != nil && this.cfg.OnErr != nil {
+			this.cfg.OnErr(err)
+		}
 	}
 }
 

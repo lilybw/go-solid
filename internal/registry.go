@@ -48,18 +48,30 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 	return r, nil
 }
 
-func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onErr func(error)) error {
+// MakeReactive starts watching the components tree. onDrop is called with the
+// qualified name of a component whose backing file was removed; onTouch is
+// called with the path of any watched file that was created or written, so the
+// caller can invalidate whatever it derived from that file.
+func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onTouch func(meta.AbsoluteFilePath), onErr func(error)) error {
+	if onTouch == nil {
+		onTouch = func(meta.AbsoluteFilePath) {}
+	}
 	rw, err := watching_int.NewDirectoryWatcher(
 		this.root,
 		&watching.DWVoidConfig{
 			OnCreation: func(file meta.AbsoluteFilePath, derived meta.Void) error {
 				_, _, err := this.AddFile(file)
+				onTouch(file)
 				return err
 			},
 			OnDeletion: func(file meta.AbsoluteFilePath, derived meta.Void) error {
 				if qualifiedName, removed := this.RemoveFile(file); removed {
 					onDrop(qualifiedName)
 				}
+				return nil
+			},
+			OnMutation: func(file meta.AbsoluteFilePath, derived meta.Void) error {
+				onTouch(file)
 				return nil
 			},
 			OnErr: onErr,
@@ -70,6 +82,38 @@ func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onE
 	}
 	this.watcher = rw
 	return nil
+}
+
+func (this *ComponentRegistry) Close() {
+	if this == nil || this.watcher == nil {
+		return
+	}
+	this.watcher.Stop()
+	this.watcher = nil
+}
+
+// NameForFile maps a path under the components root to its qualified name.
+func (this *ComponentRegistry) NameForFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
+	name, ok := this.qualifiedNameFor(path)
+	if !ok {
+		return "", false
+	}
+	this.mu.RLock()
+	defer this.mu.RUnlock()
+	_, known := this.components[name]
+	return name, known
+}
+
+func (this *ComponentRegistry) qualifiedNameFor(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if !registryExtensions[ext] {
+		return "", false
+	}
+	rel, err := filepath.Rel(this.root, path)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSuffix(filepath.ToSlash(rel), ext), true
 }
 
 // AddFile registers a single file if it's a registry-eligible component.
