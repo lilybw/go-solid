@@ -53,7 +53,12 @@ func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[network
 }
 
 func (this *renderCallBuilderImpl) ForRequest(w http.ResponseWriter, r *http.Request) RenderCallBuilder {
+	if this.data.request != nil {
+		this.data.request.W, this.data.request.R = w, r
+		return this
+	}
 	this.data.request = networking_int.NewRequestData(w, r)
+	networking_int.NewRequestBehaviourBuilder(this.data.request)
 	return this
 }
 

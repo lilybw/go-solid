@@ -37,12 +37,22 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	}), shared.HANDLER_MODE_POSTFIX)
 
 	// One slot, chain of two.
-	if data.Handlers.Len() != 4 {
-		t.Fatalf("len = %d, want 4 (default handlers)", data.Handlers.Len())
+	// One slot per concrete event type (the default responders); the user handler
+	// above lands in the existing PropsMarshalingFailure slot rather than a new one.
+	wantSlots := 0
+	for _, evType := range events.EVENTS.Values {
+		if evType != events.EVENTS.SuccessEvent && evType != events.EVENTS.FailureEvent {
+			wantSlots++
+		}
 	}
+	if data.Handlers.Len() != wantSlots {
+		t.Fatalf("len = %d, want %d (one default responder per concrete event)",
+			data.Handlers.Len(), wantSlots)
+	}
+	// One chain: the default responder, then the two handlers appended above.
 	sv, ok := data.Handlers.GetType(reflect.TypeFor[PMF]())
-	if !ok || len(sv) != 1 || len(sv[0]) != 2 {
-		t.Fatalf("group0 = %v, want one chain of 2", sv)
+	if !ok || len(sv) != 1 || len(sv[0]) != 3 {
+		t.Fatalf("group0 = %v, want one chain of 3 (default + 2 appended)", sv)
 	}
 
 	// Dispatch by dynamic type.

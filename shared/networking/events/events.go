@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // EventType identifies an event by its Go type.
@@ -18,11 +19,10 @@ type networkingEventBase struct {
 	httpCode uint
 }
 
-func (b networkingEventBase) HTTPCode() uint {
-	if b.httpCode == 0 {
-		return 200 // default when unset
-	}
-	return b.httpCode
+// HTTPCode shadows networkingEventBase.HTTPCode: a failure must never report a
+// 2xx just because no explicit code was attached to the event.
+func (f failureBase) HTTPCode() uint {
+	return meta.Ternary(f.httpCode == 0, 500, f.httpCode)
 }
 
 type FailureEvent interface {
@@ -83,6 +83,10 @@ func NewCompBundlingFailure(err error) CompBundlingFailureEvent {
 type TransmitRenderedTemplateEvent struct {
 	successBase
 	Rendered *caching.Rendered
+}
+
+func (b TransmitRenderedTemplateEvent) HTTPCode() uint {
+	return meta.Ternary(b.httpCode == 0, 200, b.httpCode)
 }
 
 func NewTransmitRenderedTemplate(r *caching.Rendered) TransmitRenderedTemplateEvent {

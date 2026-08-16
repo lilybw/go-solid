@@ -37,14 +37,11 @@ type renderData struct {
 	request      *networking.RequestBehaviour
 }
 
-func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) {
+func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) error {
 	if this.request == nil {
-		return
+		return nil
 	}
-	err := fn(this.request)
-	if err != nil {
-		panic(fmt.Sprintf("go_solid: request-bound failure handler returned an error: %v", err))
-	}
+	return fn(this.request)
 }
 
 // TODO: Move to internal alongside renderData and ifRequest if possible
@@ -59,7 +56,7 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 
 	propsJSON, err := marshalProps(data)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return networking.ExecHandlers(req, events.NewPropsMarshalingFailure(err))
 		})
 		return nil, err
@@ -73,10 +70,11 @@ func render0(bundler *Bundler, data renderData) (*caching.Rendered, error) {
 	// Assemble a request-local response. Never mutate the cached artifact:
 	// HTML carries props/root/HMR, which vary per call.
 	resp := assembleResponse(bundler, data, artifact, propsJSON)
-
-	data.ifRequest(func(req *networking.RequestBehaviour) error {
+	if err := data.ifRequest(func(req *networking.RequestBehaviour) error {
 		return networking.ExecHandlers(req, events.NewTransmitRenderedTemplate(resp))
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("go_solid#Render: transmit %q: %w", data.component, err)
+	}
 	return resp, nil
 }
 
@@ -103,7 +101,7 @@ func (bundler *Bundler) compiledArtifact(data renderData) (*caching.Rendered, er
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return networking.ExecHandlers(req, events.NewRegistryLookupFailure(
 				fmt.Errorf("component %q not found in registry", data.component)))
 		})
@@ -136,7 +134,7 @@ func (bundler *Bundler) bundleComponent(
 
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return networking.ExecHandlers(req, events.NewEntryGenerationFailure(err))
 		})
 		return nil, nil, err
@@ -144,7 +142,7 @@ func (bundler *Bundler) bundleComponent(
 
 	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return networking.ExecHandlers(req, events.NewTempEntryWriteFailure(err))
 		})
 		return nil, nil, err
@@ -155,7 +153,7 @@ func (bundler *Bundler) bundleComponent(
 		data.ctx, bundler.pool, "dom", entryPath,
 		bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
 	if err != nil {
-		data.ifRequest(func(req *networking.RequestBehaviour) error {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return networking.ExecHandlers(req, events.NewCompBundlingFailure(err))
 		})
 		return nil, nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)

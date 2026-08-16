@@ -3,6 +3,7 @@ package networking
 import (
 	"net/http"
 	"reflect"
+	"sync"
 
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
@@ -19,6 +20,26 @@ type RequestBehaviour struct {
 	W        http.ResponseWriter
 	R        *http.Request
 	Handlers *HandlerMap
+
+	statusMu      sync.Mutex
+	statusWritten bool
+}
+
+// CommitStatus writes code as the response status the first time it is called
+// for this request, reporting whether it did. Later calls are no-ops, so the
+// built-in default responder cannot clobber a status an explicit handler
+// (CodeUpon, or a user handler running earlier in the chain) already set.
+//
+// Handler groups are dispatched concurrently, hence the lock.
+func (this *RequestBehaviour) CommitStatus(code int) bool {
+	this.statusMu.Lock()
+	defer this.statusMu.Unlock()
+	if this.statusWritten || this.W == nil {
+		return false
+	}
+	this.statusWritten = true
+	this.W.WriteHeader(code)
+	return true
 }
 
 func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler[events.NetworkingEvent]) RequestBoundHandler[events.NetworkingEvent] {
