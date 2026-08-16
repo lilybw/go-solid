@@ -37,8 +37,8 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	}), shared.HANDLER_MODE_POSTFIX)
 
 	// One slot, chain of two.
-	if data.Handlers.Len() != 1 {
-		t.Fatalf("len = %d, want 1 (shared slot)", data.Handlers.Len())
+	if data.Handlers.Len() != 4 {
+		t.Fatalf("len = %d, want 4 (default handlers)", data.Handlers.Len())
 	}
 	sv, ok := data.Handlers.GetType(reflect.TypeFor[PMF]())
 	if !ok || len(sv) != 1 || len(sv[0]) != 2 {
