@@ -14,7 +14,7 @@ import (
 type PMF = events.PropsMarshalingFailureEvent
 
 // The builder's Upon and a direct typed Add land in the same slot and both
-// fire through ExecHandlers, which keys on the event's dynamic type.
+// fire through Dispatch, which keys on the event's dynamic type.
 func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -22,42 +22,34 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 
 	var order []int
 
-	// Builder path (interface-typed handler, non-generic Upon).
-	b := NewRequestBehaviourBuilder(data)
-	b.SetWriter(rec).SetRequest(req).
-		Upon(events.EVENTS.PropsMarshalingFailure, func(_ http.ResponseWriter, _ *http.Request, _ events.NetworkingEvent) error {
+	// Builder path: interface-typed handler, keyed by a runtime EventType.
+	NewRequestBehaviourBuilder(data).
+		SetWriter(rec).
+		SetRequest(req).
+		Upon(events.EVENTS.PropsMarshalingFailure, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 			order = append(order, 1)
 			return nil
 		})
 
-	// Typed path (concrete handler) into the SAME map, same event type.
-	shared.Add(data.Handlers, shared.RequestBoundHandler[PMF](func(PMF) error {
+	// Typed path into the SAME map, same event type, no cast at the call site.
+	data.Handlers.Add(func(PMF) error {
 		order = append(order, 2)
 		return nil
-	}), shared.HANDLER_MODE_POSTFIX)
+	}, shared.HANDLER_MODE_POSTFIX)
 
-	// One slot, chain of two.
-	// One slot per concrete event type (the default responders); the user handler
-	// above lands in the existing PropsMarshalingFailure slot rather than a new one.
-	wantSlots := 0
-	for _, evType := range events.EVENTS.Values {
-		if evType != events.EVENTS.SuccessEvent && evType != events.EVENTS.FailureEvent {
-			wantSlots++
-		}
-	}
-	if data.Handlers.Len() != wantSlots {
+	// One slot per concrete event type (the default responders); the handlers
+	// above land in the existing PropsMarshalingFailure slot, not a new one.
+	if want := len(events.EVENTS.Concrete); data.Handlers.Len() != want {
 		t.Fatalf("len = %d, want %d (one default responder per concrete event)",
-			data.Handlers.Len(), wantSlots)
+			data.Handlers.Len(), want)
 	}
 	// One chain: the default responder, then the two handlers appended above.
-	sv, ok := data.Handlers.GetType(reflect.TypeFor[PMF]())
-	if !ok || len(sv) != 1 || len(sv[0]) != 3 {
-		t.Fatalf("group0 = %v, want one chain of 3 (default + 2 appended)", sv)
+	c, ok := data.Handlers.Get[PMF]()
+	if !ok || len(c) != 1 || len(c[0]) != 3 {
+		t.Fatalf("chains = %v, want one chain of 3 (default + 2 appended)", c)
 	}
 
-	// Dispatch by dynamic type.
-	ev := events.NewPropsMarshalingFailure(errors.New("x"))
-	if err := shared.ExecHandlers(data, ev); err != nil {
+	if err := data.Dispatch(events.NewPropsMarshalingFailure(errors.New("x"))); err != nil {
 		t.Fatalf("dispatch err: %v", err)
 	}
 	if want := []int{1, 2}; !reflect.DeepEqual(order, want) {
@@ -71,11 +63,10 @@ func TestCodeUpon(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	data := NewRequestData(rec, req)
 
-	b := NewRequestBehaviourBuilder(data)
-	b.CodeUpon(events.EVENTS.RegistryLookupFailure, http.StatusBadGateway)
+	NewRequestBehaviourBuilder(data).
+		CodeUpon(events.EVENTS.RegistryLookupFailure, http.StatusBadGateway)
 
-	ev := events.NewRegistryLookupFailure(errors.New("nope"))
-	if err := shared.ExecHandlers(data, ev); err != nil {
+	if err := data.Dispatch(events.NewRegistryLookupFailure(errors.New("nope"))); err != nil {
 		t.Fatalf("dispatch err: %v", err)
 	}
 	if rec.Code != http.StatusBadGateway {
@@ -83,19 +74,47 @@ func TestCodeUpon(t *testing.T) {
 	}
 }
 
-// UponSpecialized honors the mode (PARALLEL creates a second group).
+// UponSpecialized honors the mode: PARALLEL adds a chain rather than extending
+// the primary one.
 func TestUponSpecializedMode(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	data := NewRequestData(rec, req)
 
 	b := NewRequestBehaviourBuilder(data)
-	b.Upon(events.EVENTS.PropsMarshalingFailure, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error { return nil })
+	b.Upon(events.EVENTS.PropsMarshalingFailure,
+		func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error { return nil })
 	b.UponSpecialized(events.EVENTS.PropsMarshalingFailure, shared.HANDLER_MODE_PARALLEL,
 		func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error { return nil })
 
-	sv, _ := data.Handlers.GetType(reflect.TypeFor[PMF]())
-	if len(sv) != 2 {
-		t.Fatalf("outer groups = %d, want 2 (PARALLEL added a group)", len(sv))
+	c, _ := data.Handlers.Get[PMF]()
+	if len(c) != 2 {
+		t.Fatalf("chains = %d, want 2 (PARALLEL added one)", len(c))
+	}
+}
+
+// A handler registered on a capability bucket runs for every event in it,
+// after that event's own handlers.
+func TestCategoryBucketHandlerRunsForEveryFailure(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	data := NewRequestData(rec, req)
+
+	var seen int
+	data.Handlers.Add(func(events.FailureEvent) error {
+		seen++
+		return nil
+	}, shared.HANDLER_MODE_POSTFIX)
+
+	for _, ev := range []events.NetworkingEvent{
+		events.NewPropsMarshalingFailure(errors.New("a")),
+		events.NewCompBundlingFailure(errors.New("b")),
+	} {
+		if err := data.Dispatch(ev); err != nil {
+			t.Fatalf("dispatch err: %v", err)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("bucket handler ran %d times, want 2", seen)
 	}
 }

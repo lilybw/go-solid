@@ -3,6 +3,7 @@ package networking
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/internal/noop"
@@ -38,21 +39,19 @@ func (this *requestBehaviourBuilder) SetRequest(r *http.Request) RequestBehaviou
 	return this
 }
 
-func (this *requestBehaviourBuilder) Upon(event events.EventType, fn events.NetworkingEventHandler[events.NetworkingEvent]) RequestBehaviourBuilder {
-	AddRaw(this.data.Handlers, event, this.data.Bind(fn), HANDLER_MODE_POSTFIX)
-	return this
+func (this *requestBehaviourBuilder) Upon(event events.EventType, fn events.NetworkingEventHandler) RequestBehaviourBuilder {
+	return this.UponSpecialized(event, HANDLER_MODE_POSTFIX, fn)
 }
 
-func (this *requestBehaviourBuilder) UponSpecialized(event events.EventType, mode SpecializedHandlerMode, fn events.NetworkingEventHandler[events.NetworkingEvent]) RequestBehaviourBuilder {
-	AddRaw(this.data.Handlers, event, this.data.Bind(fn), mode)
+func (this *requestBehaviourBuilder) UponSpecialized(event events.EventType, mode HandlerMode, fn events.NetworkingEventHandler) RequestBehaviourBuilder {
+	this.data.Handlers.AddType(event, this.data.Bind(fn), mode)
 	return this
 }
 
 func (this *requestBehaviourBuilder) CodeUpon(event events.EventType, statusCode int) RequestBehaviourBuilder {
-	code := statusCode
 	rb := this.data
-	AddRaw(this.data.Handlers, event, func(events.NetworkingEvent) error {
-		rb.CommitStatus(code)
+	rb.Handlers.AddType(event, func(events.NetworkingEvent) error {
+		rb.CommitStatus(statusCode)
 		return nil
 	}, HANDLER_MODE_PREFIX)
 	return this
@@ -60,28 +59,32 @@ func (this *requestBehaviourBuilder) CodeUpon(event events.EventType, statusCode
 
 func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
 	rb := &RequestBehaviour{W: w, R: r, Handlers: NewHandlerMap()}
-	// A default responder per concrete event type. Bind resolves W/R at dispatch
-	// time, so a behaviour built with (nil, nil) by SetHTTPBehaviour still writes
-	// to the real writer once ForRequest/SetWriter supplies one.
-	for _, evType := range events.EVENTS.Values {
-		handler := defaultHandlerFor(evType)
-		if handler == nil {
+	// A default responder per concrete event type. Ranging over EVENTS.Concrete
+	// means a newly declared event gets one for free. Bind resolves W/R at
+	// dispatch time, so a behaviour built with (nil, nil) by SetHTTPBehaviour
+	// still writes to the real writer once ForRequest/SetWriter supplies one.
+	for _, evType := range events.EVENTS.Concrete {
+		responder := defaultResponderFor(evType)
+		if responder == nil {
 			continue
 		}
-		AddRaw(rb.Handlers, evType, func(e events.NetworkingEvent) error {
-			return handler(rb, e)
+		rb.Handlers.AddType(evType, func(e events.NetworkingEvent) error {
+			return responder(rb, e)
 		}, HANDLER_MODE_REPLACE)
 	}
 	return rb
 }
 
-// defaultHandlerFor picks the default responder for a concrete event type, or
-// nil for the SuccessEvent/FailureEvent buckets, which are reserved for
-// user-supplied cross-cutting handlers.
-func defaultHandlerFor(evType events.EventType) defaultResponder {
+// defaultResponder is the built-in reply for one event type. It takes the
+// behaviour rather than a bare writer so it reads W at dispatch time and routes
+// the status through CommitStatus.
+type defaultResponder func(rb *RequestBehaviour, event events.NetworkingEvent) error
+
+// defaultResponderFor picks the built-in responder for a concrete event type.
+// The capability buckets in events.EVENTS.Categories deliberately get none:
+// they are reserved for cross-cutting user handlers.
+func defaultResponderFor(evType events.EventType) defaultResponder {
 	switch {
-	case evType == events.EVENTS.SuccessEvent || evType == events.EVENTS.FailureEvent:
-		return nil
 	case evType == events.EVENTS.TransmitRenderedTemplate:
 		return defaultTransmitHandler
 	case evType.Implements(events.EVENTS.FailureEvent):
@@ -93,40 +96,41 @@ func defaultHandlerFor(evType events.EventType) defaultResponder {
 	}
 }
 
-// defaultResponder is the built-in reply for one event type. It takes the
-// behaviour rather than a bare writer so it reads W at dispatch time and routes
-// the status through CommitStatus.
-type defaultResponder func(rb *RequestBehaviour, event events.NetworkingEvent) error
-
 // statusOf resolves the status an event asks for, falling back to the caller's
 // default when the event carries none.
 func statusOf(event events.NetworkingEvent, fallback int) int {
 	return meta.Ternary(event.HTTPCode() == 0, fallback, int(event.HTTPCode()))
 }
 
-func defaultFailureHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
+// require narrows event to the type its responder was registered for. Failing
+// it means defaultResponderFor mispicked, which is a bug in this package: it
+// reports an error rather than writing a diagnostic into the user's response
+// body, where it would masquerade as the page.
+func require[T events.NetworkingEvent](rb *RequestBehaviour, event events.NetworkingEvent) (T, error) {
+	var zero T
 	if rb.W == nil {
-		return fmt.Errorf("go_solid: failure event %T dispatched with no ResponseWriter bound", event)
+		return zero, fmt.Errorf("go_solid: event %T dispatched with no ResponseWriter bound", event)
 	}
-	body := fmt.Sprintf("go_solid: default failure handler received an event not castable "+
-		"to events.FailureEvent. Observed: %v", event)
-	if cast, ok := event.(events.FailureEvent); ok {
-		body = cast.Err().Error()
+	typed, ok := event.(T)
+	if !ok {
+		return zero, fmt.Errorf("go_solid: default handler for %v received %T", reflect.TypeFor[T](), event)
+	}
+	return typed, nil
+}
+
+func defaultFailureHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
+	cast, err := require[events.FailureEvent](rb, event)
+	if err != nil {
+		return err
 	}
 	// Status first: Write implicitly commits 200 and freezes the header.
 	rb.CommitStatus(statusOf(event, http.StatusInternalServerError))
-	_, err := rb.W.Write([]byte(body))
+	_, err = rb.W.Write([]byte(cast.Err().Error()))
 	return err
 }
 
 func defaultSuccessHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
-	if rb.W == nil {
-		return fmt.Errorf("go_solid: success event %T dispatched with no ResponseWriter bound", event)
-	}
-	if _, ok := event.(events.SuccessEvent); !ok {
-		rb.CommitStatus(http.StatusInternalServerError)
-		_, err := rb.W.Write([]byte("go_solid: default success handler received an event not " +
-			"castable to events.SuccessEvent"))
+	if _, err := require[events.SuccessEvent](rb, event); err != nil {
 		return err
 	}
 	rb.CommitStatus(statusOf(event, http.StatusOK))
@@ -134,18 +138,12 @@ func defaultSuccessHandler(rb *RequestBehaviour, event events.NetworkingEvent) e
 }
 
 func defaultTransmitHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
-	if rb.W == nil {
-		return fmt.Errorf("go_solid: transmit event dispatched with no ResponseWriter bound")
-	}
-	cast, ok := event.(events.TransmitRenderedTemplateEvent)
-	if !ok {
-		rb.CommitStatus(http.StatusInternalServerError)
-		_, err := rb.W.Write([]byte("go_solid: default TransmitRenderedTemplateEvent handler " +
-			"received an event not castable to events.TransmitRenderedTemplateEvent"))
+	cast, err := require[events.TransmitRenderedTemplateEvent](rb, event)
+	if err != nil {
 		return err
 	}
 	rb.W.Header().Set("Content-Type", "text/html; charset=utf-8")
 	rb.CommitStatus(statusOf(event, http.StatusOK))
-	_, err := rb.W.Write([]byte(cast.Rendered.HTML))
+	_, err = rb.W.Write([]byte(cast.Rendered.HTML))
 	return err
 }

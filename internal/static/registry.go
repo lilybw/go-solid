@@ -13,8 +13,9 @@ type StaticRegistry interface {
 }
 
 type enabledStaticRegistry struct {
-	cfg   *StaticConfig
-	graph *Node[os.DirEntry]
+	cfg       *StaticConfig
+	graph     *Node[os.DirEntry]
+	generated string
 }
 
 func NewStaticRegistry(cfg *StaticConfig) (StaticRegistry, error) {
@@ -107,5 +108,3 @@ func (n rootNode) Name() string               { return n.name }
 func (n rootNode) IsDir() bool                { return n.isDir }
 func (n rootNode) Type() os.FileMode          { return os.ModeDir }
 func (n rootNode) Info() (os.FileInfo, error) { return os.Stat(n.name) }
-
-// Traverse static directory

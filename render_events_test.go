@@ -13,7 +13,7 @@ import (
 )
 
 // eventRecorder captures which events actually reached a handler during a
-// render. Handlers are dispatched on goroutines by dispatchStored, so access
+// render. Chains are dispatched on goroutines by Chains.Dispatch, so access
 // must be guarded.
 type eventRecorder struct {
 	mu   sync.Mutex

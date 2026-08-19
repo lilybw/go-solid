@@ -1,27 +1,39 @@
 package networking
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
-type HandlerMapValue[T events.NetworkingEvent] [][]RequestBoundHandler[T]
-type storedValue = HandlerMapValue[events.NetworkingEvent]
-type ooRequestBoundHandlerT interface {
-	justForGetCast()
-}
+// Handler is a request-bound handler: the writer and request are already
+// captured, so all it receives is the event. It is the single stored handler
+// representation — nothing in the map is typed by event, only keyed by it.
+type Handler func(event events.NetworkingEvent) error
 
-func (HandlerMapValue[T]) justForGetCast() {}
+// Chain is a sequence of handlers run in order. The first error stops the rest
+// of the chain.
+type Chain []Handler
 
+// Chains are dispatched concurrently. Chain 0 is the primary chain (see
+// HandlerMode); the others exist only because a handler was added in
+// HANDLER_MODE_PARALLEL.
+type Chains []Chain
+
+// HandlerMap holds the handlers for one request, keyed by event type. The key
+// is either a concrete event type or one of the capability buckets in
+// events.EVENTS.Categories.
+//
+// Every method tolerates a nil map except those that would have to store
+// something, which panic: silently dropping a handler registration is worse
+// than a stack trace at the call site.
 type HandlerMap struct {
-	internal map[reflect.Type]ooRequestBoundHandlerT
+	internal map[events.EventType]Chains
 }
 
 func NewHandlerMap() *HandlerMap {
-	return &HandlerMap{
-		internal: make(map[reflect.Type]ooRequestBoundHandlerT),
-	}
+	return &HandlerMap{internal: make(map[events.EventType]Chains)}
 }
 
 // --- introspection --------------------------------------------------------
@@ -33,11 +45,11 @@ func (m *HandlerMap) Len() int {
 	return len(m.internal)
 }
 
-func (m *HandlerMap) Types() []reflect.Type {
+func (m *HandlerMap) Types() []events.EventType {
 	if m == nil {
 		return nil
 	}
-	out := make([]reflect.Type, 0, len(m.internal))
+	out := make([]events.EventType, 0, len(m.internal))
 	for t := range m.internal {
 		out = append(out, t)
 	}
@@ -51,247 +63,174 @@ func (m *HandlerMap) Clear() {
 	clear(m.internal)
 }
 
-// --- untyped storage core (builder- and dispatch-facing) ------------------
+// --- registration ---------------------------------------------------------
 
-// getStored returns the single stored value type under key, or nil.
-func (m *HandlerMap) getStored(key reflect.Type) (storedValue, bool) {
-	if m == nil {
-		return nil, false
-	}
-	if v, ok := m.internal[key]; ok {
-		if sv, ok := v.(storedValue); ok {
-			return sv, true
-		}
-	}
-	return nil, false
-}
-
-// GetType returns the raw stored value under key (the interface-typed 2D
-// structure). Dispatch and the builder use this to walk handlers without a type
-// parameter.
-func (m *HandlerMap) GetType(t reflect.Type) (storedValue, bool) {
-	return m.getStored(t)
-}
-
-func (m *HandlerMap) setType(t reflect.Type, value storedValue) {
-	if m == nil {
-		panic("networking: SetType on nil *HandlerMap")
-	}
-	m.internal[t] = value
-}
-
-// AddRaw inserts an already-interface-typed handler under key according to mode.
-// This is the entry point for non-generic call sites (e.g. the fluent builder),
-// where the event type is known only as a runtime reflect.Type.
+// Add registers a handler that receives its event already typed as T. The key
+// is derived from T rather than passed in, so the handler cannot be filed
+// under a type it does not accept.
 //
-// Because the handler is already RequestBoundHandler[NetworkingEvent] — the
-// stored element type — there are no per-handler type assertions and no way to
-// smuggle in a mismatched value type. Add[T] funnels through here after wrapping.
-func AddRaw(m *HandlerMap, key events.EventType, handler RequestBoundHandler[events.NetworkingEvent], mode SpecializedHandlerMode) {
-	if m == nil {
-		panic("networking: AddRaw on nil *HandlerMap")
+// T may be a capability bucket: Add(func(e events.FailureEvent) error {...})
+// registers one handler for every failure the library can emit.
+func (m *HandlerMap) Add[T events.NetworkingEvent](handler func(T) error, mode HandlerMode) *HandlerMap {
+	if handler == nil {
+		panic("networking: Add with a nil handler")
 	}
-	existing, _ := m.getStored(key)
-
-	switch mode {
-	case HANDLER_MODE_INVALID:
-		panic("networking: invalid handler mode")
-
-	case HANDLER_MODE_PARALLEL:
-		m.setType(key, append(existing, []RequestBoundHandler[events.NetworkingEvent]{handler}))
-
-	case HANDLER_MODE_REPLACE:
-		if len(existing) == 0 {
-			m.setType(key, storedValue{{handler}})
-			return
+	key := reflect.TypeFor[T]()
+	return m.AddType(key, func(event events.NetworkingEvent) error {
+		typed, ok := event.(T)
+		if !ok {
+			// Unreachable while dispatch keys off the dynamic type; an error
+			// rather than a panic so a library bug cannot take down a request.
+			return fmt.Errorf("networking: handler registered for %v received %T", key, event)
 		}
-		existing[0] = []RequestBoundHandler[events.NetworkingEvent]{handler}
-		m.setType(key, existing)
-
-	case HANDLER_MODE_PREFIX:
-		if len(existing) == 0 {
-			m.setType(key, storedValue{{handler}})
-			return
-		}
-		existing[0] = append([]RequestBoundHandler[events.NetworkingEvent]{handler}, existing[0]...)
-		m.setType(key, existing)
-
-	case HANDLER_MODE_POSTFIX:
-		if len(existing) == 0 {
-			m.setType(key, storedValue{{handler}})
-			return
-		}
-		existing[0] = append(existing[0], handler)
-		m.setType(key, existing)
-
-	default:
-		panic("networking: unknown handler mode")
-	}
+		return handler(typed)
+	}, mode)
 }
 
-func (m *HandlerMap) HasType(t reflect.Type) bool {
-	if m == nil {
-		return false
+// AddType is Add for callers holding a runtime event type instead of a type
+// parameter, and is the only entry point that takes one.
+//
+// It exists because two callers genuinely cannot name their event type at
+// compile time: RequestBehaviourBuilder, whose methods cannot be generic
+// because Go 1.27 forbids type parameters on interface methods, and any caller
+// registering across events.EVENTS. Prefer Add everywhere else — it derives
+// the key from the handler, so the two cannot disagree.
+func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode HandlerMode) *HandlerMap {
+	switch {
+	case m == nil:
+		panic("networking: AddType on a nil *HandlerMap")
+	case key == nil:
+		panic("networking: AddType with a nil event type")
+	case handler == nil:
+		panic("networking: AddType with a nil handler")
 	}
-	_, ok := m.internal[t]
+
+	existing := m.internal[key]
+	switch mode {
+	case HANDLER_MODE_PARALLEL:
+		m.internal[key] = append(existing, Chain{handler})
+	case HANDLER_MODE_REPLACE:
+		m.internal[key] = withPrimary(existing, Chain{handler})
+	case HANDLER_MODE_PREFIX:
+		m.internal[key] = withPrimary(existing, append(Chain{handler}, primary(existing)...))
+	case HANDLER_MODE_POSTFIX:
+		m.internal[key] = withPrimary(existing, append(primary(existing), handler))
+	default:
+		panic("networking: " + mode.String() + " is not a usable handler mode")
+	}
+	return m
+}
+
+// --- lookup and removal ---------------------------------------------------
+//
+// Keyed by type parameter only. Dispatch reaches the same storage through the
+// unexported accessors below, so a runtime-keyed read never has to be exported.
+
+func (m *HandlerMap) Get[T events.NetworkingEvent]() (Chains, bool) {
+	return m.chains(reflect.TypeFor[T]())
+}
+
+// Set replaces everything stored for T.
+func (m *HandlerMap) Set[T events.NetworkingEvent](chains Chains) *HandlerMap {
+	return m.store(reflect.TypeFor[T](), chains)
+}
+
+func (m *HandlerMap) Has[T events.NetworkingEvent]() bool {
+	_, ok := m.chains(reflect.TypeFor[T]())
 	return ok
 }
 
-func (m *HandlerMap) DeleteType(t reflect.Type) bool {
-	if m == nil {
-		return false
-	}
-	if _, ok := m.internal[t]; ok {
-		delete(m.internal, t)
-		return true
-	}
-	return false
-}
-
-// --- typed convenience API (boundary-wrapping sugar) ----------------------
-
-// wrap adapts a T-typed handler into the stored interface handler by asserting
-// the concrete event on the way in. Safe because the handler is only ever
-// stored under key reflect.TypeFor[T](), so the event delivered under that key
-// has dynamic type T.
-func wrap[T events.NetworkingEvent](fn RequestBoundHandler[T]) RequestBoundHandler[events.NetworkingEvent] {
-	return func(e events.NetworkingEvent) error {
-		return fn(e.(T))
-	}
-}
-
-func Add[T events.NetworkingEvent](m *HandlerMap, handler RequestBoundHandler[T], mode SpecializedHandlerMode) {
-	AddRaw(m, reflect.TypeFor[T](), wrap(handler), mode)
-}
-
-func Get[T events.NetworkingEvent](m *HandlerMap) (HandlerMapValue[T], bool) {
-	sv, ok := m.getStored(reflect.TypeFor[T]())
-	if !ok {
-		return nil, false
-	}
-	out := make(HandlerMapValue[T], len(sv))
-	for i, group := range sv {
-		chain := make([]RequestBoundHandler[T], len(group))
-		for j, h := range group {
-			h := h
-			chain[j] = func(e T) error { return h(e) }
-		}
-		out[i] = chain
-	}
-	return out, true
-}
-
-func Set[T events.NetworkingEvent](m *HandlerMap, value HandlerMapValue[T]) {
-	if m == nil {
-		panic("networking: Set on nil *HandlerMap")
-	}
-	sv := make(storedValue, len(value))
-	for i, group := range value {
-		chain := make([]RequestBoundHandler[events.NetworkingEvent], len(group))
-		for j, h := range group {
-			chain[j] = wrap(h)
-		}
-		sv[i] = chain
-	}
-	m.setType(reflect.TypeFor[T](), sv)
-}
-
-func Has[T events.NetworkingEvent](m *HandlerMap) bool {
-	return m.HasType(reflect.TypeFor[T]())
-}
-
-func Delete[T events.NetworkingEvent](m *HandlerMap) bool {
-	return m.DeleteType(reflect.TypeFor[T]())
-}
-
-func IfPresent[T events.NetworkingEvent](m *HandlerMap, fn func(HandlerMapValue[T])) bool {
-	if v, ok := Get[T](m); ok {
-		fn(v)
-		return true
-	}
-	return false
-}
-
-func (m *HandlerMap) IfPresentType(t reflect.Type, fn func(storedValue)) bool {
-	if v, ok := m.getStored(t); ok {
-		fn(v)
-		return true
-	}
-	return false
-}
-
-// GetOr returns the typed value for T, or fallback if absent.
-func GetOr[T events.NetworkingEvent](m *HandlerMap, fallback HandlerMapValue[T]) HandlerMapValue[T] {
-	if v, ok := Get[T](m); ok {
-		return v
-	}
-	return fallback
-}
-
-// GetOrType returns the raw stored value under t, or fallback if absent.
-func (m *HandlerMap) GetOrType(t reflect.Type, fallback storedValue) storedValue {
-	if v, ok := m.getStored(t); ok {
-		return v
-	}
-	return fallback
-}
-
-func GetOrSet[T events.NetworkingEvent](m *HandlerMap, value HandlerMapValue[T]) (HandlerMapValue[T], bool) {
-	if v, ok := Get[T](m); ok {
-		return v, false
-	}
-	// Wrap each typed handler down to the stored element type.
-	sv := make(storedValue, len(value))
-	for i, group := range value {
-		chain := make([]RequestBoundHandler[events.NetworkingEvent], len(group))
-		for j, h := range group {
-			chain[j] = wrap(h)
-		}
-		sv[i] = chain
-	}
-	m.setType(reflect.TypeFor[T](), sv)
-	return value, true
+func (m *HandlerMap) Delete[T events.NetworkingEvent]() bool {
+	return m.remove(reflect.TypeFor[T]())
 }
 
 // --- dispatch -------------------------------------------------------------
 
-// dispatchStored runs a stored 2D handler structure: each parallel group runs
-// concurrently, and within a group the sequential chain runs in order, stopping
-// that chain at the first error. Returns the first error encountered across all
-// groups (if any). A nil stored value is a no-op.
-//
-// It takes the event as events.NetworkingEvent because dispatch is keyed by the
-// event's dynamic type; each stored handler already closes over the concrete
-// assertion (via wrap), so passing the interface value is correct.
-func dispatchStored(sv storedValue, event events.NetworkingEvent) error {
-	if len(sv) == 0 {
-		return nil
-	}
-
-	type result struct{ err error }
-	results := make(chan result, len(sv))
-
-	for _, group := range sv {
-		group := group
-		go func() {
-			for _, h := range group {
-				if h == nil {
-					continue
-				}
-				if err := h(event); err != nil {
-					results <- result{err}
-					return
-				}
-			}
-			results <- result{nil}
-		}()
-	}
-
-	var firstErr error
-	for range sv {
-		if r := <-results; r.err != nil && firstErr == nil {
-			firstErr = r.err
+// Run executes the chain in order, stopping at the first error and returning
+// it. Nil handlers are skipped.
+func (c Chain) Run(event events.NetworkingEvent) error {
+	for _, handler := range c {
+		if handler == nil {
+			continue
+		}
+		if err := handler(event); err != nil {
+			return err
 		}
 	}
-	return firstErr
+	return nil
+}
+
+// Dispatch runs every chain concurrently and returns the first error reported
+// by any of them. A single chain runs on the calling goroutine.
+func (c Chains) Dispatch(event events.NetworkingEvent) error {
+	switch len(c) {
+	case 0:
+		return nil
+	case 1:
+		return c[0].Run(event)
+	}
+
+	errs := make(chan error, len(c))
+	for _, chain := range c {
+		go func() { errs <- chain.Run(event) }()
+	}
+
+	var first error
+	for range c {
+		if err := <-errs; err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// --- internals ------------------------------------------------------------
+
+// chains, store and remove are the runtime-keyed accessors. They stay
+// unexported: the only caller outside this package that needs a runtime key is
+// the fluent builder, and it only ever registers (see AddType).
+
+func (m *HandlerMap) chains(key events.EventType) (Chains, bool) {
+	if m == nil {
+		return nil, false
+	}
+	c, ok := m.internal[key]
+	return c, ok
+}
+
+func (m *HandlerMap) store(key events.EventType, chains Chains) *HandlerMap {
+	switch {
+	case m == nil:
+		panic("networking: Set on a nil *HandlerMap")
+	case key == nil:
+		panic("networking: Set with a nil event type")
+	}
+	m.internal[key] = chains
+	return m
+}
+
+func (m *HandlerMap) remove(key events.EventType) bool {
+	if _, ok := m.chains(key); !ok {
+		return false
+	}
+	delete(m.internal, key)
+	return true
+}
+
+// primary is chain 0, the chain every non-PARALLEL mode edits.
+func primary(c Chains) Chain {
+	if len(c) == 0 {
+		return nil
+	}
+	return c[0]
+}
+
+// withPrimary writes chain back as chain 0, creating the slot if needed and
+// leaving any parallel chains untouched.
+func withPrimary(c Chains, chain Chain) Chains {
+	if len(c) == 0 {
+		return Chains{chain}
+	}
+	c[0] = chain
+	return c
 }

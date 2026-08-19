@@ -1,6 +1,6 @@
 module github.com/lilybw/go-solid
 
-go 1.25.4
+go 1.27rc3
 
 replace golang.org/x/sys => github.com/golang/sys v0.28.0
 

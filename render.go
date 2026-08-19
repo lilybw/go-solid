@@ -57,7 +57,7 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	propsJSON, err := marshalProps(data)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return networking.ExecHandlers(req, events.NewPropsMarshalingFailure(err))
+			return req.Dispatch(events.NewPropsMarshalingFailure(err))
 		})
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	// HTML carries props/root/HMR, which vary per call.
 	resp := assembleResponse(bundler, data, artifact, propsJSON)
 	if err := data.ifRequest(func(req *networking.RequestBehaviour) error {
-		return networking.ExecHandlers(req, events.NewTransmitRenderedTemplate(resp))
+		return req.Dispatch(events.NewTransmitRenderedTemplate(resp))
 	}); err != nil {
 		return nil, fmt.Errorf("go_solid#Render: transmit %q: %w", data.component, err)
 	}
@@ -102,7 +102,7 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return networking.ExecHandlers(req, events.NewRegistryLookupFailure(
+			return req.Dispatch(events.NewRegistryLookupFailure(
 				fmt.Errorf("component %q not found in registry", data.component)))
 		})
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
@@ -135,7 +135,7 @@ func (bundler *Bundler) bundleComponent(
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return networking.ExecHandlers(req, events.NewEntryGenerationFailure(err))
+			return req.Dispatch(events.NewEntryGenerationFailure(err))
 		})
 		return nil, nil, err
 	}
@@ -143,7 +143,7 @@ func (bundler *Bundler) bundleComponent(
 	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return networking.ExecHandlers(req, events.NewTempEntryWriteFailure(err))
+			return req.Dispatch(events.NewTempEntryWriteFailure(err))
 		})
 		return nil, nil, err
 	}
@@ -154,7 +154,7 @@ func (bundler *Bundler) bundleComponent(
 		bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return networking.ExecHandlers(req, events.NewCompBundlingFailure(err))
+			return req.Dispatch(events.NewCompBundlingFailure(err))
 		})
 		return nil, nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
 	}

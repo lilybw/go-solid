@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"testing"
 
 	"github.com/lilybw/go-solid/internal/caching"
@@ -29,7 +28,7 @@ func rendered(html string) *caching.Rendered {
 // 1. The defaults exist at all.
 //
 // This is the regression test for the original bug: NewRequestData returned an
-// empty HandlerMap, so ExecHandlers found nothing, nothing was ever written to
+// empty HandlerMap, so Dispatch found nothing, nothing was ever written to
 // the ResponseWriter, and the caller saw a 200 with an empty body.
 // ---------------------------------------------------------------------------
 
@@ -41,30 +40,42 @@ func TestNewRequestData_InstallsDefaultHandlers(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name string
-		key  events.EventType
+		name   string
+		lookup func() (shared.Chains, bool)
 	}{
-		{"TransmitRenderedTemplate", events.EVENTS.TransmitRenderedTemplate},
-		{"PropsMarshalingFailure", events.EVENTS.PropsMarshalingFailure},
-		{"RegistryLookupFailure", events.EVENTS.RegistryLookupFailure},
-		{"EntryGenerationFailure", events.EVENTS.EntryGenerationFailure},
-		{"TempEntryWriteFailure", events.EVENTS.TempEntryWriteFailure},
-		{"CompBundlingFailure", events.EVENTS.CompBundlingFailure},
+		{"TransmitRenderedTemplate", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.TransmitRenderedTemplateEvent]()
+		}},
+		{"PropsMarshalingFailure", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.PropsMarshalingFailureEvent]()
+		}},
+		{"RegistryLookupFailure", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.RegistryLookupFailureEvent]()
+		}},
+		{"EntryGenerationFailure", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.EntryGenerationFailureEvent]()
+		}},
+		{"TempEntryWriteFailure", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.TempEntryWriteFailureEvent]()
+		}},
+		{"CompBundlingFailure", func() (shared.Chains, bool) {
+			return data.Handlers.Get[events.CompBundlingFailureEvent]()
+		}},
 	} {
-		sv, ok := data.Handlers.GetType(tc.key)
+		chains, ok := tc.lookup()
 		if !ok {
 			t.Errorf("no default handler registered for %s", tc.name)
 			continue
 		}
-		if len(sv) == 0 {
+		if len(chains) == 0 {
 			t.Errorf("%s: handler slot present but empty", tc.name)
 			continue
 		}
-		for i, group := range sv {
-			if len(group) == 0 {
-				t.Errorf("%s: handler group %d is empty", tc.name, i)
+		for i, chain := range chains {
+			if len(chain) == 0 {
+				t.Errorf("%s: chain %d is empty", tc.name, i)
 			}
-			for j, h := range group {
+			for j, h := range chain {
 				if h == nil {
 					t.Errorf("%s: handler [%d][%d] is nil", tc.name, i, j)
 				}
@@ -74,21 +85,18 @@ func TestNewRequestData_InstallsDefaultHandlers(t *testing.T) {
 }
 
 // Every event the library can emit must reach a handler. If a new event type is
-// added to EVENTS.Values without a default, this fails rather than silently
+// added to EVENTS.Concrete without a default, this fails rather than silently
 // producing an empty response in production.
 func TestEveryDeclaredEventReachesAHandler(t *testing.T) {
 	data, _ := newBoundRequestData(t)
 
-	interfaceKeys := map[reflect.Type]bool{
-		events.EVENTS.SuccessEvent: true,
-		events.EVENTS.FailureEvent: true,
+	registered := make(map[events.EventType]bool, data.Handlers.Len())
+	for _, key := range data.Handlers.Types() {
+		registered[key] = true
 	}
 
-	for _, evType := range events.EVENTS.Values {
-		if interfaceKeys[evType] {
-			continue // the catch-all buckets themselves
-		}
-		if !data.Handlers.HasType(evType) {
+	for _, evType := range events.EVENTS.Concrete {
+		if !registered[evType] {
 			t.Errorf("event %s has no default responder registered: emitting it would "+
 				"write nothing to the response", evType)
 		}
@@ -103,8 +111,8 @@ func TestDefaultTransmitHandler_WritesHTMLAndStatus200(t *testing.T) {
 	data, rec := newBoundRequestData(t)
 
 	const html = "<!doctype html><html><body>hello</body></html>"
-	if err := shared.ExecHandlers(data, events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
-		t.Fatalf("ExecHandlers: %v", err)
+	if err := data.Dispatch(events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
+		t.Fatalf("Dispatch: %v", err)
 	}
 
 	if rec.Code != http.StatusOK {
@@ -131,8 +139,8 @@ func TestDefaultFailureHandler_WritesErrorAndStatus500(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			data, rec := newBoundRequestData(t)
 
-			if err := shared.ExecHandlers(data, tc.event); err != nil {
-				t.Fatalf("ExecHandlers: %v", err)
+			if err := data.Dispatch(tc.event); err != nil {
+				t.Fatalf("Dispatch: %v", err)
 			}
 
 			if rec.Code != http.StatusInternalServerError {
@@ -146,14 +154,14 @@ func TestDefaultFailureHandler_WritesErrorAndStatus500(t *testing.T) {
 }
 
 // A success event must not also be handled as a failure, and vice versa. With
-// the interface-keyed buckets in ExecHandlers it is easy for one event to be
+// the interface-keyed buckets in Dispatch it is easy for one event to be
 // picked up twice and write two bodies into one response.
 func TestDispatchWritesExactlyOneBody(t *testing.T) {
 	const html = "<html>only-me</html>"
 
 	data, rec := newBoundRequestData(t)
-	if err := shared.ExecHandlers(data, events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
-		t.Fatalf("ExecHandlers: %v", err)
+	if err := data.Dispatch(events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
+		t.Fatalf("Dispatch: %v", err)
 	}
 
 	body := rec.Body.String()
@@ -178,18 +186,14 @@ func TestUserHandlersDoNotDisplaceDefaults(t *testing.T) {
 			return nil
 		})
 
-	for _, key := range []events.EventType{
-		events.EVENTS.TransmitRenderedTemplate,
-		events.EVENTS.RegistryLookupFailure,
-		events.EVENTS.CompBundlingFailure,
-	} {
-		if !data.Handlers.HasType(key) {
-			t.Errorf("registering a user handler dropped the default for %s", key)
-		}
+	if !data.Handlers.Has[events.TransmitRenderedTemplateEvent]() ||
+		!data.Handlers.Has[events.RegistryLookupFailureEvent]() ||
+		!data.Handlers.Has[events.CompBundlingFailureEvent]() {
+		t.Error("registering a user handler dropped a default responder")
 	}
 
-	if err := shared.ExecHandlers(data, events.NewPropsMarshalingFailure(errors.New("x"))); err != nil {
-		t.Fatalf("ExecHandlers: %v", err)
+	if err := data.Dispatch(events.NewPropsMarshalingFailure(errors.New("x"))); err != nil {
+		t.Fatalf("Dispatch: %v", err)
 	}
 	if !called {
 		t.Error("user handler was registered but never invoked")
@@ -213,8 +217,8 @@ func TestRequestBehaviourTemplate_AppliesWithoutLosingDefaults(t *testing.T) {
 	NewRequestBehaviourBuilder(data) // applies the template
 
 	const html = "<html>tpl</html>"
-	if err := shared.ExecHandlers(data, events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
-		t.Fatalf("ExecHandlers: %v", err)
+	if err := data.Dispatch(events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
+		t.Fatalf("Dispatch: %v", err)
 	}
 	if !templateRan {
 		t.Error("Defaults.Requests template handler was never invoked")
@@ -248,8 +252,8 @@ func TestHandlersWriteToTheCurrentWriter(t *testing.T) {
 		}
 	}()
 
-	if err := shared.ExecHandlers(data, events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
-		t.Fatalf("ExecHandlers: %v", err)
+	if err := data.Dispatch(events.NewTransmitRenderedTemplate(rendered(html))); err != nil {
+		t.Fatalf("Dispatch: %v", err)
 	}
 	if rec.Body.String() != html {
 		t.Errorf("body = %q, want %q", rec.Body.String(), html)

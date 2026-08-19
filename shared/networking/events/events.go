@@ -15,16 +15,6 @@ type NetworkingEvent interface {
 	HTTPCode() uint
 }
 
-type networkingEventBase struct {
-	httpCode uint
-}
-
-// HTTPCode shadows networkingEventBase.HTTPCode: a failure must never report a
-// 2xx just because no explicit code was attached to the event.
-func (f failureBase) HTTPCode() uint {
-	return meta.Ternary(f.httpCode == 0, 500, f.httpCode)
-}
-
 type FailureEvent interface {
 	NetworkingEvent
 	Err() error
@@ -37,12 +27,27 @@ type SuccessEvent interface {
 
 // --- embeddable bases -----------------------------------------------------
 
+// networkingEventBase carries the status an event explicitly asks for. Zero
+// means "no opinion": the responder picks the default for the category.
+type networkingEventBase struct {
+	httpCode uint
+}
+
+func (b networkingEventBase) HTTPCode() uint { return b.httpCode }
+
+// failureBase is embedded by every failure event.
 type failureBase struct {
 	networkingEventBase
 	Error error
 }
 
 func (f failureBase) Err() error { return f.Error }
+
+// HTTPCode shadows networkingEventBase.HTTPCode: a failure must never report a
+// 2xx just because no explicit code was attached to the event.
+func (f failureBase) HTTPCode() uint {
+	return meta.Ternary(f.httpCode == 0, 500, f.httpCode)
+}
 
 // successBase is embedded by every success event.
 type successBase struct {
@@ -52,7 +57,6 @@ type successBase struct {
 func (successBase) isSuccessEvent() {}
 
 // --- FAILURE events -------------------------------------------------------
-//
 
 type PropsMarshalingFailureEvent struct{ failureBase }
 type RegistryLookupFailureEvent struct{ failureBase }
@@ -95,7 +99,12 @@ func NewTransmitRenderedTemplate(r *caching.Rendered) TransmitRenderedTemplateEv
 
 // --- handler type ---------------------------------------------------------
 
-type NetworkingEventHandler[T NetworkingEvent] func(w http.ResponseWriter, r *http.Request, event T) error
+// NetworkingEventHandler is a handler as the request builder takes it: not yet
+// bound to a request, and keyed by a runtime EventType rather than a type
+// parameter, so it receives the event as the interface.
+//
+// For a handler that receives its concrete event type, use HandlerMap.Add.
+type NetworkingEventHandler func(w http.ResponseWriter, r *http.Request, event NetworkingEvent) error
 
 // --- registry -------------------------------------------------------------
 
@@ -112,7 +121,19 @@ var EVENTS = struct {
 	FailureEvent EventType
 	SuccessEvent EventType
 
-	Values []reflect.Type
+	// Concrete is every event the library can actually emit. Each one gets a
+	// built-in responder; ranging over this is how a new event type is picked
+	// up automatically.
+	Concrete []EventType
+
+	// Categories are the capability buckets. They are never emitted: a handler
+	// registered under one runs for every event implementing it, after that
+	// event's own handlers. They carry no built-in responder, so they are free
+	// for cross-cutting user handlers.
+	Categories []EventType
+
+	// Values is Concrete followed by Categories.
+	Values []EventType
 }{
 	PropsMarshalingFailure:   reflect.TypeFor[PropsMarshalingFailureEvent](),
 	RegistryLookupFailure:    reflect.TypeFor[RegistryLookupFailureEvent](),
@@ -121,20 +142,23 @@ var EVENTS = struct {
 	CompBundlingFailure:      reflect.TypeFor[CompBundlingFailureEvent](),
 	TransmitRenderedTemplate: reflect.TypeFor[TransmitRenderedTemplateEvent](),
 
-	// Comes with universal fallback handlers
 	FailureEvent: reflect.TypeFor[FailureEvent](),
 	SuccessEvent: reflect.TypeFor[SuccessEvent](),
 }
 
 func init() {
-	EVENTS.Values = []reflect.Type{
+	EVENTS.Concrete = []EventType{
 		EVENTS.PropsMarshalingFailure,
 		EVENTS.RegistryLookupFailure,
 		EVENTS.EntryGenerationFailure,
 		EVENTS.TempEntryWriteFailure,
 		EVENTS.CompBundlingFailure,
 		EVENTS.TransmitRenderedTemplate,
+	}
+	EVENTS.Categories = []EventType{
 		EVENTS.FailureEvent,
 		EVENTS.SuccessEvent,
 	}
+	EVENTS.Values = append(append(make([]EventType, 0, len(EVENTS.Concrete)+len(EVENTS.Categories)),
+		EVENTS.Concrete...), EVENTS.Categories...)
 }
