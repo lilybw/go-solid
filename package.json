@@ -10,8 +10,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@babel/core": "^7.29.7",
-    "babel-preset-solid": "^1.9.12",
     "solid-js": "^1.9.14"
   }
 }

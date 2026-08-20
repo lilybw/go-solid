@@ -158,38 +158,3 @@ func TestConfig_DependenciesExplicitResolvedToAbsolute(t *testing.T) {
 		t.Fatalf("Dependencies = %q, want %q", cfg.Generation.Dependencies, want)
 	}
 }
-
-func TestConfig_ScriptLocationMaterializedWhenEmpty(t *testing.T) {
-	resetPackageState(t)
-	comps := t.TempDir()
-	cfg := &Config{Components: comps}
-	if err := configValidationAndNormalization(cfg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Generation.ScriptLocation == "" {
-		t.Fatal("ScriptLocation was not materialized")
-	}
-	base := filepath.Base(cfg.Generation.ScriptLocation)
-	if !strings.HasPrefix(base, "transform-worker.") || !strings.HasSuffix(base, ".mjs") {
-		t.Fatalf("materialized script has unexpected name: %q", base)
-	}
-	if _, err := os.Stat(cfg.Generation.ScriptLocation); err != nil {
-		t.Fatalf("materialized script not on disk: %v", err)
-	}
-}
-
-func TestConfig_ScriptLocationExplicitPreserved(t *testing.T) {
-	resetPackageState(t)
-	comps := t.TempDir()
-	explicit := filepath.Join(comps, "my-worker.mjs")
-	cfg := &Config{
-		Components: comps,
-		Generation: &shared_esbuild.BundlerConfig{ScriptLocation: explicit},
-	}
-	if err := configValidationAndNormalization(cfg); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.Generation.ScriptLocation != explicit {
-		t.Fatalf("ScriptLocation = %q, want explicit %q", cfg.Generation.ScriptLocation, explicit)
-	}
-}

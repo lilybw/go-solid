@@ -17,7 +17,6 @@ import (
 	"github.com/lilybw/go-solid/internal/noop"
 	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
 	static_int "github.com/lilybw/go-solid/internal/static"
-	"github.com/lilybw/go-solid/internal/workers"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
@@ -93,7 +92,6 @@ var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
 type Bundler struct {
 	cfg      *Config
 	registry *internal.ComponentRegistry
-	pool     *workers.Pool
 	mem      *caching.MemCache
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
@@ -125,16 +123,9 @@ func New(cfg *Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	pool, err := workers.NewPool(cfg.Generation)
-	if err != nil {
-		return nil, err
-	}
-
 	// Caches are enabled unless explicitly disabled.
 	disk, err := caching.NewDiskCache(cfg.Workspace, !cfg.DisableCaching)
 	if err != nil {
-		// Don't leak the pool if disk cache setup fails.
-		pool.Close()
 		return nil, err
 	}
 
@@ -164,7 +155,6 @@ func New(cfg *Config) (*Bundler, error) {
 			invalidateForSource,
 			func(e error) { fmt.Fprintf(os.Stderr, "[go_solid] reactive registry error: %v\n", e) },
 		); err != nil {
-			pool.Close()
 			return nil, err
 		}
 	}
@@ -178,7 +168,6 @@ func New(cfg *Config) (*Bundler, error) {
 		// if a bundler is correctly made through New(), the config is at this point assured to be validated, all fields present, and all field values correctly assigned.
 		cfg:      cfg,
 		registry: registry,
-		pool:     pool,
 		mem:      mem,
 		disk:     disk,
 		index:    index,
@@ -191,7 +180,6 @@ func New(cfg *Config) (*Bundler, error) {
 			// pre-render all components with disk cache enabled
 			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
 			if err != nil {
-				pool.Close()
 				return nil, fmt.Errorf("go_solid: rasterization failed for component %q: %w", comp, err)
 			}
 		}
@@ -203,7 +191,6 @@ func New(cfg *Config) (*Bundler, error) {
 	if cfg.isHMROn() {
 		normalized, err := hmr_int.NormalizeHMRConfig(cfg.HMR)
 		if err != nil {
-			pool.Close()
 			return nil, err
 		}
 		bundler.cfg.HMR = normalized
@@ -221,7 +208,6 @@ func New(cfg *Config) (*Bundler, error) {
 				fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
 			})
 		if err != nil {
-			pool.Close()
 			return nil, err
 		}
 		bundler.watcher = w
@@ -269,15 +255,6 @@ func configValidationAndNormalization(cfg *Config) error {
 		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
 		cfg.Generation.Dependencies = cfg.Components
 	} else {
-		if cfg.Generation.NodeBin == "" {
-			cfg.Generation.NodeBin = esbuild.NIL_BUNDLER_CONFIG.NodeBin
-		}
-		if cfg.Generation.PoolSize <= 0 {
-			cfg.Generation.PoolSize = esbuild.NIL_BUNDLER_CONFIG.PoolSize
-		}
-		if cfg.Generation.ScriptLocation == "" {
-			cfg.Generation.ScriptLocation = esbuild.NIL_BUNDLER_CONFIG.ScriptLocation
-		}
 		// no need for minify: defaults to false
 		// no need for sourcemap: defaults to 0 aka SourceMapNone
 		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
@@ -332,15 +309,6 @@ func configValidationAndNormalization(cfg *Config) error {
 		}
 	}
 
-	// Resolve generation settings
-	if cfg.Generation.ScriptLocation == esbuild.NIL_BUNDLER_CONFIG.ScriptLocation {
-		scriptLocation, err := esbuild_int.MaterializeWorkerScript(cfg.Workspace)
-		if err != nil {
-			return fmt.Errorf("go_solid: materialize worker script: %w", err)
-		}
-		cfg.Generation.ScriptLocation = scriptLocation
-	}
-
 	log_int.LogJSON(logging.LEVEL_DEBUG, "normalized configuration: ", cfg)
 	return nil
 }
@@ -357,9 +325,6 @@ func (b *Bundler) Close() {
 	}
 	if b.registry != nil {
 		b.registry.Close() // reactive registry watcher, if MakeReactive ran
-	}
-	if b.pool != nil {
-		b.pool.Close()
 	}
 }
 

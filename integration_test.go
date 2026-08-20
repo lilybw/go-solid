@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/meta"
-	"github.com/lilybw/go-solid/internal/workers"
 	"github.com/lilybw/go-solid/shared/esbuild"
 )
 
@@ -34,7 +33,7 @@ func requireIntegration() bool {
 
 // integrationEnv locates the worker script and a node_modules that resolves the
 // required packages. It returns (workerScript, nodeModulesParent) or skips.
-func integrationEnv(t *testing.T) (workerScript string, modulesParent meta.AbsoluteDirectoryPath) {
+func integrationEnv(t *testing.T) (modulesParent meta.AbsoluteDirectoryPath) {
 	t.Helper()
 
 	skip := func(format string, args ...any) {
@@ -55,11 +54,6 @@ func integrationEnv(t *testing.T) (workerScript string, modulesParent meta.Absol
 	}
 	pkgDir := filepath.Dir(thisFile)
 
-	workerScript = filepath.Join(pkgDir, "internal", "worker", "transform-worker.mjs")
-	if _, err := os.Stat(workerScript); err != nil {
-		skip("worker script not found at %s", workerScript)
-	}
-
 	// Find a node_modules with the required packages. Check pkgDir and example/.
 	candidates := []string{
 		pkgDir,
@@ -68,11 +62,11 @@ func integrationEnv(t *testing.T) (workerScript string, modulesParent meta.Absol
 	for _, dir := range candidates {
 		nm := filepath.Join(dir, "node_modules")
 		if hasSolidToolchain(nm) {
-			return workerScript, dir
+			return dir
 		}
 	}
 	skip("node_modules with solid-js + babel-preset-solid not found; run `npm install solid-js babel-preset-solid @babel/core`")
-	return "", ""
+	return ""
 }
 
 func hasSolidToolchain(nodeModules string) bool {
@@ -88,7 +82,7 @@ func hasSolidToolchain(nodeModules string) bool {
 // discovered node_modules so esbuild and the worker can resolve packages.
 func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bundler {
 	t.Helper()
-	_, modulesParent := integrationEnv(t)
+	modulesParent := integrationEnv(t)
 
 	workDir := t.TempDir()
 	// Make node_modules resolvable from workDir. Symlinks require elevated
@@ -140,101 +134,6 @@ export default function Hello(props: { name?: string }) {
   return <div class="hello"><h1>Hi {props.name ?? "world"}</h1><button onClick={() => setN(n() + 1)}>{n()}</button></div>;
 }
 `
-
-func TestPool_TransformProducesSolidOutput(t *testing.T) {
-	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       1,
-		Dependencies:   modulesParent,
-		ScriptLocation: script,
-	})
-	if err != nil {
-		t.Fatalf("newPool: %v", err)
-	}
-	defer pool.Close()
-
-	out, err := pool.Transform(context.Background(), workers.TransformRequest{
-		Filename: "Hello.tsx",
-		Code:     simpleComponent,
-		Generate: "dom",
-	})
-	if err != nil {
-		t.Fatalf("Transform: %v", err)
-	}
-
-	// babel-preset-solid emits template() calls and Solid web imports.
-	for _, want := range []string{"_$template", "solid-js/web"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("transform output missing %q; got first 300 chars:\n%s", want, head(out, 300))
-		}
-	}
-	// It must NOT be React-shaped.
-	if strings.Contains(out, "React.createElement") {
-		t.Error("transform output contains React.createElement — wrong JSX runtime")
-	}
-}
-
-func TestPool_HandlesConcurrentTransforms(t *testing.T) {
-	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       2,
-		Dependencies:   modulesParent,
-		ScriptLocation: script,
-	})
-	if err != nil {
-		t.Fatalf("newPool: %v", err)
-	}
-	defer pool.Close()
-
-	const n = 12
-	errs := make(chan error, n)
-	for i := 0; i < n; i++ {
-		go func() {
-			_, err := pool.Transform(context.Background(), workers.TransformRequest{
-				Filename: "Hello.tsx",
-				Code:     simpleComponent,
-				Generate: "dom",
-			})
-			errs <- err
-		}()
-	}
-	for i := 0; i < n; i++ {
-		if err := <-errs; err != nil {
-			t.Errorf("concurrent transform %d failed: %v", i, err)
-		}
-	}
-}
-
-func TestPool_TransformSurfacesBabelErrors(t *testing.T) {
-	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       1,
-		Dependencies:   modulesParent,
-		ScriptLocation: script,
-	})
-	if err != nil {
-		t.Fatalf("newPool: %v", err)
-	}
-	defer pool.Close()
-
-	// Syntactically broken JSX should produce an error, and the worker should
-	// stay alive to serve the next request.
-	_, err = pool.Transform(context.Background(), workers.TransformRequest{
-		Filename: "Bad.tsx",
-		Code:     `export default () => <div class=>;`,
-		Generate: "dom",
-	})
-	if err == nil {
-		t.Error("expected error for malformed JSX, got nil")
-	}
-
-	// Worker still usable afterwards.
-	if _, err := pool.Transform(context.Background(), workers.TransformRequest{
-		Filename: "Hello.tsx", Code: simpleComponent, Generate: "dom",
-	}); err != nil {
-		t.Errorf("worker unusable after error: %v", err)
-	}
-}
 
 func TestRender_ProducesSolidBundleAndHTML(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
@@ -362,84 +261,6 @@ func TestNew_RequiresMandatoryConfig(t *testing.T) {
 	}
 }
 
-func TestPool_RecoversAfterWorkerDeath(t *testing.T) {
-	script, modulesParent := integrationEnv(t)
-	// Very short timeout so the first transform is interrupted and its worker
-	// killed — exercising the respawn path.
-	pool, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       1,
-		Dependencies:   modulesParent,
-		Timeout:        1 * time.Millisecond,
-		ScriptLocation: script,
-	})
-	if err != nil {
-		t.Fatalf("newPool: %v", err)
-	}
-	defer pool.Close()
-
-	// Force at least one timeout-kill. With a 1ms budget these should trip.
-	for i := 0; i < 3; i++ {
-		_, _ = pool.Transform(context.Background(), workers.TransformRequest{
-			Filename: "A.tsx", Code: simpleComponent, Generate: "dom",
-		})
-	}
-
-	// Now give the pool a realistic timeout by rebuilding it is not possible
-	// (timeout is fixed at construction). Instead, assert the pool still hands
-	// out a LIVE worker: a trivial transform under a generous ctx should either
-	// succeed or fail cleanly, but NOT cascade "pipe is being closed"/EOF on a
-	// corpse. We detect recovery by checking we can eventually get a success
-	// once the transform fits in the budget, OR a clean transform error — never
-	// a dead-pipe write error.
-	//
-	// Because the 1ms budget is tiny, we mainly assert no dead-pipe write errors
-	// occur: every call gets a freshly spawned worker.
-	for i := 0; i < 5; i++ {
-		_, err := pool.Transform(context.Background(), workers.TransformRequest{
-			Filename: "A.tsx", Code: "export default 0;", Generate: "dom",
-		})
-		if err != nil && strings.Contains(err.Error(), "pipe") {
-			t.Fatalf("dead-pipe error means worker was not respawned: %v", err)
-		}
-	}
-}
-
-func TestPool_SurvivesCleanTransformError(t *testing.T) {
-	// A babel error (bad JSX) must NOT kill the worker — it's a clean, expected
-	// failure. The same worker must serve the next request.
-	script, modulesParent := integrationEnv(t)
-	pool, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       1,
-		Dependencies:   modulesParent,
-		ScriptLocation: script,
-	})
-	if err != nil {
-		t.Fatalf("newPool: %v", err)
-	}
-	defer pool.Close()
-
-	_, err = pool.Transform(context.Background(), workers.TransformRequest{
-		Filename: "Bad.tsx", Code: `export default () => <div class=>;`, Generate: "dom",
-	})
-	if err == nil {
-		t.Fatal("expected error for malformed JSX")
-	}
-	if strings.Contains(err.Error(), "pipe") || strings.Contains(err.Error(), "EOF") {
-		t.Errorf("clean transform error should not look like a dead worker: %v", err)
-	}
-
-	// Worker must still be alive and usable.
-	out, err := pool.Transform(context.Background(), workers.TransformRequest{
-		Filename: "Good.tsx", Code: simpleComponent, Generate: "dom",
-	})
-	if err != nil {
-		t.Fatalf("worker unusable after clean transform error: %v", err)
-	}
-	if !strings.Contains(out, "_$template") {
-		t.Error("recovered worker produced unexpected output")
-	}
-}
-
 func head(s string, n int) string {
 	if len(s) > n {
 		return s[:n]
@@ -467,34 +288,5 @@ func TestRender_WarmRenderIsFast(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Errorf("cache hit took %v, expected <50ms (is caching working?)", elapsed)
-	}
-}
-
-// TestPool_StartupFailureIsLegible simulates the Windows failure mode: a worker
-// that dies at startup. The error must surface at newPool WITH the Node stderr,
-// not later as a bare Transform EOF. This does not need the solid toolchain,
-// only node, so it runs wherever node is present.
-func TestPool_StartupFailureIsLegible(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		if requireIntegration() {
-			t.Fatal("node not on PATH")
-		}
-		t.Skip("node not on PATH")
-	}
-	dir := t.TempDir()
-	bad := filepath.Join(dir, "bad-worker.mjs")
-	if err := os.WriteFile(bad, []byte(`import "this-module-does-not-exist-xyz";`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := workers.NewPool(&esbuild.BundlerConfig{
-		PoolSize:       1,
-		Dependencies:   dir,
-		ScriptLocation: bad,
-	})
-	if err == nil {
-		t.Fatal("expected startup failure, got nil")
-	}
-	if !strings.Contains(err.Error(), "failed to start") && !strings.Contains(err.Error(), "spawn worker") {
-		t.Errorf("startup error not legible: %v", err)
 	}
 }

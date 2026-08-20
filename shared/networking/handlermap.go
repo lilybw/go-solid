@@ -87,14 +87,7 @@ func (m *HandlerMap) Add[T events.NetworkingEvent](handler func(T) error, mode H
 	}, mode)
 }
 
-// AddType is Add for callers holding a runtime event type instead of a type
-// parameter, and is the only entry point that takes one.
-//
-// It exists because two callers genuinely cannot name their event type at
-// compile time: RequestBehaviourBuilder, whose methods cannot be generic
-// because Go 1.27 forbids type parameters on interface methods, and any caller
-// registering across events.EVENTS. Prefer Add everywhere else — it derives
-// the key from the handler, so the two cannot disagree.
+
 func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode HandlerMode) *HandlerMap {
 	switch {
 	case m == nil:

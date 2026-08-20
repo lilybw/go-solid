@@ -150,8 +150,7 @@ func (bundler *Bundler) bundleComponent(
 	defer cleanup()
 
 	bundle, err := esbuild.BundleEntry(
-		data.ctx, bundler.pool, "dom", entryPath,
-		bundler.cfg.Generation.Dependencies, bundler.cfg.Generation)
+		entryPath, "dom", bundler.cfg.Generation)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.Dispatch(events.NewCompBundlingFailure(err))

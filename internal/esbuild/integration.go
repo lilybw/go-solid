@@ -1,7 +1,6 @@
 package esbuild
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,8 +9,9 @@ import (
 	"strings"
 
 	esbuild "github.com/evanw/esbuild/pkg/api"
+	"github.com/lilybw/go-solid-compiler/solid"
+	"github.com/lilybw/go-solid-compiler/tsx"
 	"github.com/lilybw/go-solid/internal/meta"
-	"github.com/lilybw/go-solid/internal/workers"
 	. "github.com/lilybw/go-solid/shared/esbuild"
 )
 
@@ -21,37 +21,44 @@ type bundleResult struct {
 	Sources []meta.AbsoluteFilePath // absolute paths of consumer source files (for invalidation)
 }
 
-// SolidPlugin returns an esbuild plugin that intercepts every JSX/TSX source
-// file and runs it through the babel-preset-solid worker pool BEFORE esbuild
-// bundles it. This is the key to correct output: esbuild's own JSX transform is
-// React-shaped and cannot produce Solid's template() calls, so we must let babel
-// own the JSX->Solid step for every file in the graph, not just the entry.
-func SolidPlugin(ctx context.Context, pool *workers.Pool, generate string) esbuild.Plugin {
+// SolidPlugin returns an esbuild plugin that lowers Solid JSX in every JSX/TSX
+// file before esbuild bundles it. esbuild's own JSX transform is React-shaped
+// and cannot produce Solid's template() calls, so the JSX->Solid step must own
+// every file in the graph, not just the entry.
+//
+// The transform runs in-process. esbuild calls OnLoad concurrently across
+// files, which is safe here: each call builds its own compiler state.
+func SolidPlugin(cfg *BundlerConfig) esbuild.Plugin {
 	return esbuild.Plugin{
 		Name: "solid-transform",
 		Setup: func(build esbuild.PluginBuild) {
-			// Intercept .tsx and .jsx (the files containing JSX).
+			// Intercept .tsx and .jsx (the files containing JSX). Plain .ts and
+			// .js need no transform and go straight to esbuild.
 			build.OnLoad(esbuild.OnLoadOptions{Filter: `\.[jt]sx$`},
 				func(args esbuild.OnLoadArgs) (esbuild.OnLoadResult, error) {
 					src, err := os.ReadFile(args.Path)
 					if err != nil {
 						return esbuild.OnLoadResult{}, err
 					}
-					transformed, err := pool.Transform(ctx, workers.TransformRequest{
-						Filename: args.Path,
-						Code:     string(src),
-						Generate: generate,
-					})
+
+					file, err := tsx.Parse(args.Path, string(src), tsx.ScriptKindOf(args.Path))
+					if err != nil {
+						return esbuild.OnLoadResult{}, fmt.Errorf("solid parse %s: %w", args.Path, err)
+					}
+
+					contents, err := tsx.TransformSolid(file, solid.Options{})
 					if err != nil {
 						return esbuild.OnLoadResult{}, fmt.Errorf("solid transform %s: %w", args.Path, err)
 					}
-					// Loader is TSX so esbuild strips any remaining TS annotations.
-					// esbuild's JSX won't fire: babel already removed all JSX.
-					contents := transformed
-					loader := esbuild.LoaderTSX
+
+					// The transform lowers JSX but leaves type annotations in
+					// place, so esbuild strips those. LoaderTS rather than
+					// LoaderTSX on purpose: no JSX should remain, and the TS
+					// loader fails loudly if any does instead of silently
+					// applying the React transform to it.
 					return esbuild.OnLoadResult{
 						Contents:   &contents,
-						Loader:     loader,
+						Loader:     esbuild.LoaderTS,
 						ResolveDir: filepath.Dir(args.Path),
 					}, nil
 				})
@@ -59,7 +66,7 @@ func SolidPlugin(ctx context.Context, pool *workers.Pool, generate string) esbui
 	}
 }
 
-func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
+func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
 		Bundle:            true,
@@ -74,7 +81,7 @@ func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath st
 		MinifyIdentifiers: cfg.Minify,
 		MinifySyntax:      cfg.Minify,
 		Sourcemap:         cfg.Sourcemap,
-		Plugins:           []esbuild.Plugin{SolidPlugin(ctx, pool, generate)},
+		Plugins:           []esbuild.Plugin{SolidPlugin(cfg)},
 		Loader: map[string]esbuild.Loader{
 			".css":   esbuild.LoaderCSS,
 			".svg":   esbuild.LoaderDataURL,
@@ -113,9 +120,10 @@ func BundleEntry(ctx context.Context, pool *workers.Pool, generate, entryPath st
 	return out, nil
 }
 
-// extractSources parses esbuild's metafile JSON and returns the absolute paths
-// of consumer source files in the bundle graph, excluding node_modules and the
-// generated temp entry. These are what invalidation hashes.
+// ExtractSourcesFromMetafile parses esbuild's metafile JSON and returns the
+// absolute paths of consumer source files in the bundle graph, excluding
+// node_modules and the generated temp entry. These are what invalidation
+// hashes.
 func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirectoryPath) []string {
 	if metafile == "" {
 		return nil
