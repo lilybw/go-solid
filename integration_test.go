@@ -12,6 +12,7 @@ import (
 
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/esbuild"
+	"github.com/lilybw/go-solid/shared/logging"
 )
 
 // -----------------------------------------------------------------------------
@@ -114,6 +115,7 @@ func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bu
 		}
 	}
 
+	cfg.LogLevel = logging.LEVEL_ERROR
 	cfg.Components = compDir
 	cfg.Generation.Dependencies = modulesParent // already contains node_modules with the toolchain
 	if cfg.Generation == nil {
