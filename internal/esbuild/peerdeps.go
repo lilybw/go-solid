@@ -8,16 +8,16 @@ import (
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
-// RequiredPeerDeps are the Node packages the consumer must provide.
+// RequiredPeerDeps are the npm packages the consumer must have installed.
 //
-// Only the browser runtime remains: solid-js must be the consumer's version,
-// because the code go_solid emits calls into it. The compiler itself is Go and
-// needs nothing installed.
+// Only the browser runtime: the generated entry imports solid-js/web, so
+// esbuild has to resolve the consumer's own solid-js. The compiler is Go
+// (github.com/lilybw/go-solid-compiler); no Node runtime is involved at any
+// point, so nothing else needs installing.
 var RequiredPeerDeps = []string{"solid-js"}
 
 // PeerDepsMissing returns which of pkgs cannot be resolved from startDir,
-// walking up ancestor directories the way Node and esbuild resolve
-// node_modules.
+// walking up ancestor directories the way esbuild resolves node_modules.
 func PeerDepsMissing(startDir meta.AbsoluteDirectoryPath, pkgs []string) []string {
 	var missing []string
 	for _, pkg := range pkgs {

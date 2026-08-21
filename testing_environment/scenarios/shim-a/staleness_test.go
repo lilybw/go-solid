@@ -10,6 +10,7 @@ import (
 	"time"
 
 	go_solid "github.com/lilybw/go-solid"
+	"github.com/lilybw/go-solid/shared/logging"
 )
 
 func TestEditedComponentIsRebuilt(t *testing.T) {
@@ -24,6 +25,7 @@ func TestEditedComponentIsRebuilt(t *testing.T) {
 
 	b, err := go_solid.New(&go_solid.Config{
 		Components:       componentsDir,
+		LogLevel:         logging.LEVEL_ERROR,
 		ReactiveRegistry: true,
 	})
 	if err != nil {

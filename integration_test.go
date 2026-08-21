@@ -3,13 +3,13 @@ package go_solid
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	caching "github.com/lilybw/go-solid/internal/caching"
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/logging"
@@ -18,22 +18,21 @@ import (
 // -----------------------------------------------------------------------------
 // Integration test harness
 // -----------------------------------------------------------------------------
-// These tests exercise the real pipeline: a persistent Node worker running
-// babel-preset-solid, plus esbuild-in-Go. They require:
-//   - `node` on PATH
-//   - a node_modules containing solid-js + babel-preset-solid + @babel/core
-//   - the worker script internal/worker/transform-worker.mjs
+// These tests exercise the real pipeline: the Go Solid compiler plus
+// esbuild-in-Go. No Node runtime is involved. The only requirement is a
+// node_modules that resolves solid-js — the browser runtime the generated entry
+// imports.
 //
-// If any are missing the tests SKIP (not fail), so `go test ./...` stays green
-// on a machine without the JS toolchain. Set GO_SOLID_REQUIRE_INTEGRATION=1
-// to turn those skips into failures (useful in CI where the toolchain must exist).
+// If it is missing the tests SKIP (not fail), so `go test ./...` stays green on
+// a machine without an npm install. Set GO_SOLID_REQUIRE_INTEGRATION=1 to turn
+// those skips into failures (useful in CI where the package must exist).
 
 func requireIntegration() bool {
 	return os.Getenv("GO_SOLID_REQUIRE_INTEGRATION") == "1"
 }
 
-// integrationEnv locates the worker script and a node_modules that resolves the
-// required packages. It returns (workerScript, nodeModulesParent) or skips.
+// integrationEnv locates a node_modules that resolves solid-js and returns the
+// directory holding it, or skips.
 func integrationEnv(t *testing.T) (modulesParent meta.AbsoluteDirectoryPath) {
 	t.Helper()
 
@@ -44,11 +43,7 @@ func integrationEnv(t *testing.T) (modulesParent meta.AbsoluteDirectoryPath) {
 		t.Skipf(format, args...)
 	}
 
-	if _, err := exec.LookPath("node"); err != nil {
-		skip("node not on PATH; skipping integration test")
-	}
-
-	// Locate this test file's directory to find the worker script relative to it.
+	// Locate this test file's directory to anchor the search.
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
 		skip("cannot determine test file location")
@@ -62,25 +57,23 @@ func integrationEnv(t *testing.T) (modulesParent meta.AbsoluteDirectoryPath) {
 	}
 	for _, dir := range candidates {
 		nm := filepath.Join(dir, "node_modules")
-		if hasSolidToolchain(nm) {
+		if hasSolidRuntime(nm) {
 			return dir
 		}
 	}
-	skip("node_modules with solid-js + babel-preset-solid not found; run `npm install solid-js babel-preset-solid @babel/core`")
+	skip("node_modules with solid-js not found; run `npm install solid-js`")
 	return ""
 }
 
-func hasSolidToolchain(nodeModules string) bool {
-	for _, pkg := range []string{"solid-js", "babel-preset-solid", "@babel/core"} {
-		if _, err := os.Stat(filepath.Join(nodeModules, pkg)); err != nil {
-			return false
-		}
-	}
-	return true
+// hasSolidRuntime reports whether nodeModules resolves the browser runtime the
+// generated entry imports. That is the only npm package go_solid needs.
+func hasSolidRuntime(nodeModules string) bool {
+	_, err := os.Stat(filepath.Join(nodeModules, "solid-js"))
+	return err == nil
 }
 
-// newTestBundler builds a Bundler over a temp components dir, symlinking the
-// discovered node_modules so esbuild and the worker can resolve packages.
+// newTestBundler builds a Bundler over a temp components dir placed where the
+// discovered node_modules is resolvable, so esbuild can find solid-js.
 func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bundler {
 	t.Helper()
 	modulesParent := integrationEnv(t)
@@ -115,12 +108,14 @@ func newTestBundler(t *testing.T, components map[string]string, cfg *Config) *Bu
 		}
 	}
 
+	if cfg.Generation == nil {
+		// Copy, never alias: writing Dependencies through the singleton would
+		// change the default for every other test in the binary.
+		cfg.Generation = meta.Copy(esbuild.NIL_BUNDLER_CONFIG)
+	}
 	cfg.LogLevel = logging.LEVEL_ERROR
 	cfg.Components = compDir
-	cfg.Generation.Dependencies = modulesParent // already contains node_modules with the toolchain
-	if cfg.Generation == nil {
-		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
-	}
+	cfg.Generation.Dependencies = modulesParent // already contains node_modules with solid-js
 
 	b, err := New(cfg)
 	if err != nil {
@@ -160,9 +155,13 @@ func TestRender_ProducesSolidBundleAndHTML(t *testing.T) {
 	if !strings.Contains(r.HTML, `"name":"HOTS"`) {
 		t.Errorf("HTML missing props; got:\n%s", r.HTML)
 	}
-	// JS asset name is present and referenced by the HTML.
-	if r.JSName == "" || !strings.Contains(r.HTML, r.JSName) {
-		t.Errorf("JSName %q not referenced in HTML", r.JSName)
+	// The shell is self-contained: AssembleHTML inlines the bundle rather than
+	// linking it, so JSName is a serving name for the disk cache, not an href.
+	if !strings.Contains(r.HTML, "<script type=\"module\">") || !strings.Contains(r.HTML, "template(") {
+		t.Errorf("HTML does not inline the bundle; got:\n%s", r.HTML)
+	}
+	if !strings.HasPrefix(r.JSName, "Hello.") || !strings.HasSuffix(r.JSName, ".js") {
+		t.Errorf("JSName %q is not the expected <component>.<hash>.js", r.JSName)
 	}
 }
 
@@ -189,15 +188,22 @@ export default function Styled() { return <div class="styled">hi</div>; }
 			t.Errorf("CSS missing %q; got: %q", want, r.CSS)
 		}
 	}
-	if r.CSSName == "" || !strings.Contains(r.HTML, r.CSSName) {
-		t.Errorf("CSSName %q not referenced in HTML", r.CSSName)
+	// Same as the JS: collected CSS is inlined into a <style>, never linked.
+	if !strings.Contains(r.HTML, "<style>") || !strings.Contains(r.HTML, ".styled") {
+		t.Errorf("HTML does not inline the collected CSS; got:\n%s", r.HTML)
+	}
+	if !strings.HasPrefix(r.CSSName, "Styled.") || !strings.HasSuffix(r.CSSName, ".css") {
+		t.Errorf("CSSName %q is not the expected <component>.<hash>.css", r.CSSName)
 	}
 }
 
-func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
+// Render never hands back the cached pointer: assembleResponse copies the
+// artifact so per-request HTML cannot mutate it. The cache hit is observable
+// through the artifact half instead.
+func TestRender_CacheHitReusesArtifact(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,
-	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}}) // Minify implies !Dev caching path; New sets cache enabled when !Dev
+	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
 
 	ctx := context.Background()
 	first, err := b.Prepare("Hello", map[string]any{"name": "A"}).WithCtx(ctx).Render()
@@ -208,17 +214,24 @@ func TestRender_CacheHitReturnsSamePointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Render: %v", err)
 	}
-	if first != second {
-		t.Error("expected cache hit to return identical *Rendered pointer")
+	if first == second {
+		t.Fatal("Render must not expose the cached *Rendered pointer")
+	}
+	if first.JSName != second.JSName || first.JS != second.JS {
+		t.Errorf("cache hit rebuilt the bundle: JSName %q vs %q", first.JSName, second.JSName)
 	}
 
-	// Different props must NOT hit the same cache entry.
+	// The cache key is component+root; props live in the HTML, not the bundle.
+	// So a different props set reuses the same JS and produces different HTML.
 	third, err := b.Prepare("Hello", map[string]any{"name": "B"}).WithCtx(ctx).Render()
 	if err != nil {
 		t.Fatalf("third Render: %v", err)
 	}
-	if third == first {
-		t.Error("different props returned cached bundle for other props")
+	if third.JSName != first.JSName {
+		t.Errorf("props must not affect the cached bundle: %q vs %q", third.JSName, first.JSName)
+	}
+	if third.HTML == first.HTML {
+		t.Error("different props produced identical HTML")
 	}
 }
 
@@ -242,23 +255,29 @@ func TestRender_DevModeBypassesCache(t *testing.T) {
 	}, &Config{DisableCaching: true})
 
 	ctx := context.Background()
-	first, err := b.Prepare("Hello", nil).WithCtx(ctx).Render()
-	if err != nil {
+	if _, err := b.Prepare("Hello", nil).WithCtx(ctx).Render(); err != nil {
 		t.Fatalf("first Render: %v", err)
 	}
-	second, err := b.Prepare("Hello", nil).WithCtx(ctx).Render()
-	if err != nil {
+	if _, err := b.Prepare("Hello", nil).WithCtx(ctx).Render(); err != nil {
 		t.Fatalf("second Render: %v", err)
 	}
-	// In dev mode the cache is disabled, so each call rebuilds -> distinct pointers.
-	if first == second {
-		t.Error("dev mode should not cache; got identical pointer")
+
+	// Pointer inequality proves nothing here — Render always copies. Assert the
+	// cache itself never retained the artifact.
+	comp, ok := b.Registry().Lookup("Hello")
+	if !ok {
+		t.Fatal("Hello not registered")
+	}
+	if _, hit := b.mem.Get(caching.NewMemCacheKey("Hello", comp.MountRootID)); hit {
+		t.Error("DisableCaching should leave the memory cache empty")
 	}
 }
 
 func TestNew_RequiresMandatoryConfig(t *testing.T) {
-	// Missing everything: should error without needing Node.
-	if _, err := New(&Config{}); err == nil {
+	// Missing everything: should error before touching the filesystem.
+	if _, err := New(&Config{
+		LogLevel: logging.LEVEL_ERROR,
+	}); err == nil {
 		t.Error("New with empty Config should error")
 	}
 }
@@ -272,7 +291,7 @@ func head(s string, n int) string {
 
 // Guard: integration tests should complete reasonably quickly per render.
 // This isn't a strict benchmark, just a canary that warm renders aren't
-// pathologically slow (e.g. spawning a node process per call).
+// pathologically slow (i.e. that the cache is actually being consulted).
 func TestRender_WarmRenderIsFast(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,

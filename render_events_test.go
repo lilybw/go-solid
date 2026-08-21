@@ -3,11 +3,12 @@ package go_solid
 import (
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
+	logging "github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
@@ -60,6 +61,7 @@ func bundlerWithoutGeneration(t *testing.T, files map[string]string) *Bundler {
 	t.Helper()
 	resetPackageState(t)
 	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
 		Components: componentsDirWith(t, files),
 		Generation: disabledGeneration(),
 	})
@@ -70,14 +72,9 @@ func bundlerWithoutGeneration(t *testing.T, files map[string]string) *Bundler {
 	return b
 }
 
-func nodeAvailable() bool {
-	_, err := exec.LookPath("node")
-	return err == nil
-}
-
 // ---------------------------------------------------------------------------
-// Failure events. None of these need a Node toolchain: each aborts the render
-// before the Solid transform worker is reached.
+// Failure events. None of these reach the compiler: each aborts the render
+// before bundling starts.
 // ---------------------------------------------------------------------------
 
 func TestRender_FiresRegistryLookupFailure(t *testing.T) {
@@ -121,8 +118,8 @@ func TestRender_FiresPropsMarshalingFailure(t *testing.T) {
 }
 
 func TestRender_FiresCompBundlingFailure(t *testing.T) {
-	// Generation.Disabled leaves the worker pool closed, so the Solid plugin
-	// fails during bundling. That is exactly the CompBundlingFailure path.
+	// Generation.Disabled forbids bundling, so a cache miss is unrecoverable.
+	// That refusal is dispatched on the CompBundlingFailure path.
 	b := bundlerWithoutGeneration(t, map[string]string{"Hello.tsx": "export default () => null;"})
 
 	rec, req := httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil)
@@ -130,7 +127,10 @@ func TestRender_FiresCompBundlingFailure(t *testing.T) {
 
 	_, err := er.watch(b.Prepare("Hello", nil)).ForRequest(rec, req).Render()
 	if err == nil {
-		t.Fatal("Render with a closed worker pool returned no error")
+		t.Fatal("Render with bundling disabled returned no error")
+	}
+	if !strings.Contains(err.Error(), "bundling is disabled") {
+		t.Errorf("unexpected error: %v", err)
 	}
 	if !er.saw(events.EVENTS.CompBundlingFailure) {
 		t.Errorf("CompBundlingFailure never dispatched; saw %v", er.list())
@@ -165,16 +165,14 @@ func TestRender_FailureNeverProducesSilentEmpty200(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Success path. Needs the real toolchain, so it skips when Node is absent
-// rather than failing the suite on machines without it.
+// Success path. Needs an installed solid-js for esbuild to resolve, so it skips
+// rather than failing the suite on machines without one.
 // ---------------------------------------------------------------------------
 
 func TestRender_FiresTransmitAndWritesHTML(t *testing.T) {
-	if !nodeAvailable() {
-		t.Skip("node not on PATH; needed for the Solid transform worker")
-	}
 	resetPackageState(t)
 	b, err := New(&Config{
+		LogLevel: logging.LEVEL_ERROR,
 		Components: componentsDirWith(t, map[string]string{
 			"Hello.tsx": "export default function Hello() { return <h1>hi</h1>; }",
 		}),
@@ -246,6 +244,7 @@ func TestForRequest_AppliesConfiguredRequestDefaults(t *testing.T) {
 
 	var called bool
 	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
 		Components: componentsDirWith(t, map[string]string{"Hello.tsx": "export default () => null;"}),
 		Generation: disabledGeneration(),
 		Defaults: &BehaviouralDefaults{

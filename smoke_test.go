@@ -1,20 +1,25 @@
 package go_solid
 
-import "testing"
+import (
+	"testing"
 
-// Smoke test: verify the no-Node integration path actually works before the
+	logging "github.com/lilybw/go-solid/shared/logging"
+)
+
+// Smoke test: verify the no-bundling integration path actually works before the
 // rest of the suite depends on it.
-func TestSmoke_NewWithDisabledGenerationDoesNotSpawnNode(t *testing.T) {
+func TestSmoke_NewWithDisabledGenerationSkipsBundling(t *testing.T) {
 	resetPackageState(t)
 	comps := componentsDirWith(t, map[string]string{
 		"Hello.tsx": "export default () => null;",
 	})
 
-	// NodeBin set to a path that cannot exist. If New() tried to spawn a worker,
-	// exec would fail and New() would return an error. Disabled must short-circuit.
+	// Disabled must short-circuit esbuild and the solid-js resolution gate.
 	gen := disabledGeneration()
 
-	b, _ := New(&Config{Components: comps, Generation: gen})
+	b, _ := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: gen})
 	if b == nil {
 		t.Fatal("New() returned nil bundler without error")
 	}

@@ -19,9 +19,6 @@ func writeValidLayout(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 
-	// transform-worker.*.js at the top level
-	mustWrite(t, filepath.Join(root, "transform-worker.abc123.mjs"), "// worker")
-
 	// component_cache/ subdir
 	cacheDir := filepath.Join(root, caching_int.CACHE_DIR_NAME)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
@@ -98,13 +95,6 @@ func TestExpectCompletedValidationCheck_Failures(t *testing.T) {
 		mutate  func(t *testing.T, root string)
 		wantSub string // substring expected in the error message
 	}{
-		{
-			name: "missing transform-worker",
-			mutate: func(t *testing.T, root string) {
-				removeGlob(t, filepath.Join(root, "transform-worker.*.mjs"))
-			},
-			wantSub: "does not contain transform-worker",
-		},
 		{
 			name: "missing component_cache dir",
 			mutate: func(t *testing.T, root string) {

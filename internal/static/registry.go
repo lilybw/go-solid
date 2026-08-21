@@ -18,8 +18,11 @@ type enabledStaticRegistry struct {
 	generated string
 }
 
+// NewStaticRegistry returns a disabled registry when no location is configured.
+// Identity against NIL_STATIC_CONFIG is not a valid test: normalization hands
+// each Config its own copy of the null object.
 func NewStaticRegistry(cfg *StaticConfig) (StaticRegistry, error) {
-	if cfg == NIL_STATIC_CONFIG {
+	if cfg == nil || cfg.Location == "" {
 		return &disabledStaticRegistry{
 			cfg:   cfg,
 			graph: nil,

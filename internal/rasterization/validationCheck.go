@@ -11,14 +11,9 @@ import (
 )
 
 func ExpectCompletedValidationCheck(cfg *RasterizationConfig) error {
-	// Named directory should contain:
-	// transform-worker.*.js
-
-	if _ /*file*/, found, err := FindFirstFileByPattern(cfg.Location, "transform-worker.*.mjs"); err != nil {
-		return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, error occurred while searching: %w", cfg.Location, err)
-	} else if !found {
-		return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, does not contain transform-worker.*.js", cfg.Location)
-	}
+	// Rasterization is pure pre-caching: the location holds the component cache
+	// and nothing else. (Earlier versions also required a transform-worker.*.mjs
+	// here; the compiler is Go now, so no such file is ever emitted.)
 
 	// sub-dir: component_cache
 

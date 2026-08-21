@@ -39,6 +39,7 @@ import (
 	"testing"
 
 	go_solid "github.com/lilybw/go-solid"
+	"github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/go-solid/shared/networking"
 )
 
@@ -143,6 +144,7 @@ func newBundler(t *testing.T) *go_solid.Bundler {
 
 	bundler, err := go_solid.New(&go_solid.Config{
 		Components: componentsDir,
+		LogLevel:   logging.LEVEL_ERROR,
 		Defaults: &go_solid.BehaviouralDefaults{
 			HeadSegment: func(b networking.HTMLHeadSegmentBuilder) {
 				b.SetTitle("HOTS")

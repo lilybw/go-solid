@@ -132,6 +132,17 @@ func (bundler *Bundler) bundleComponent(
 	data *renderData, comp *registry.Component, // adjust to your real type
 ) (*caching.Rendered, []meta.AbsoluteFilePath, error) {
 
+	// Bundling off (an explicit opt-out, or a completed rasterization) means a
+	// cache miss is unrecoverable. Fail loudly rather than reaching for esbuild
+	// anyway, which is what the caller was promised would never happen.
+	if bundler.cfg.Generation.Disabled {
+		err := fmt.Errorf("go_solid#Render: bundling is disabled and %q is not cached", data.component)
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.Dispatch(events.NewCompBundlingFailure(err))
+		})
+		return nil, nil, err
+	}
+
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
@@ -150,7 +161,7 @@ func (bundler *Bundler) bundleComponent(
 	defer cleanup()
 
 	bundle, err := esbuild.BundleEntry(
-		entryPath, "dom", bundler.cfg.Generation)
+		entryPath, bundler.cfg.Workspace, bundler.cfg.Generation)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.Dispatch(events.NewCompBundlingFailure(err))

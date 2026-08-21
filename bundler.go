@@ -35,6 +35,11 @@ type Config struct {
 	// Defaults to Components if not specified.
 	Workspace meta.AbsoluteDirectoryPath
 
+	// LogLevel gates all diagnostic output. Left unset it resolves to
+	// logging.DEFAULT_LEVEL (errors only); set logging.LEVEL_DEBUG to have the
+	// normalized config dumped at construction.
+	//
+	// The logger is process-global, so the most recent New wins.
 	LogLevel logging.LogLevel
 
 	// DisableCaching bypasses both the in-memory and on-disk caches, so every
@@ -51,7 +56,8 @@ type Config struct {
 	ReactiveRegistry bool
 
 	// If you provide this config, bundle and cache all components in the registry on next boot (may take a moment).
-	// This disables all js activity, the node workers, and esbuild, and thus means that Node no longer is required to run your application.
+	// This is purely a performance measure — every component is pre-built, so no request pays bundling cost.
+	// With ExpectCompleted set, esbuild is skipped entirely and components are served straight from the cache.
 	//
 	// Do be aware that this disables HMR, ReactiveRegistry and DisableCaching (caches are now mandatory).
 	Rasterization *rasterization.RasterizationConfig
@@ -101,21 +107,25 @@ type Bundler struct {
 }
 
 func New(cfg *Config) (*Bundler, error) {
+	consumerDefaults := cfg.Defaults != nil
+	consumerRasterization := cfg.Rasterization != nil
 	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
 	}
 
-	if cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS {
+	if consumerDefaults {
 		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
 		networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
 	}
 
-	if missing := esbuild_int.PeerDepsMissing(cfg.Generation.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
-		return nil, fmt.Errorf(
-			"go_solid: missing Node peer dependencies %v in %q (or any ancestor).\n"+
-				"Install them in your frontend project:\n"+
-				"    npm install --save-dev %s",
-			missing, cfg.Generation.Dependencies, strings.Join(missing, " "))
+	if !cfg.Generation.Disabled {
+		if missing := esbuild_int.PeerDepsMissing(cfg.Generation.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
+			return nil, fmt.Errorf(
+				"go_solid: missing npm dependencies %v in %q (or any ancestor).\n"+
+					"Install them in your frontend project:\n"+
+					"    npm install %s",
+				missing, cfg.Generation.Dependencies, strings.Join(missing, " "))
+		}
 	}
 
 	registry, err := internal.NewRegistry(cfg.Components)
@@ -174,8 +184,8 @@ func New(cfg *Config) (*Bundler, error) {
 		static:   static,
 	}
 
-	if cfg.Rasterization != rasterization.NIL_RASTERIZATION_CONFIG && !cfg.Rasterization.ExpectCompleted {
-		// begin only rasterization when BehaviouralDefaults have been applied
+	if consumerRasterization && !cfg.Rasterization.ExpectCompleted {
+		// begin only rasterization when BehaviouralDefaults.HeadSegment have been applied
 		for _, comp := range registry.Names() {
 			// pre-render all components with disk cache enabled
 			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
@@ -217,15 +227,15 @@ func New(cfg *Config) (*Bundler, error) {
 }
 
 func (cfg *Config) isHMROn() bool {
-	return cfg.HMR != hmr.NIL_HMR_CONFIG && !cfg.HMR.Disabled && cfg.Rasterization.ExpectCompleted == false
+	return !cfg.HMR.Disabled && !cfg.Rasterization.ExpectCompleted
 }
 
 // Ensures all fields are valid and non-nil, defaulting to defined DEFAULT_XXXX objects where appropriate to indicate no consumer configuration
 func configValidationAndNormalization(cfg *Config) error {
-	if cfg.LogLevel == 0 {
-		cfg.LogLevel = logging.LEVEL_DEBUG
+	if cfg.LogLevel == logging.LEVEL_UNSET {
+		cfg.LogLevel = logging.DEFAULT_LEVEL
 	}
-
+	log_int.SetLevel(cfg.LogLevel)
 	log_int.LogJSON(logging.LEVEL_TRACE, "[bundler.go#configValidationAndNormalization] user config:", cfg)
 	// POLYFILL
 	if cfg.Components == "" {
@@ -252,7 +262,7 @@ func configValidationAndNormalization(cfg *Config) error {
 	}
 
 	if cfg.Generation == nil {
-		cfg.Generation = esbuild.NIL_BUNDLER_CONFIG
+		cfg.Generation = meta.Copy(esbuild.NIL_BUNDLER_CONFIG)
 		cfg.Generation.Dependencies = cfg.Components
 	} else {
 		// no need for minify: defaults to false
@@ -269,7 +279,7 @@ func configValidationAndNormalization(cfg *Config) error {
 	}
 
 	if cfg.Defaults == nil {
-		cfg.Defaults = NIL_BEHAVIOURAL_DEFAULTS
+		cfg.Defaults = meta.Copy(NIL_BEHAVIOURAL_DEFAULTS)
 	} else {
 		if cfg.Defaults.HeadSegment == nil {
 			cfg.Defaults.HeadSegment = NIL_BEHAVIOURAL_DEFAULTS.HeadSegment
@@ -280,10 +290,10 @@ func configValidationAndNormalization(cfg *Config) error {
 	}
 
 	if cfg.HMR == nil {
-		cfg.HMR = hmr.NIL_HMR_CONFIG
+		cfg.HMR = meta.Copy(hmr.NIL_HMR_CONFIG)
 	}
 	if cfg.Static == nil {
-		cfg.Static = static.NIL_STATIC_CONFIG
+		cfg.Static = meta.Copy(static.NIL_STATIC_CONFIG)
 	} else {
 		if cfg.Static.Ignore == nil {
 			cfg.Static.Ignore = static.NIL_STATIC_CONFIG.Ignore
@@ -293,7 +303,7 @@ func configValidationAndNormalization(cfg *Config) error {
 		}
 	}
 	if cfg.Rasterization == nil {
-		cfg.Rasterization = rasterization.NIL_RASTERIZATION_CONFIG
+		cfg.Rasterization = meta.Copy(rasterization.NIL_RASTERIZATION_CONFIG)
 	} else {
 		cfg.DisableCaching = false // rasterization requires caching
 		if cfg.Rasterization.Location == "" {
@@ -305,7 +315,7 @@ func configValidationAndNormalization(cfg *Config) error {
 			}
 			cfg.HMR.Disabled = true // expecting completed rasterization disables HMR
 			cfg.ReactiveRegistry = false
-			cfg.Generation.Disabled = true // expecting completed rasterization disables esbuild and node workers
+			cfg.Generation.Disabled = true // expecting completed rasterization disables esbuild
 		}
 	}
 

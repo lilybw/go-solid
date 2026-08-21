@@ -11,6 +11,7 @@ import (
 
 	go_solid "github.com/lilybw/go-solid"
 	"github.com/lilybw/go-solid/shared/hmr"
+	"github.com/lilybw/go-solid/shared/logging"
 )
 
 // The bug these guard: nothing invalidated the caches on a file *write*.
@@ -43,6 +44,7 @@ func freshBundler(t *testing.T, cfg *go_solid.Config) *go_solid.Bundler {
 		t.Fatalf("clear disk cache: %v", err)
 	}
 	cfg.Components = componentsDir
+	cfg.LogLevel = logging.LEVEL_ERROR
 	b, err := go_solid.New(cfg)
 	if err != nil {
 		t.Fatalf("go_solid.New: %v", err)

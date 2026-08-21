@@ -3,10 +3,10 @@ package go_solid
 // Sub-config normalization: Defaults, HMR, Static, Rasterization.
 //
 // The most consequential branch is Rasterization with ExpectCompleted: it forces
-// DisableCaching=false, defaults Location to Workspace, and — critically — mutates
-// cfg.HMR.Disabled=true and cfg.Generation.Disabled=true. Because cfg.HMR may be
-// the shared NIL_HMR_CONFIG singleton pointer, this mutation can leak across
-// Configs; resetPackageState guards the rest of the suite from that leak.
+// DisableCaching=false, defaults Location to Workspace, and mutates
+// cfg.HMR.Disabled=true and cfg.Generation.Disabled=true. Those writes land on
+// the Config's own copy of each null object, never on the shared singleton;
+// resetPackageState asserts that invariant holds.
 
 import (
 	"os"
@@ -28,8 +28,14 @@ func TestDefaults_NilBecomesNilBehaviouralDefaults(t *testing.T) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS {
-		t.Fatal("nil Defaults should be replaced with NIL_BEHAVIOURAL_DEFAULTS")
+	if cfg.Defaults == nil {
+		t.Fatal("nil Defaults should be polyfilled")
+	}
+	if cfg.Defaults == NIL_BEHAVIOURAL_DEFAULTS {
+		t.Fatal("Defaults must be a copy, not the shared singleton")
+	}
+	if cfg.Defaults.HeadSegment == nil || cfg.Defaults.Requests == nil {
+		t.Fatal("copied Defaults should carry the noop configurators")
 	}
 }
 
@@ -83,11 +89,17 @@ func TestHMR_NilBecomesNilHMRConfig(t *testing.T) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.HMR != shared_hmr.NIL_HMR_CONFIG {
-		t.Fatal("nil HMR should be replaced with NIL_HMR_CONFIG")
+	if cfg.HMR == nil {
+		t.Fatal("nil HMR should be polyfilled")
+	}
+	if cfg.HMR == shared_hmr.NIL_HMR_CONFIG {
+		t.Fatal("HMR must be a copy, not the shared singleton")
 	}
 	if !cfg.HMR.Disabled {
-		t.Fatal("NIL_HMR_CONFIG should be Disabled")
+		t.Fatal("a copy of NIL_HMR_CONFIG should be Disabled")
+	}
+	if cfg.HMR.Path != shared_hmr.NIL_HMR_CONFIG.Path {
+		t.Fatalf("Path = %q, want the null object's %q", cfg.HMR.Path, shared_hmr.NIL_HMR_CONFIG.Path)
 	}
 }
 
@@ -116,8 +128,22 @@ func TestStatic_NilBecomesNilStaticConfig(t *testing.T) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Static != shared_static.NIL_STATIC_CONFIG {
-		t.Fatal("nil Static should be replaced with NIL_STATIC_CONFIG")
+	if cfg.Static == nil {
+		t.Fatal("nil Static should be polyfilled")
+	}
+	if cfg.Static == shared_static.NIL_STATIC_CONFIG {
+		t.Fatal("Static must be a copy, not the shared singleton")
+	}
+	if cfg.Static.Location != "" {
+		t.Fatalf("Location = %q, want empty", cfg.Static.Location)
+	}
+	// meta.Copy is shallow, so Ignore must have been cloned too.
+	if cfg.Static.Ignore == nil {
+		t.Fatal("Ignore should be a non-nil empty slice")
+	}
+	cfg.Static.Ignore = append(cfg.Static.Ignore, "*.tmp")
+	if len(shared_static.NIL_STATIC_CONFIG.Ignore) != 0 {
+		t.Fatal("appending to the copy leaked into NIL_STATIC_CONFIG.Ignore")
 	}
 }
 
@@ -130,8 +156,14 @@ func TestRaster_NilBecomesNilRasterConfig(t *testing.T) {
 	if err := configValidationAndNormalization(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.Rasterization != shared_raster.NIL_RASTERIZATION_CONFIG {
-		t.Fatal("nil Rasterization should be replaced with NIL_RASTERIZATION_CONFIG")
+	if cfg.Rasterization == nil {
+		t.Fatal("nil Rasterization should be polyfilled")
+	}
+	if cfg.Rasterization == shared_raster.NIL_RASTERIZATION_CONFIG {
+		t.Fatal("Rasterization must be a copy, not the shared singleton")
+	}
+	if *cfg.Rasterization != *shared_raster.NIL_RASTERIZATION_CONFIG {
+		t.Fatal("the copy should equal the null object by value")
 	}
 }
 
@@ -174,8 +206,8 @@ func TestRaster_ProvidedLocationPreserved(t *testing.T) {
 func TestRaster_ExpectCompletedValidationFailsOnEmptyLocation(t *testing.T) {
 	resetPackageState(t)
 	comps := t.TempDir()
-	// ExpectCompleted with a Workspace that has no transform-worker/component_cache
-	// must fail ExpectCompletedValidationCheck.
+	// ExpectCompleted with a Workspace that has no component_cache must fail
+	// ExpectCompletedValidationCheck.
 	cfg := &Config{
 		Components:    comps,
 		Rasterization: &shared_raster.RasterizationConfig{ExpectCompleted: true},
@@ -187,14 +219,11 @@ func TestRaster_ExpectCompletedValidationFailsOnEmptyLocation(t *testing.T) {
 }
 
 // stageRasterizedWorkspace builds a workspace that passes ExpectCompletedValidationCheck:
-// a transform-worker.<hash>.mjs and a component_cache dir with one valid manifest +
-// its referenced HTML and JS artifacts.
+// a component_cache dir with one valid manifest + its referenced HTML and JS
+// artifacts.
 func stageRasterizedWorkspace(t *testing.T, ws string) {
 	t.Helper()
 	if err := os.MkdirAll(ws, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(ws, "transform-worker.deadbeef.mjs"), []byte("// worker"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cacheDir := filepath.Join(ws, "component_cache")
@@ -255,10 +284,9 @@ func TestRaster_ExpectCompletedMutationDoesNotLeakToSharedHMRSingleton(t *testin
 	ws := t.TempDir()
 	stageRasterizedWorkspace(t, ws)
 
-	// HMR left nil -> becomes NIL_HMR_CONFIG. ExpectCompleted then sets
-	// cfg.HMR.Disabled = true. Since NIL_HMR_CONFIG is already Disabled=true this
-	// particular mutation is a no-op, but we assert the singleton's Disabled is
-	// still true afterwards to catch any regression that flips it.
+	// HMR left nil -> becomes a COPY of NIL_HMR_CONFIG. ExpectCompleted then sets
+	// cfg.HMR.Disabled = true on that copy. Assert the singleton is untouched, to
+	// catch a regression back to aliasing.
 	cfg := &Config{
 		Components:    comps,
 		Workspace:     ws,

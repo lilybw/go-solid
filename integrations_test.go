@@ -1,8 +1,8 @@
 package go_solid
 
-// Full New() integration behaviors, all exercised without spawning Node
-// (Generation.Disabled = true throughout; see helpers_test.go for why this is
-// sufficient to cover everything except the worker process itself).
+// Full New() integration behaviors, exercised without bundling
+// (Generation.Disabled = true unless a test specifically needs the solid-js
+// resolution gate; see helpers_test.go).
 
 import (
 	"net/http"
@@ -11,51 +11,69 @@ import (
 	"strings"
 	"testing"
 
+	shared_esbuild "github.com/lilybw/go-solid/shared/esbuild"
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
+	logging "github.com/lilybw/go-solid/shared/logging"
 	shared_net "github.com/lilybw/go-solid/shared/networking"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
 )
 
-// --- Peer dependency gate ---------------------------------------------------
+// --- solid-js resolution gate -----------------------------------------------
 
-func TestNew_MissingPeerDepsFails(t *testing.T) {
+func TestNew_MissingSolidRuntimeFails(t *testing.T) {
 	resetPackageState(t)
-	// componentsDirWith stages peer deps; here we deliberately DON'T, by building
+	// componentsDirWith stages solid-js; here we deliberately DON'T, by building
 	// the dir manually without node_modules.
 	comps := t.TempDir()
-	// A component so the registry isn't empty (not that it matters — peer check
-	// runs before the registry walk).
 	writeFile(t, comps, "A.tsx", "export default () => null;")
 
 	_, err := New(&Config{
-		Components: comps, Generation: disabledGeneration(),
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: &shared_esbuild.BundlerConfig{},
 	})
 	if err == nil {
-		t.Fatal("expected missing-peer-deps error, got nil")
+		t.Fatal("expected missing-dependency error, got nil")
 	}
-	if !strings.Contains(err.Error(), "missing Node peer dependencies") {
+	if !strings.Contains(err.Error(), "missing npm dependencies") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// The install hint should name the missing packages.
-	for _, pkg := range []string{"solid-js", "babel-preset-solid", "@babel/core"} {
-		if !strings.Contains(err.Error(), pkg) {
-			t.Fatalf("error should mention %q: %v", pkg, err)
-		}
+	if !strings.Contains(err.Error(), "solid-js") {
+		t.Fatalf("error should name solid-js: %v", err)
+	}
+	// No Node toolchain is required any more, so nothing else may be demanded.
+	if strings.Contains(err.Error(), "babel") {
+		t.Errorf("error still demands a Babel package: %v", err)
 	}
 }
 
-func TestNew_PeerDepsSatisfiedByAncestor(t *testing.T) {
+// Bundling off means nothing is ever resolved, so the gate must not fire —
+// this is the path a fully rasterized deployment takes.
+func TestNew_SolidRuntimeGateSkippedWhenGenerationDisabled(t *testing.T) {
 	resetPackageState(t)
-	// Peer deps are resolvable from an ancestor dir, not the components dir itself.
+	comps := t.TempDir()
+	writeFile(t, comps, "A.tsx", "export default () => null;")
+
+	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: disabledGeneration()})
+	if err != nil {
+		t.Fatalf("disabled generation must not require solid-js: %v", err)
+	}
+	b.Close()
+}
+
+func TestNew_SolidRuntimeSatisfiedByAncestor(t *testing.T) {
+	resetPackageState(t)
+	// solid-js is resolvable from an ancestor dir, not the components dir itself.
 	comps := componentsDirWith(t, map[string]string{"A.tsx": "export default () => null;"})
-	// componentsDirWith stages deps IN comps; move the check by using a nested
-	// components subdir whose ancestor (comps) holds node_modules.
 	nested := comps + "/feature"
 	writeFile(t, nested, "B.tsx", "export default () => null;")
 
-	b, err := New(&Config{Components: nested, Generation: disabledGeneration()})
+	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: nested, Generation: &shared_esbuild.BundlerConfig{}})
 	if err != nil {
-		t.Fatalf("expected peer deps resolvable via ancestor, got: %v", err)
+		t.Fatalf("expected solid-js resolvable via ancestor, got: %v", err)
 	}
 	b.Close()
 }
@@ -73,7 +91,8 @@ func TestNew_RegistryDiscoversComponentsSkippingNodeModulesAndDotDirs(t *testing
 	// file inside it that must NOT be registered.
 	writeFile(t, comps+"/node_modules/solid-js", "Evil.tsx", "export default () => null;")
 
-	b, err := New(&Config{Components: comps, Generation: disabledGeneration()})
+	b, err := New(&Config{
+		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -109,7 +128,8 @@ func TestNew_HMRMountsHandlerOnProvidedMux(t *testing.T) {
 		Path:     "/__hmr__",
 		Mux:      shared_hmr.MuxLikeFromFunc(mux.Handle),
 	}
-	b, err := New(&Config{Components: comps, Generation: disabledGeneration(), HMR: hmrCfg})
+	b, err := New(&Config{
+		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration(), HMR: hmrCfg})
 	if err != nil {
 		t.Fatalf("New() with HMR failed: %v", err)
 	}
@@ -130,7 +150,9 @@ func TestNew_HMREnabledWithoutMuxFails(t *testing.T) {
 
 	// HMR enabled (not disabled) but Mux is nil -> NormalizeHMRConfig must error.
 	hmrCfg := &shared_hmr.HMRConfig{Disabled: false, Path: "/__hmr__", Mux: nil}
-	_, err := New(&Config{Components: comps, Generation: disabledGeneration(), HMR: hmrCfg})
+	_, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: disabledGeneration(), HMR: hmrCfg})
 	if err == nil {
 		t.Fatal("expected HMR-without-Mux error, got nil")
 	}
@@ -143,7 +165,9 @@ func TestNew_HMRDisabledDoesNotRequireMux(t *testing.T) {
 	resetPackageState(t)
 	comps := componentsDirWith(t, map[string]string{"A.tsx": "export default () => null;"})
 	// Default HMR (nil) is Disabled, so isHMROn() is false and no Mux is needed.
-	b, err := New(&Config{Components: comps, Generation: disabledGeneration()})
+	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: disabledGeneration()})
 	if err != nil {
 		t.Fatalf("New() with default (disabled) HMR should not need a Mux: %v", err)
 	}
@@ -155,10 +179,12 @@ func TestNew_HMRDisabledDoesNotRequireMux(t *testing.T) {
 func TestNew_RasterNonCompletedWithDisabledPoolFailsPrerender(t *testing.T) {
 	resetPackageState(t)
 	comps := componentsDirWith(t, map[string]string{"A.tsx": "export default () => null;"})
-	// Non-ExpectCompleted rasterization triggers a pre-render of every component.
-	// With Generation.Disabled the pool is closed, so Transform returns
-	// "pool: closed" and New() fails. This pins that coupling.
+	// Non-ExpectCompleted rasterization triggers a pre-render of every component,
+	// but Generation.Disabled forbids bundling — a combination that can never
+	// succeed. This pins that the pre-render reports it instead of silently
+	// invoking esbuild.
 	_, err := New(&Config{
+		LogLevel:      logging.LEVEL_ERROR,
 		Components:    comps,
 		Generation:    disabledGeneration(),
 		Rasterization: &shared_raster.RasterizationConfig{ExpectCompleted: false},
@@ -166,7 +192,7 @@ func TestNew_RasterNonCompletedWithDisabledPoolFailsPrerender(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected pre-render failure with disabled pool, got nil")
 	}
-	if !strings.Contains(err.Error(), "rasterization failed") || !strings.Contains(err.Error(), "pool: closed") {
+	if !strings.Contains(err.Error(), "rasterization failed") || !strings.Contains(err.Error(), "bundling is disabled") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -178,8 +204,9 @@ func TestNew_RasterExpectCompletedSucceedsWithStagedWorkspace(t *testing.T) {
 	stageRasterizedWorkspace(t, ws)
 
 	// ExpectCompleted skips the pre-render loop entirely (that loop only runs for
-	// non-ExpectCompleted). It forces Generation.Disabled=true too, so no Node.
+	// non-ExpectCompleted) and forces Generation.Disabled=true.
 	b, err := New(&Config{
+		LogLevel:      logging.LEVEL_ERROR,
 		Components:    comps,
 		Workspace:     ws,
 		Generation:    disabledGeneration(),
@@ -207,6 +234,7 @@ func TestNew_CloseStopsCleanly(t *testing.T) {
 
 	mux := http.NewServeMux()
 	b, err := New(&Config{
+		LogLevel:         logging.LEVEL_ERROR,
 		Components:       comps,
 		Generation:       disabledGeneration(),
 		ReactiveRegistry: true, // spins up the registry watcher goroutine
@@ -232,6 +260,7 @@ func TestNew_DefaultsConfiguratorsInvokedWhenProvided(t *testing.T) {
 
 	headCalls := 0
 	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
 		Components: comps,
 		Generation: disabledGeneration(),
 		Defaults: &BehaviouralDefaults{
@@ -254,10 +283,13 @@ func TestNew_DefaultsConfiguratorsInvokedWhenProvided(t *testing.T) {
 func TestNew_DefaultsNilDoesNotSetTemplates(t *testing.T) {
 	resetPackageState(t)
 	comps := componentsDirWith(t, map[string]string{"A.tsx": "export default () => null;"})
-	// With Defaults nil (-> NIL_BEHAVIOURAL_DEFAULTS), New() must NOT call the
-	// template setters (the guard is `cfg.Defaults != NIL_BEHAVIOURAL_DEFAULTS`).
+	// With Defaults nil, New() must NOT call the template setters — the guard is
+	// now `cfg.Defaults != nil` captured before normalization, since after it the
+	// field holds a copy and pointer identity says nothing.
 	// We can't observe the setter directly, but New() must at least succeed.
-	b, err := New(&Config{Components: comps, Generation: disabledGeneration()})
+	b, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: comps, Generation: disabledGeneration()})
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}

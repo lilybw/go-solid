@@ -10,12 +10,14 @@ import (
 
 	solid "github.com/lilybw/go-solid"
 	"github.com/lilybw/go-solid/shared/esbuild"
+	"github.com/lilybw/go-solid/shared/logging"
 )
 
 func main() {
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(&solid.Config{
 		Components: filepath.Join(wd, "components"),
+		LogLevel:   logging.LEVEL_ERROR,
 		Generation: &esbuild.BundlerConfig{Dependencies: wd},
 	})
 	if err != nil {
@@ -63,6 +65,7 @@ func init() {
 	}
 	wd, _ := filepath.Abs(".")
 	b, err := solid.New(&solid.Config{
+		LogLevel:       logging.LEVEL_ERROR,
 		Components:     filepath.Join(wd, "components"),
 		Generation:     &esbuild.BundlerConfig{Dependencies: wd},
 		DisableCaching: true})

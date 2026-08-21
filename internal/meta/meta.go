@@ -22,6 +22,22 @@ func Zero[T any]() T {
 	return t
 }
 
+// Copy returns a heap-allocated shallow copy of src.
+//
+// Intended for null-object singletons: a Config must never alias one, or
+// normalization writes through to package-level state shared by every Config in
+// the process.
+//
+//	cfg.HMR = meta.Copy(hmr.NIL_HMR_CONFIG)
+//	cfg.HMR.Disabled = false // NIL_HMR_CONFIG is untouched
+//
+// The copy is shallow. Slice, map and pointer fields still share storage with
+// src and must be cloned separately if they will be mutated.
+func Copy[T any](src *T) *T {
+	c := *src
+	return &c
+}
+
 type TBD any
 
 var NIL_PROPS = Zero[any]()
