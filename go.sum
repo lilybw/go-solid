@@ -2,6 +2,8 @@ github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNU
 github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/evanw/esbuild v0.24.2 h1:PQExybVBrjHjN6/JJiShRGIXh1hWVm6NepVnhZhrt0A=
 github.com/evanw/esbuild v0.24.2/go.mod h1:D2vIQZqV/vIf/VRHtViaUtViZmG7o+kKmlBfVQuRi48=
+github.com/evanw/esbuild v0.28.2 h1:A2uETn4jrQTcXaT/shwTDTYBxDjl7fV7nXmUrJxfA2w=
+github.com/evanw/esbuild v0.28.2/go.mod h1:D2vIQZqV/vIf/VRHtViaUtViZmG7o+kKmlBfVQuRi48=
 github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx59Ho=
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68 h1:KZaTBSyshWX3MP5jukJcNSuXDQTO+rNpt0J564dX/eg=
@@ -12,6 +14,8 @@ github.com/klauspost/cpuid/v2 v2.2.10 h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2
 github.com/klauspost/cpuid/v2 v2.2.10/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/lilybw/go-solid-compiler v0.1.0 h1:hD1JKu9mmzfVhOUxfYtBqxMpweod8AEpSV9M26v3OCg=
 github.com/lilybw/go-solid-compiler v0.1.0/go.mod h1:aJdFFYkOQ1H8ZUoI3SFdCUb1fSIZ6rK+N6fr1WpcVzQ=
+github.com/lilybw/go-solid-compiler v0.2.0 h1:kaFmFQcJPGrTtiDlxi3OiqZYA+PR6BeLZIg2Wu/ZkMQ=
+github.com/lilybw/go-solid-compiler v0.2.0/go.mod h1:9i/VwCuIY6A/BIrDyAx7NgioiCmsgNgfbb+gRo1HAoY=
 github.com/lilybw/typescript-go v0.1.0 h1:sy9MPnL4FcDAQlhi9r1Ckc92TyLcfCnjKkuytCav5Hc=
 github.com/lilybw/typescript-go v0.1.0/go.mod h1:ASbw/ZkgUqYuyWVFqnFNZUczlYAN1cQYWpRFUWHhlc4=
 github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=

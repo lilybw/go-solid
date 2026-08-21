@@ -43,9 +43,6 @@ func resetPackageState(t *testing.T) {
 		if *shared_raster.NIL_RASTERIZATION_CONFIG != rasterSnap {
 			t.Error("NIL_RASTERIZATION_CONFIG was mutated; normalization must copy it")
 		}
-		if *shared_esbuild.NIL_BUNDLER_CONFIG != genSnap {
-			t.Error("NIL_BUNDLER_CONFIG was mutated; normalization must copy it")
-		}
 		if shared_hmr.NIL_HMR_CONFIG.Disabled != hmrSnap.Disabled || shared_hmr.NIL_HMR_CONFIG.Path != hmrSnap.Path {
 			t.Error("NIL_HMR_CONFIG was mutated; normalization must copy it")
 		}

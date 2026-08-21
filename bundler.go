@@ -119,7 +119,7 @@ func New(cfg *Config) (*Bundler, error) {
 	}
 
 	if !cfg.Generation.Disabled {
-		if missing := esbuild_int.PeerDepsMissing(cfg.Generation.Dependencies, esbuild_int.RequiredPeerDeps); len(missing) > 0 {
+		if missing := esbuild_int.PeerDepsMissing(cfg.Generation.Dependencies, esbuild_int.PeerDepsForConfig(cfg.Generation.Solid)); len(missing) > 0 {
 			return nil, fmt.Errorf(
 				"go_solid: missing npm dependencies %v in %q (or any ancestor).\n"+
 					"Install them in your frontend project:\n"+
@@ -265,10 +265,14 @@ func configValidationAndNormalization(cfg *Config) error {
 		cfg.Generation = meta.Copy(esbuild.NIL_BUNDLER_CONFIG)
 		cfg.Generation.Dependencies = cfg.Components
 	} else {
+		cfg.Generation.Solid.Normalize()
 		// no need for minify: defaults to false
 		// no need for sourcemap: defaults to 0 aka SourceMapNone
 		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
 			cfg.Generation.Dependencies = cfg.Components
+		}
+		if err := cfg.Generation.Solid.Validate(cfg.Generation.Dependencies); err != nil {
+			return err
 		}
 	}
 

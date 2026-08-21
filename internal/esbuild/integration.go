@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	esbuild "github.com/evanw/esbuild/pkg/api"
+	"github.com/lilybw/go-solid-compiler/esbuildsolid"
+	"github.com/lilybw/go-solid-compiler/runtime"
 	"github.com/lilybw/go-solid-compiler/solid"
-	"github.com/lilybw/go-solid-compiler/tsx"
 	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/esbuild"
 )
@@ -21,49 +22,27 @@ type bundleResult struct {
 	Sources []meta.AbsoluteFilePath // absolute paths of consumer source files (for invalidation)
 }
 
-// SolidPlugin returns an esbuild plugin that lowers Solid JSX in every JSX/TSX
-// file before esbuild bundles it. esbuild's own JSX transform is React-shaped
-// and cannot produce Solid's template() calls, so the JSX->Solid step must own
-// every file in the graph, not just the entry.
+// solidPlugins returns the plugins that turn Solid JSX into a browser bundle.
 //
-// The transform runs in-process. esbuild calls OnLoad concurrently across
-// files, which is safe here: each call builds its own compiler state.
-func SolidPlugin(cfg *BundlerConfig) esbuild.Plugin {
-	return esbuild.Plugin{
-		Name: "solid-transform",
-		Setup: func(build esbuild.PluginBuild) {
-			// Intercept .tsx and .jsx (the files containing JSX). Plain .ts and
-			// .js need no transform and go straight to esbuild.
-			build.OnLoad(esbuild.OnLoadOptions{Filter: `\.[jt]sx$`},
-				func(args esbuild.OnLoadArgs) (esbuild.OnLoadResult, error) {
-					src, err := os.ReadFile(args.Path)
-					if err != nil {
-						return esbuild.OnLoadResult{}, err
-					}
-
-					file, err := tsx.Parse(args.Path, string(src), tsx.ScriptKindOf(args.Path))
-					if err != nil {
-						return esbuild.OnLoadResult{}, fmt.Errorf("solid parse %s: %w", args.Path, err)
-					}
-
-					contents, err := tsx.TransformSolid(file, solid.Options{})
-					if err != nil {
-						return esbuild.OnLoadResult{}, fmt.Errorf("solid transform %s: %w", args.Path, err)
-					}
-
-					// The transform lowers JSX but leaves type annotations in
-					// place, so esbuild strips those. LoaderTS rather than
-					// LoaderTSX on purpose: no JSX should remain, and the TS
-					// loader fails loudly if any does instead of silently
-					// applying the React transform to it.
-					return esbuild.OnLoadResult{
-						Contents:   &contents,
-						Loader:     esbuild.LoaderTS,
-						ResolveDir: filepath.Dir(args.Path),
-					}, nil
-				})
+// The transform must own every JSX file in the graph, not just the entry:
+// esbuild's own JSX support is React-shaped and cannot produce Solid's
+// template calls.
+//
+// Every Solid setting is passed straight through from BundlerConfig#Solid.
+// Nothing here is inferred from the bundling options.
+func solidPlugins(cfg *BundlerConfig) []esbuild.Plugin {
+	return esbuildsolid.Plugins(
+		solid.Options{
+			ModuleName:        cfg.Solid.ModuleName,
+			Prefix:            cfg.Solid.HelperPrefix,
+			DisableDelegation: cfg.Solid.DisableEventDelegation,
 		},
-	}
+		runtime.Config{
+			Development: cfg.Solid.Development,
+			Override:    cfg.Solid.RuntimeOverride,
+		},
+		cfg.Solid.Runtime == RuntimeInternal,
+	)
 }
 
 func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
@@ -81,7 +60,7 @@ func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *Bu
 		MinifyIdentifiers: cfg.Minify,
 		MinifySyntax:      cfg.Minify,
 		Sourcemap:         cfg.Sourcemap,
-		Plugins:           []esbuild.Plugin{SolidPlugin(cfg)},
+		Plugins:           solidPlugins(cfg),
 		Loader: map[string]esbuild.Loader{
 			".css":   esbuild.LoaderCSS,
 			".svg":   esbuild.LoaderDataURL,
@@ -122,8 +101,8 @@ func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, cfg *Bu
 
 // ExtractSourcesFromMetafile parses esbuild's metafile JSON and returns the
 // absolute paths of consumer source files in the bundle graph, excluding
-// node_modules and the generated temp entry. These are what invalidation
-// hashes.
+// node_modules, the embedded runtime, and the generated temp entry. These are
+// what invalidation hashes.
 func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirectoryPath) []string {
 	if metafile == "" {
 		return nil
@@ -136,6 +115,12 @@ func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 	}
 	var srcs []string
 	for p := range mf.Inputs {
+		// Embedded runtime modules appear as "solid-runtime:solid-js/web".
+		// They live inside the compiler binary, so there is no file to watch
+		// and nothing to invalidate on.
+		if strings.HasPrefix(p, "solid-runtime:") {
+			continue
+		}
 		// Metafile paths are relative to AbsWorkingDir (workDir).
 		abs := p
 		if !filepath.IsAbs(abs) {

@@ -6,18 +6,25 @@ import (
 	"strings"
 
 	"github.com/lilybw/go-solid/internal/meta"
+	. "github.com/lilybw/go-solid/shared/esbuild"
 )
 
-// RequiredPeerDeps are the npm packages the consumer must have installed.
+// PeerDepsForConfig returns the packages that must resolve from disk for a
+// given configuration.
 //
-// Only the browser runtime: the generated entry imports solid-js/web, so
-// esbuild has to resolve the consumer's own solid-js. The compiler is Go
-// (github.com/lilybw/go-solid-compiler); no Node runtime is involved at any
-// point, so nothing else needs installing.
-var RequiredPeerDeps = []string{"solid-js"}
+// With Solid.Runtime INTERNAL there are none: solid-js is served from a copy
+// inside the compiler, and the compiler itself is Go. With EXTERNAL, solid-js
+// must be installed under BundlerConfig#Dependencies.
+func PeerDepsForConfig(cfg SolidConfig) []string {
+	if cfg.Runtime == RuntimeExternal {
+		return []string{"solid-js"}
+	}
+	return nil
+}
 
 // PeerDepsMissing returns which of pkgs cannot be resolved from startDir,
-// walking up ancestor directories the way esbuild resolves node_modules.
+// walking up ancestor directories the way Node and esbuild resolve
+// node_modules.
 func PeerDepsMissing(startDir meta.AbsoluteDirectoryPath, pkgs []string) []string {
 	var missing []string
 	for _, pkg := range pkgs {
@@ -29,7 +36,7 @@ func PeerDepsMissing(startDir meta.AbsoluteDirectoryPath, pkgs []string) []strin
 }
 
 // peerDepResolvable reports whether node_modules/<pkg> exists in startDir or any
-// ancestor. Scoped names like "@babel/core" map to the nested path @babel/core.
+// ancestor. Scoped names like "@scope/pkg" map to the nested path @scope/pkg.
 func peerDepResolvable(start meta.AbsoluteDirectoryPath, pkg string) bool {
 	rel := filepath.Join(strings.Split(pkg, "/")...)
 	dir := start

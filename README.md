@@ -1,52 +1,31 @@
 # GO Solid 
-SolidJS templating for Go with HMR. 
+Native SolidJS templating for Go with HMR.
 
 #### Maturity
-Core API is defined and not likely to change significantly. However, breaking changes are still introduced regularly. 
-Tagged versions are available however.
+Core API is defined and not likely to change significantly. 
 
-## Requirements
-This library uses esbuild-go to generate templates. However, esbuild-go only supports React inherently. 
+Tagged versions are available.
 
-Thus the need for node workers, and by extension a couple of node modules, which this library uses to apply the solidjs transform. 
+This library uses a "release-if-green" methodology. That means that the readiness of the codebase is only given by how well the testing suites have been written. Thus, always depend on a tagged version, never depend on latest.
 
-Since v0.0.13 it is now possible to have the libary pre-apply all transforms and write a prepared cache to a specified location (see ```Config#Rasterization```), so that node, and all node
-dependencies*, can be excluded upon deployment.
+## How
+Since 1.0.8 this library was moved to lilybw/go-solid-compiler which in turn uses a condensed tsgo fork (lilybw/typescript-go). That means that this library parses and transforms solidjs jsx components natively. 
 
-To provide node dependencies during development, include this package.json in a subfolder of your project and run ```npm install```. This also allows you to control what versions of the dependencies you would like to use:
-```json
-{
-  "name": "stub-for-dependencies",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@babel/core": "^7.29.7",
-    "babel-preset-solid": "^1.9.12",
-    "solid-js": "^1.9.14"
-  }
-}
-```
+It is currently not possible to choose what version of solidjs/web to use for templating, as that is bundled with go-solid-compiler.
+However various options for what dev/prod variant to use are extended and customizable. 
 
-Then, when configuring the library, direct it to where to find said dependencies. The location defaults to the registry directory. 
+#### Roadmap
+Ever since the introduction of tsgo, it is now possible to do rather sophisticated typegen and introspection. Likewise with the move to go 1.27 it is now possible to define rather sophisticated apis. 
 
-```go
-bundler, err := solid.New(solid.Config{
-    ...
-    Dependencies: "./path/to/node_modules",
-    ...
-})
-```
+In v1.2.0 go-solid will introduce generated types and data validation in development to assure typesafety and ease of debugging. 
 
-Aforementioned package json is also where you can declare any other node dependencies your frontend might have. 
+From hereon, various "plug-in" like features will be made available, accessed as fields on a components props. 
 
-*Depends on how they are bundled and how they work. 
+The already hinted-at "static" feature will introduce easy, yet secure, management and retrieval of static assets but relies on the former and has as such been slightly postponed. 
+
+Version 1.3.0 will introduce "navigation", allowing a reduced endpoint repressentaiton be delivered to this library from your code (however you see fit), then formatting that as nothing but fields on the "navigation" props property. 
+
+Note on version numbering: I dont know how to do versioning.
 
 ### Caching
 To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 

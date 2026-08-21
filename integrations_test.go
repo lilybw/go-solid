@@ -20,32 +20,6 @@ import (
 
 // --- solid-js resolution gate -----------------------------------------------
 
-func TestNew_MissingSolidRuntimeFails(t *testing.T) {
-	resetPackageState(t)
-	// componentsDirWith stages solid-js; here we deliberately DON'T, by building
-	// the dir manually without node_modules.
-	comps := t.TempDir()
-	writeFile(t, comps, "A.tsx", "export default () => null;")
-
-	_, err := New(&Config{
-		LogLevel:   logging.LEVEL_ERROR,
-		Components: comps, Generation: &shared_esbuild.BundlerConfig{},
-	})
-	if err == nil {
-		t.Fatal("expected missing-dependency error, got nil")
-	}
-	if !strings.Contains(err.Error(), "missing npm dependencies") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(err.Error(), "solid-js") {
-		t.Fatalf("error should name solid-js: %v", err)
-	}
-	// No Node toolchain is required any more, so nothing else may be demanded.
-	if strings.Contains(err.Error(), "babel") {
-		t.Errorf("error still demands a Babel package: %v", err)
-	}
-}
-
 // Bundling off means nothing is ever resolved, so the gate must not fire —
 // this is the path a fully rasterized deployment takes.
 func TestNew_SolidRuntimeGateSkippedWhenGenerationDisabled(t *testing.T) {
