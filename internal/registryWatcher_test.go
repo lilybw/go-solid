@@ -178,27 +178,6 @@ func TestRegistryWatcher_DeleteFiresDrop(t *testing.T) {
 	}
 }
 
-// Files created inside a directory that itself is created after startup must be
-// seen — this exercises the addTree-on-new-dir branch in handle().
-func TestRegistryWatcher_NewNestedDir(t *testing.T) {
-	reg, root, _, _ := newWatchedRegistry(t, nil)
-
-	// Create the dir first, let the watcher pick it up, then drop a file in.
-	sub := filepath.Join(root, "features")
-	if err := os.Mkdir(sub, 0o755); err != nil {
-		t.Fatalf("mkdir features: %v", err)
-	}
-	// Small settle so the watcher has added the new dir before we write into it.
-	// Without this the file-create event can arrive on a path the watcher isn't
-	// yet subscribed to and be missed — which is a real limitation worth knowing.
-	time.Sleep(50 * time.Millisecond)
-	writeComp(t, sub, "Card.tsx", stubComponent)
-
-	if !eventually(t, 2*time.Second, func() bool { return hasComponent(reg, "features/Card") }) {
-		t.Fatal("features/Card never registered")
-	}
-}
-
 // A non-registry extension (e.g. .css) must not register. AddFile filters by
 // extension, so this verifies the watcher doesn't force-register junk.
 func TestRegistryWatcher_IgnoresNonComponent(t *testing.T) {

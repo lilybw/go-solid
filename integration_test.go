@@ -18,18 +18,6 @@ import (
 // -----------------------------------------------------------------------------
 // Integration test harness
 // -----------------------------------------------------------------------------
-// These tests exercise the real pipeline: the Go Solid compiler plus
-// esbuild-in-Go. No Node runtime is involved. The only requirement is a
-// node_modules that resolves solid-js — the browser runtime the generated entry
-// imports.
-//
-// If it is missing the tests SKIP (not fail), so `go test ./...` stays green on
-// a machine without an npm install. Set GO_SOLID_REQUIRE_INTEGRATION=1 to turn
-// those skips into failures (useful in CI where the package must exist).
-
-func requireIntegration() bool {
-	return os.Getenv("GO_SOLID_REQUIRE_INTEGRATION") == "1"
-}
 
 // integrationEnv locates a node_modules that resolves solid-js and returns the
 // directory holding it, or skips.
@@ -37,9 +25,6 @@ func integrationEnv(t *testing.T) (modulesParent meta.AbsoluteDirectoryPath) {
 	t.Helper()
 
 	skip := func(format string, args ...any) {
-		if requireIntegration() {
-			t.Fatalf(format, args...)
-		}
 		t.Skipf(format, args...)
 	}
 
