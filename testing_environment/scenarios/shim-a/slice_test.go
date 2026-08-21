@@ -90,55 +90,6 @@ func installPeerDeps() error {
 	return run("install", "--no-audit", "--no-fund")
 }
 
-// ensureToolchain makes the node + peer-dep toolchain available, auto-installing
-// the peer deps if needed. It runs at most once per test binary. On success it
-// returns nil; otherwise it returns a descriptive error that callers turn into
-// either a skip or a fatal depending on GO_SOLID_REQUIRE_INTEGRATION.
-func ensureToolchain() error {
-	toolchainOnce.Do(func() {
-		if _, err := exec.LookPath("node"); err != nil {
-			toolchainErr = err // "node not found on PATH"
-			return
-		}
-		if peerDepsPresent() {
-			return
-		}
-		if npmInstallDisabled() {
-			toolchainErr = os.ErrNotExist // peer deps missing and install disabled
-			return
-		}
-		if err := installPeerDeps(); err != nil {
-			toolchainErr = err
-			return
-		}
-		if !peerDepsPresent() {
-			toolchainErr = os.ErrNotExist // install ran but deps still absent
-		}
-	})
-	return toolchainErr
-}
-
-// gate is the per-test entry point: it ensures the toolchain, then either
-// proceeds, skips, or fails depending on the environment.
-func gate(t *testing.T) {
-	t.Helper()
-	if err := ensureToolchain(); err != nil {
-		msg := "solid toolchain unavailable"
-		switch {
-		case strings.Contains(err.Error(), "node"):
-			msg = "node not found on PATH (needed for the solid transform worker)"
-		case npmInstallDisabled():
-			msg = "peer deps not installed and GO_SOLID_NO_NPM_INSTALL=1 (install solid-js, babel-preset-solid, @babel/core under testdata/frontend)"
-		default:
-			msg = "could not provision solid peer deps in testdata/frontend: " + err.Error()
-		}
-		if requireIntegration() {
-			t.Fatalf("%s", msg)
-		}
-		t.Skipf("skipping: %s", msg)
-	}
-}
-
 func newBundler(t *testing.T) *go_solid.Bundler {
 	t.Helper()
 
@@ -159,7 +110,6 @@ func newBundler(t *testing.T) *go_solid.Bundler {
 }
 
 func TestRegistryDiscoversComponents(t *testing.T) {
-	gate(t)
 	bundler := newBundler(t)
 
 	names := bundler.Registry().Names()
@@ -177,7 +127,6 @@ func TestRegistryDiscoversComponents(t *testing.T) {
 }
 
 func TestRenderHomeForRequest(t *testing.T) {
-	gate(t)
 	bundler := newBundler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -199,7 +148,6 @@ func TestRenderHomeForRequest(t *testing.T) {
 }
 
 func TestRenderQualifiedLoginForm(t *testing.T) {
-	gate(t)
 	bundler := newBundler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/account", nil)
@@ -219,7 +167,6 @@ func TestRenderQualifiedLoginForm(t *testing.T) {
 // component is registered under its path-relative qualified name
 // "auth/LoginForm", so the lookup must fail with a clear error.
 func TestUnqualifiedLoginFormFails(t *testing.T) {
-	gate(t)
 	bundler := newBundler(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/account", nil)

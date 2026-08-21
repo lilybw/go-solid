@@ -81,7 +81,6 @@ func waitForMarker(t *testing.T, b *go_solid.Bundler, component, marker string) 
 }
 
 func TestEditedComponentIsRebuilt_ReactiveRegistry(t *testing.T) {
-	gate(t)
 	b := freshBundler(t, &go_solid.Config{ReactiveRegistry: true})
 
 	before := renderJS(t, b, "Home")
@@ -95,7 +94,6 @@ func TestEditedComponentIsRebuilt_ReactiveRegistry(t *testing.T) {
 }
 
 func TestEditedComponentIsRebuilt_HMROnly(t *testing.T) {
-	gate(t)
 	// HMR without ReactiveRegistry: the HMR watcher is the only thing running,
 	// so it has to invalidate on its own.
 	b := freshBundler(t, &go_solid.Config{
@@ -114,8 +112,6 @@ func TestEditedComponentIsRebuilt_HMROnly(t *testing.T) {
 // Editing a file a component imports must rebuild the importer, not just the
 // edited file. This is the DependencyIndex path.
 func TestEditedDependencyRebuildsImporter(t *testing.T) {
-	gate(t)
-
 	dep := filepath.Join(componentsDir, "greeting.js")
 	writeFile(t, dep, `export const greeting = "DEP_BEFORE";`)
 	writeFile(t, filepath.Join(componentsDir, "Home.jsx"),
@@ -139,8 +135,6 @@ func TestEditedDependencyRebuildsImporter(t *testing.T) {
 
 // Deleting a component must drop it from the registry and the caches.
 func TestDeletedComponentIsDropped(t *testing.T) {
-	gate(t)
-
 	scratch := filepath.Join(componentsDir, "Scratch.jsx")
 	writeFile(t, scratch, `export default () => <p>scratch</p>;`)
 

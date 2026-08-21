@@ -14,7 +14,6 @@ import (
 )
 
 func TestEditedComponentIsRebuilt(t *testing.T) {
-	gate(t)
 	src := filepath.Join(componentsDir, "Home.jsx")
 	orig, err := os.ReadFile(src)
 	if err != nil {

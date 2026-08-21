@@ -1,4 +1,4 @@
-FROM golang:1.27rc2-windowsservercore-ltsc2025
+FROM golang:1.27-windowsservercore-ltsc2025
 
 WORKDIR /go-solid
 

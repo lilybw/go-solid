@@ -1,4 +1,4 @@
-FROM golang:1.27rc2-alpine3.24
+FROM golang:1.27-alpine3.24
 
 WORKDIR /go-solid
 
@@ -7,10 +7,6 @@ WORKDIR /go-solid
 COPY . . 
 
 COPY package.json .
-
-RUN apk add --no-cache nodejs npm
-
-RUN npm install
 
 # compile-check at build time
 RUN ["go", "build", "./..." ]         
