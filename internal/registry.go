@@ -33,6 +33,21 @@ var registryExtensions = map[string]bool{
 	".js":  true,
 }
 
+// DECLARATION_SUFFIX marks a TypeScript declaration file. Its extension is
+// .ts, but it declares types rather than exporting a component, so it is never
+// a registry entry — including the definitions go_solid generates, which land
+// under the workspace and would otherwise be indexed when the workspace sits
+// inside the components tree.
+const DECLARATION_SUFFIX = ".d.ts"
+
+// eligible reports whether path can back a component.
+func eligible(path meta.AbsoluteFilePath) bool {
+	if strings.HasSuffix(strings.ToLower(path), DECLARATION_SUFFIX) {
+		return false
+	}
+	return registryExtensions[strings.ToLower(filepath.Ext(path))]
+}
+
 // NewRegistry walks root and indexes every component file. The template name is
 // the relative path minus extension: components/auth/LoginForm.tsx => "auth/LoginForm".
 func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
@@ -106,7 +121,7 @@ func (this *ComponentRegistry) NameForFile(path meta.AbsoluteFilePath) (meta.Qua
 
 func (this *ComponentRegistry) qualifiedNameFor(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
-	if !registryExtensions[ext] {
+	if !eligible(path) {
 		return "", false
 	}
 	rel, err := filepath.Rel(this.root, path)
@@ -120,7 +135,7 @@ func (this *ComponentRegistry) qualifiedNameFor(path meta.AbsoluteFilePath) (met
 // Returns the qualified name and true if a component was added or updated.
 func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool, error) {
 	ext := strings.ToLower(filepath.Ext(path))
-	if !registryExtensions[ext] {
+	if !eligible(path) {
 		return "", false, nil
 	}
 	rel, err := filepath.Rel(this.root, path)
@@ -142,7 +157,7 @@ func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.Qualifi
 // name that was removed and true if something was actually removed.
 func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
-	if !registryExtensions[ext] {
+	if !eligible(path) {
 		return "", false
 	}
 	rel, err := filepath.Rel(this.root, path)
@@ -178,7 +193,7 @@ func (this *ComponentRegistry) Reload() error {
 			return nil
 		}
 		ext := strings.ToLower(filepath.Ext(path))
-		if !registryExtensions[ext] {
+		if !eligible(path) {
 			return nil
 		}
 		rel, relErr := filepath.Rel(this.root, path)
@@ -234,6 +249,18 @@ func (this *ComponentRegistry) Names() []meta.QualifiedName {
 		return names[i] < names[j]
 	})
 	return names
+}
+
+// Components returns every registered component, ordered by name.
+func (this *ComponentRegistry) Components() []*Component {
+	this.mu.RLock()
+	defer this.mu.RUnlock()
+	out := make([]*Component, 0, len(this.components))
+	for _, c := range this.components {
+		out = append(out, &c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // Root returns the absolute components root directory.

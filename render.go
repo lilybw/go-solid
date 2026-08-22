@@ -2,7 +2,8 @@ package go_solid
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"strings"
 
@@ -17,7 +18,22 @@ import (
 
 // TODO: expand props to varparam, construct props js object from safe-made reflect.Type and let an interface be implemented to enable a props property key overwrite
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {
+	this.checkTypes(component, props)
 	return newRenderCallBuilder(this, component, props)
+}
+
+// checkTypes holds the props in hand against the type the component declares
+// for them. Purely advisory: an unregistered component or an unusable props
+// value is left for Render to report, and nothing here can fail a render.
+func (this *Bundler) checkTypes(component meta.QualifiedName, props any) {
+	if this == nil || this.types == nil || props == nil {
+		return
+	}
+	comp, ok := this.registry.Lookup(component)
+	if !ok {
+		return
+	}
+	this.types.OnPrepare(comp, props)
 }
 
 func (this *Bundler) Render(component meta.QualifiedName, configurator meta.Configurator[RenderCallBuilder], props any) (*caching.Rendered, error) {
@@ -83,7 +99,15 @@ func marshalProps(data *renderData) (string, error) {
 	if data.props == nil {
 		return "{}", nil
 	}
-	raw, err := json.Marshal(data.props)
+	// Deterministic keeps map ordering stable across renders. The escaping
+	// options are v1's defaults, which v2 drops: they are not what makes the
+	// data island safe (inlineJSON is), but keeping them means switching
+	// marshaller cannot regress escaping.
+	raw, err := json.Marshal(data.props,
+		json.Deterministic(true),
+		jsontext.EscapeForHTML(true),
+		jsontext.EscapeForJS(true),
+	)
 	if err != nil {
 		return "", fmt.Errorf("go_solid#Render: marshal props: %w", err)
 	}

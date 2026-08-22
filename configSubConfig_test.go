@@ -149,7 +149,7 @@ func TestStatic_NilBecomesNilStaticConfig(t *testing.T) {
 
 // --- Rasterization ----------------------------------------------------------
 
-func TestRaster_NilBecomesNilRasterConfig(t *testing.T) {
+func TestRaster_NilBecomesActiveRasterConfig(t *testing.T) {
 	resetPackageState(t)
 	comps := t.TempDir()
 	cfg := &Config{Components: comps}
@@ -162,8 +162,59 @@ func TestRaster_NilBecomesNilRasterConfig(t *testing.T) {
 	if cfg.Rasterization == shared_raster.NIL_RASTERIZATION_CONFIG {
 		t.Fatal("Rasterization must be a copy, not the shared singleton")
 	}
-	if *cfg.Rasterization != *shared_raster.NIL_RASTERIZATION_CONFIG {
-		t.Fatal("the copy should equal the null object by value")
+	// Rasterization is on by default; only ExpectCompleted stays off.
+	if !cfg.Rasterization.Active() {
+		t.Fatal("rasterization should be enabled by default")
+	}
+	if cfg.Rasterization.ExpectCompleted {
+		t.Fatal("ExpectCompleted must stay false by default")
+	}
+	if cfg.Rasterization.Location != cfg.Workspace {
+		t.Fatalf("Location = %q, want Workspace %q", cfg.Rasterization.Location, cfg.Workspace)
+	}
+}
+
+// An explicit DisableCaching outranks the default-on rasterization, which has
+// nowhere to write without caches.
+func TestRaster_DefaultYieldsToDisabledCaching(t *testing.T) {
+	resetPackageState(t)
+	cfg := &Config{Components: t.TempDir(), DisableCaching: true}
+	if err := configValidationAndNormalization(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Rasterization.Active() {
+		t.Fatal("defaulted rasterization must yield to DisableCaching")
+	}
+	if !cfg.DisableCaching {
+		t.Fatal("DisableCaching must survive a rasterization it disabled")
+	}
+}
+
+// Same for bundling: there is nothing to pre-build.
+func TestRaster_DefaultYieldsToDisabledGeneration(t *testing.T) {
+	resetPackageState(t)
+	cfg := &Config{Components: t.TempDir(), Generation: disabledGeneration()}
+	if err := configValidationAndNormalization(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Rasterization.Active() {
+		t.Fatal("defaulted rasterization must yield to Generation.Disabled")
+	}
+}
+
+// An explicitly provided config is taken at its word.
+func TestRaster_ProvidedOutranksDisabledCaching(t *testing.T) {
+	resetPackageState(t)
+	cfg := &Config{
+		Components:     t.TempDir(),
+		DisableCaching: true,
+		Rasterization:  &shared_raster.RasterizationConfig{},
+	}
+	if err := configValidationAndNormalization(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.Rasterization.Active() || cfg.DisableCaching {
+		t.Fatal("an explicit Rasterization config must force caching back on")
 	}
 }
 

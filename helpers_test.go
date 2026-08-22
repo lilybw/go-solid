@@ -16,6 +16,7 @@ import (
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
 	shared_static "github.com/lilybw/go-solid/shared/static"
+	shared_types "github.com/lilybw/go-solid/shared/types"
 )
 
 // resetPackageState is a tripwire on the null-object singletons in the shared/*
@@ -37,6 +38,7 @@ func resetPackageState(t *testing.T) {
 	rasterSnap := *shared_raster.NIL_RASTERIZATION_CONFIG
 	staticSnap := *shared_static.NIL_STATIC_CONFIG
 	genSnap := *shared_esbuild.NIL_BUNDLER_CONFIG
+	typesSnap := *shared_types.NIL_TYPES_CONFIG
 	behSnap := *NIL_BEHAVIOURAL_DEFAULTS
 
 	t.Cleanup(func() {
@@ -49,11 +51,15 @@ func resetPackageState(t *testing.T) {
 		if shared_static.NIL_STATIC_CONFIG.Location != staticSnap.Location || len(shared_static.NIL_STATIC_CONFIG.Ignore) != len(staticSnap.Ignore) {
 			t.Error("NIL_STATIC_CONFIG was mutated; normalization must copy it")
 		}
+		if *shared_types.NIL_TYPES_CONFIG != typesSnap {
+			t.Error("NIL_TYPES_CONFIG was mutated; normalization must copy it")
+		}
 
 		*shared_hmr.NIL_HMR_CONFIG = hmrSnap
 		*shared_raster.NIL_RASTERIZATION_CONFIG = rasterSnap
 		*shared_static.NIL_STATIC_CONFIG = staticSnap
 		*shared_esbuild.NIL_BUNDLER_CONFIG = genSnap
+		*shared_types.NIL_TYPES_CONFIG = typesSnap
 		*NIL_BEHAVIOURAL_DEFAULTS = behSnap
 	})
 }

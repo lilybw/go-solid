@@ -17,12 +17,14 @@ import (
 	"github.com/lilybw/go-solid/internal/noop"
 	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
 	static_int "github.com/lilybw/go-solid/internal/static"
+	types_int "github.com/lilybw/go-solid/internal/types"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/rasterization"
 	"github.com/lilybw/go-solid/shared/static"
+	"github.com/lilybw/go-solid/shared/types"
 )
 
 type Config struct {
@@ -60,7 +62,17 @@ type Config struct {
 	// With ExpectCompleted set, esbuild is skipped entirely and components are served straight from the cache.
 	//
 	// Do be aware that this disables HMR, ReactiveRegistry and DisableCaching (caches are now mandatory).
+	//
+	// Enabled by default; set Rasterization.Disabled to opt out.
 	Rasterization *rasterization.RasterizationConfig
+
+	// Types governs how go_solid checks the Go props a template is rendered
+	// with against the type its component declares for them.
+	//
+	// The component is the contract. Shapes extracted from it are cached under
+	// the workspace whatever this holds; Types.Check only selects when the
+	// props are held against them.
+	Types *types.TypesConfig
 
 	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
 	// that is a 1 to 1 recreation of the structure of the Static.Location directory. This places some limitations upon names of files and sub-directories.
@@ -104,10 +116,13 @@ type Bundler struct {
 	static   static_int.StaticRegistry
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
+	types    *types_int.Checker
 }
 
 func New(cfg *Config) (*Bundler, error) {
 	consumerDefaults := cfg.Defaults != nil
+	// A rasterization the consumer asked for is load-bearing and its failures
+	// are fatal. The default-on one is an optimisation, so it warns instead.
 	consumerRasterization := cfg.Rasterization != nil
 	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
@@ -142,9 +157,15 @@ func New(cfg *Config) (*Bundler, error) {
 	mem := caching.NewMemCache(!cfg.DisableCaching)
 	index := internal.NewDepIndex()
 
+	typeChecker := types_int.NewChecker(cfg.Workspace, cfg.Types.Check, nil)
+	if err := types_int.EnsurePublished(cfg.Workspace); err != nil {
+		return nil, err
+	}
+
 	invalidateComponent := func(name meta.QualifiedName) {
 		disk.InvalidateComponent(name)
 		mem.InvalidateComponent(name)
+		typeChecker.Invalidate(name)
 	}
 
 	// A touched file invalidates the component it backs plus every component
@@ -182,16 +203,26 @@ func New(cfg *Config) (*Bundler, error) {
 		disk:     disk,
 		index:    index,
 		static:   static,
+		types:    typeChecker,
 	}
 
-	if consumerRasterization && !cfg.Rasterization.ExpectCompleted {
+	// Ahead of rasterization: the cache should be warm, and anything unchecked
+	// named, even if a component later fails to bundle.
+	bundler.types.OnBoot(registry.Components())
+
+	if cfg.Rasterization.Active() && !cfg.Rasterization.ExpectCompleted {
 		// begin only rasterization when BehaviouralDefaults.HeadSegment have been applied
 		for _, comp := range registry.Names() {
 			// pre-render all components with disk cache enabled
 			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
-			if err != nil {
+			if err == nil {
+				continue
+			}
+			if consumerRasterization {
 				return nil, fmt.Errorf("go_solid: rasterization failed for component %q: %w", comp, err)
 			}
+			log_int.Log(logging.LEVEL_ERROR, fmt.Sprintf(
+				"[go_solid] rasterization skipped %q: %v", comp, err))
 		}
 	}
 
@@ -306,9 +337,17 @@ func configValidationAndNormalization(cfg *Config) error {
 			return fmt.Errorf("Static config provided yet location unset. Kindly state.")
 		}
 	}
-	if cfg.Rasterization == nil {
+	rasterizationProvided := cfg.Rasterization != nil
+	if !rasterizationProvided {
 		cfg.Rasterization = meta.Copy(rasterization.NIL_RASTERIZATION_CONFIG)
-	} else {
+		// Rasterization is on by default, but a default must not override an
+		// explicit choice: it has nowhere to write without caches, and nothing
+		// to build without bundling.
+		if cfg.DisableCaching || cfg.Generation.Disabled {
+			cfg.Rasterization.Disabled = true
+		}
+	}
+	if cfg.Rasterization.Active() {
 		cfg.DisableCaching = false // rasterization requires caching
 		if cfg.Rasterization.Location == "" {
 			cfg.Rasterization.Location = cfg.Workspace
@@ -323,7 +362,31 @@ func configValidationAndNormalization(cfg *Config) error {
 		}
 	}
 
+	// Must follow rasterization: whether the boot pass is possible depends on it.
+	if err := normalizeTypes(cfg); err != nil {
+		return err
+	}
+
 	log_int.LogJSON(logging.LEVEL_DEBUG, "normalized configuration: ", cfg)
+	return nil
+}
+
+// normalizeTypes resolves Types.Check and reconciles it with rasterization.
+//
+// The boot pass rides on rasterization's registry walk, so it cannot run
+// without it. Asking for it outright is an error; arriving at it by leaving
+// Check unset drops the boot half and keeps going, since the consumer never
+// asked for something that cannot be delivered.
+func normalizeTypes(cfg *Config) error {
+	if cfg.Types == nil {
+		cfg.Types = meta.Copy(types.NIL_TYPES_CONFIG)
+	}
+	if cfg.Types.Check == types.CHECK_UNSET {
+		cfg.Types.Check = types.DEFAULT_CHECK
+	}
+	// Check is honoured as given. The boot pass reads and parses component
+	// sources; it neither bundles nor renders, so it has no bearing on
+	// rasterization and must not quietly switch it on.
 	return nil
 }
 

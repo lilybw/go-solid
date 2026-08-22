@@ -117,6 +117,9 @@ bundler.Prepare("ComponentName", props).
 ```
 
 ### Adapters
-If you would like for go_solid to work for your server framework/library of choice, I see no issue in introducing multiple variants of ForRequest.
+go-solid is rather self-contained and should work with most existing projects. 
 
-I.e. ForFiberRequest, ForGinRequest... etc. 
+One thing that is not, is the HMR implimentation and Bundler#ForRequest, which has to make certain assumptions to work. 
+
+If you find that these does not work for your project, I will gladly accept any PR adding support. 
+You may also make an issue, however then it will depend on when I got time to see to it. 

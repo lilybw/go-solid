@@ -34,3 +34,5 @@ node_modules
 .testing_ground
 *.rasterized.txt
 rasterize.ps1
+*.diff
+*.patch

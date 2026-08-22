@@ -6,8 +6,16 @@ func T_o_Void[T any]() func(T) {
 	return func(_ T) {}
 }
 
+func T_o_Err[T any]() func(T) error {
+	return func(t T) error { return nil }
+}
+
 func TR_o_Err[T any, R any]() func(T, R) error {
 	return func(t T, r R) error { return nil }
+}
+
+func TR_o_Void[T any, R any]() func(T, R) {
+	return func(t T, r R) {}
 }
 
 func T_o_R[T any, R any](r R) func(T) R {
