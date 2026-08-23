@@ -1,6 +1,7 @@
 package code_gen
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"text/template"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/registry"
 )
@@ -17,11 +19,9 @@ var (
 	_htmlTemplate = template.Must(template.New("html").Parse(htmlTemplateText))
 )
 
-// TODO: The component itself knows nothing of the root HTML element id, nor cares for it. Thus it should not be part of the cache key.
-// as the same component can easily be mounted on multiple ids
 const jsTemplateText = `
 	import { render } from "solid-js/web";
-	import Component from {{.ImportPath}};
+	import {{.ImportClause}} from {{.ImportPath}};
 
 	function readProps() {
 		const el = document.getElementById({{.PropsMountId}});
@@ -61,6 +61,10 @@ const htmlTemplateText = `
 `
 
 type entryTemplateData struct {
+	// ImportClause is what stands between `import` and `from`: a default
+	// import, or a named one aliased so the rest of the entry does not care
+	// which of the two it got.
+	ImportClause string
 	ImportPath   string
 	CompName     string
 	PropsMountId string
@@ -77,10 +81,25 @@ type htmlTemplateData struct {
 	HMRScript    string // "" when HMR inactive; injected reload client otherwise
 }
 
+// GenerateEntry emits the module that mounts one component.
+//
+// comp.Export decides how the component is imported: empty takes the file's
+// default export, a name takes that export and aliases it, so the mounting code
+// below is the same either way.
 func GenerateEntry(comp *registry.Component) (string, error) {
 	importPath := filepath.ToSlash(strings.TrimSuffix(comp.Path, comp.Ext))
 
+	importClause := "Component"
+	if comp.Export != "" {
+		if !meta.ValidExportName(comp.Export) {
+			return "", fmt.Errorf("go_solid: %q is not a name that can be imported (component %q)",
+				comp.Export, comp.Name)
+		}
+		importClause = "{ " + comp.Export + " as Component }"
+	}
+
 	data := entryTemplateData{
+		ImportClause: importClause,
 		ImportPath:   strconv.Quote(importPath),
 		CompName:     strconv.Quote(comp.Name),
 		PropsMountId: strconv.Quote(derivePropsMountIdFromCompRootID(comp.MountRootID)),

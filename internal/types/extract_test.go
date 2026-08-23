@@ -23,7 +23,7 @@ func extractionIn(t *testing.T, dir, filename, source string) Extraction {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	extraction, err := NewExtractor().Component(path)
+	extraction, err := NewExtractor().Component(path, "")
 	if err != nil {
 		t.Fatalf("Component(%q): %v", path, err)
 	}
@@ -121,11 +121,16 @@ export default (props: { title: string }) => <h1>{props.title}</h1>;
 	assertDeclared(t, declaration, "title:string")
 }
 
-func TestExtract_SoleFunctionWithoutDefaultExport(t *testing.T) {
+// A bare selector is the default export and nothing else. A file's sole named
+// export used to be taken as a fallback, which meant renaming an export or
+// adding a second one silently changed which component a name resolved to.
+func TestExtract_BareSelectorIsTheDefaultExportOnly(t *testing.T) {
 	declaration := declarationOf(t, "Hello.tsx", `
 export function Hello(props: { title: string }) { return <h1/>; }
 `)
-	assertDeclared(t, declaration, "title:string")
+	if declaration.Found {
+		t.Errorf("a named export was taken for the default one: %s", declaration.Shape.Fingerprint())
+	}
 }
 
 // `export default function` must win over any other function in the file.
@@ -408,9 +413,9 @@ export default function Hello(props: P) { return <div/>; }
 	assertDeclared(t, extraction, "fromTS:string")
 }
 
-// Several top-level functions and no default export names no component.
-// Picking one would be a guess, and a guess checks props against the wrong
-// contract without saying so.
+// Several top-level functions and no default export names no component under a
+// bare selector. Picking one would be a guess, and a guess checks props against
+// the wrong contract without saying so.
 func TestExtract_AmbiguousTopLevelFunctionsResolveToNothing(t *testing.T) {
 	extraction := extractionIn(t, t.TempDir(), "Hello.tsx", `
 function Header(props: { a: string }) { return <div/>; }
@@ -418,6 +423,32 @@ function Footer(props: { b: number }) { return <div/>; }
 `)
 	if extraction.Found {
 		t.Errorf("guessed a component from an ambiguous file: %s", extraction.Shape.Fingerprint())
+	}
+}
+
+// The same file, addressed by name, resolves to exactly what was asked for.
+func TestExtract_SelectorPicksANamedExport(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Panel.tsx")
+	if err := os.WriteFile(path, []byte(`
+export function Header(props: { a: string }) { return <div/>; }
+export const Footer = (props: { b: number }) => <div/>;
+function Hidden(props: { c: boolean }) { return <div/>; }
+export { Hidden as Aside };
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for export, want := range map[string]string{
+		"Header": "a:string",
+		"Footer": "b:number",
+		"Aside":  "c:boolean",
+	} {
+		extraction, err := NewExtractor().Component(path, export)
+		if err != nil {
+			t.Fatalf("Component(%q): %v", export, err)
+		}
+		assertDeclared(t, extraction, want)
 	}
 }
 

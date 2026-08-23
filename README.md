@@ -54,6 +54,36 @@ bundler.Prepare("ComponentName", props).
 		Render()
 ```
 
+### Component Selectors & Resolution
+Since v1.0.15 go-solid places no constraints on how your components are structured nor what files they are in (as long as they in the directory, or a sub-directory thereof, you've told the registry is your components directory). 
+
+Any file in the provided Components dir may declare any amount of exported components. 
+
+Resolution implementation details:
+
+```go
+/*
+If only a file is named as the QualifiedName to Bundler#Prepare go-solid will look for a default export.
+*/
+_, _ = bundler.Prepare("auth/Login", nil).Render()
+
+/*
+Any component in a file can be referenced using "#" regardless of how many components are in the file nor whether any default export is present:
+*/
+_, _ = bundler.Prepare("auth/Login#LoginPage", nil).Render()
+_, _ = bundler.Prepare("auth/Login#Signup", nil).Render()
+_, _ = bundler.Prepare("auth/Login#UniLogin", nil).Render()
+
+/*
+Explicit usage of "#default" resolves to the default export of the file. 
+*/ 
+_, _ = bundler.Prepare("auth/Login", nil).Render()
+// is the same as
+_, _ = bundler.Prepare("auth/Login#default", nil).Render()
+```
+
+
+
 ### Caching & Workspace
 To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
 
@@ -91,9 +121,10 @@ type RouterLike[T any] interface {
 
 ```go
 mux := http.DefaultServeMux();
-bundler, err := go_solid.New(solid.New(solid.Config{
+
+bundler, err := go_solid.New(&go_solid.Config{
     ...
-    HMR:    go_solid.HMRConfig{
+    HMR:    &hmr.HMRConfig{
         Mux: mux,
     },
 })
@@ -121,6 +152,7 @@ Since 1.0.8 this library was moved to lilybw/go-solid-compiler which in turn use
 
 It is currently not possible to choose what version of solidjs/web to use for templating, as that is bundled with go-solid-compiler.
 However various options for what dev/prod variant to use are extended and customizable. 
+
 
 ## Roadmap
 Ever since the introduction of tsgo, it is now possible to do rather sophisticated typegen and introspection. Likewise with the move to go 1.27 it is now possible to define rather sophisticated apis. 

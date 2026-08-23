@@ -47,6 +47,20 @@ func eligible(path meta.AbsoluteFilePath) bool {
 	return registryExtensions[strings.ToLower(filepath.Ext(path))]
 }
 
+// nameIsAddressable rejects a derived name a selector could never reach.
+//
+// "#" separates a file from the export to take out of it, so a file named
+// "Panel#Sidebar.tsx" would register under a name that parses as the Sidebar
+// export of a file called Panel. Refusing it at load beats registering a
+// component nobody can look up.
+func nameIsAddressable(name meta.QualifiedName, path meta.AbsoluteFilePath) error {
+	if strings.Contains(name, meta.EXPORT_SELECTOR) {
+		return fmt.Errorf("registry: %s: %q may not appear in a component path (it selects an export, as in %q)",
+			path, meta.EXPORT_SELECTOR, "auth/LoginForm"+meta.EXPORT_SELECTOR+"Submit")
+	}
+	return nil
+}
+
 // NewRegistry walks root and indexes every component file. The template name is
 // the relative path minus extension: components/auth/LoginForm.tsx => "auth/LoginForm".
 func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
@@ -163,6 +177,9 @@ func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.Qualifi
 		return "", false, err
 	}
 	name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
+	if err := nameIsAddressable(name, path); err != nil {
+		return "", false, err
+	}
 
 	this.mu.Lock()
 	defer this.mu.Unlock()
@@ -222,6 +239,10 @@ func (this *ComponentRegistry) Reload() error {
 		}
 		name := strings.TrimSuffix(filepath.ToSlash(rel), ext)
 
+		if err := nameIsAddressable(name, path); err != nil {
+			return err
+		}
+
 		// Collision guard: two files resolving to the same name (Foo.tsx and
 		// Foo.jsx) is ambiguous and almost certainly a mistake.
 		if existing, dup := found[name]; dup {
@@ -242,11 +263,29 @@ func (this *ComponentRegistry) Reload() error {
 }
 
 // Lookup returns the component registered under name, or ok=false.
+// Lookup resolves a selector to the component it names.
+//
+// A selector is a file, optionally followed by "#" and the export to take out
+// of it; only the file half is indexed, because the registry never reads a
+// component's contents and so cannot know what a file exports. Whether the
+// named export exists, and is a component, is settled when the component is
+// built.
+//
+//	comp, ok := reg.Lookup("auth/LoginForm")        // the file's default export
+//	comp, ok := reg.Lookup("auth/LoginForm#Submit") // the file's exported Submit
 func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (*Component, bool) {
+	file, export := meta.SplitSelector(component)
+
 	this.mu.RLock()
-	defer this.mu.RUnlock()
-	c, ok := this.components[component]
-	return &c, ok
+	c, ok := this.components[file]
+	this.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if export == "" {
+		return &c, true
+	}
+	return c.WithExport(export), true
 }
 
 // Names returns all registered component names, sorted.

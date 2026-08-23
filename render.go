@@ -168,6 +168,17 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 		return cached, nil
 	}
 
+	// The registry indexes files, not exports, so it can say a file is there
+	// but not that the selector names a component inside it. Settle that before
+	// bundling, where the same mistake surfaces as an esbuild resolution error
+	// naming a generated temp file the consumer never wrote.
+	if err := bundler.types.VerifyComponentExport(comp); err != nil {
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.Dispatch(events.NewRegistryLookupFailure(err))
+		})
+		return nil, err
+	}
+
 	artifact, sources, err := bundler.bundleComponent(data, comp)
 	if err != nil {
 		return nil, err

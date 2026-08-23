@@ -111,8 +111,16 @@ func (c *Cache) Root() meta.AbsoluteDirectoryPath { return c.root }
 
 // Path is where a component's entry lives. The tree mirrors the components
 // directory, so an entry is findable from the component it describes.
+// Path is where a component's entry lives. The export selector folds into the
+// filename, so two components backed by one file get two entries and neither
+// puts a "#" in a path.
 func (c *Cache) Path(component meta.QualifiedName) meta.AbsoluteFilePath {
-	return filepath.Join(c.root, filepath.FromSlash(component)+CACHE_ENTRY_EXT)
+	file, export := meta.SplitSelector(component)
+	stem := filepath.FromSlash(file)
+	if export != "" {
+		stem += "__" + export
+	}
+	return filepath.Join(c.root, stem+CACHE_ENTRY_EXT)
 }
 
 // Get returns a valid extraction for component, from memory or from disk.
@@ -315,10 +323,14 @@ func validComponentName(component meta.QualifiedName) error {
 	if component == "" {
 		return fmt.Errorf("go_solid/types: empty component name")
 	}
-	for segment := range strings.SplitSeq(component, "/") {
+	file, export := meta.SplitSelector(component)
+	for segment := range strings.SplitSeq(file, "/") {
 		if segment == "" || segment == "." || segment == ".." {
 			return fmt.Errorf("go_solid/types: component name %q is not a relative path", component)
 		}
+	}
+	if !meta.ValidExportName(export) {
+		return fmt.Errorf("go_solid/types: component name %q selects an export that cannot be imported", component)
 	}
 	return nil
 }

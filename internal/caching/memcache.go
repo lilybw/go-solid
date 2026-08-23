@@ -98,6 +98,23 @@ func (c *MemCache) InvalidateComponent(component meta.QualifiedName) {
 	delete(c.byName, component)
 }
 
+// ComponentsInFile lists the cached components backed by one component file:
+// the file's own selector and every "#" selection out of it. Invalidation works
+// from a file when the dependency graph is cold, and one file can back several
+// components.
+func (c *MemCache) ComponentsInFile(file meta.QualifiedName) []meta.QualifiedName {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	var out []meta.QualifiedName
+	for name := range c.byName {
+		if componentIsInFile(name, file) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func (c *MemCache) Clear() {
 	c.mu.Lock()
 	c.entries = make(map[CacheKey]*Rendered)

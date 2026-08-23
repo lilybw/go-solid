@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/lilybw/go-solid/internal"
@@ -176,15 +175,31 @@ func New(cfg *Config) (*Bundler, error) {
 		typeChecker.Invalidate(name)
 	}
 
+	// invalidateComponentFile drops every component backed by one file: the
+	// default export and every "#" selection out of it.
+	invalidateComponentFile := func(file meta.QualifiedName) {
+		for _, name := range mem.ComponentsInFile(file) {
+			invalidateComponent(name)
+		}
+		for _, name := range disk.ComponentsInFile(file) {
+			invalidateComponent(name)
+		}
+		invalidateComponent(file)
+	}
+
 	// A touched file invalidates the component it backs plus every component
 	// that bundled it as a dependency.
+	//
+	// The dependency index only knows components that have been rendered, so
+	// after a restart it is empty and the file's own entries are reached by
+	// name instead. One file can back several — its default export and any
+	// number of "#" selections — so that fallback is file-scoped.
 	invalidateForSource := func(file meta.AbsoluteFilePath) {
-		affected := index.DependentsOf(file)
-		if name, ok := registry.NameForFile(file); ok && !slices.Contains(affected, name) {
-			affected = append(affected, name)
-		}
-		for _, name := range affected {
+		for _, name := range index.DependentsOf(file) {
 			invalidateComponent(name)
+		}
+		if name, ok := registry.NameForFile(file); ok {
+			invalidateComponentFile(name)
 		}
 	}
 
@@ -226,6 +241,14 @@ func New(cfg *Config) (*Bundler, error) {
 			// pre-render all components with disk cache enabled
 			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
 			if err == nil {
+				continue
+			}
+			// A file in the components tree that exports no component is a
+			// helper module, not a broken build. Rasterization walks past it;
+			// asking for it by name is still an error, at the render that asks.
+			if types_int.IsNotAComponent(err) {
+				log_int.Log(logging.LEVEL_INFO, fmt.Sprintf(
+					"[go_solid] rasterization skipped %q: %v", comp, err))
 				continue
 			}
 			if consumerRasterization {

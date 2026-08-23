@@ -267,6 +267,25 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 	return removed
 }
 
+// ComponentsInFile lists the cached components backed by one component file:
+// the file's own selector and every "#" selection out of it.
+func (dc *DiskCache) ComponentsInFile(file meta.QualifiedName) []meta.QualifiedName {
+	if !dc.enabled {
+		return nil
+	}
+	dc.mu.Lock()
+	defer dc.mu.Unlock()
+	dc.lockedEnsureIndex()
+
+	var out []meta.QualifiedName
+	for component := range dc.byComponent {
+		if componentIsInFile(component, file) {
+			out = append(out, component)
+		}
+	}
+	return out
+}
+
 // lockedManifestPathForKey resolves a key to its manifest. Callers hold dc.mu.
 func (dc *DiskCache) lockedManifestPathForKey(key *CacheKey) (string, bool) {
 	dc.lockedEnsureIndex()

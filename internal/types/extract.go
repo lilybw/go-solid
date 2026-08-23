@@ -68,7 +68,13 @@ func NewExtractor() *Extractor {
 }
 
 // Component resolves the props type declared by the component at path.
-func (e *Extractor) Component(path meta.AbsoluteFilePath) (Extraction, error) {
+// Component reads the props type of a component in path.
+//
+// export names which one: empty for the file's default export, otherwise the
+// named export a selector asked for.
+//
+//	extraction, err := e.Component("/app/components/Panel.tsx", "Sidebar")
+func (e *Extractor) Component(path meta.AbsoluteFilePath, export string) (Extraction, error) {
 	root, err := e.file(path)
 	if err != nil {
 		return Extraction{}, err
@@ -82,6 +88,9 @@ func (e *Extractor) Component(path meta.AbsoluteFilePath) (Extraction, error) {
 	out := Extraction{}
 
 	fn := defaultExportedFunction(root.tree)
+	if export != "" {
+		fn = namedExportedFunction(root.tree, export)
+	}
 	if fn == nil {
 		return r.finish(out), nil
 	}
@@ -391,28 +400,22 @@ func isRelativeSpecifier(specifier string) bool {
 	return strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
 }
 
-// defaultExportedFunction locates the component: an exported default function
-// declaration, an `export default` of a function or of a locally bound one, or
-// failing that the sole function declared at the top level.
+// defaultExportedFunction locates the file's default export, when that export
+// is a function: an `export default function`, an `export default` of a
+// function expression, or an `export default` of a locally bound one.
 //
-// A file declaring several top-level functions and exporting none of them by
-// default names no component. Picking one would be a guess, and a guess here
-// silently checks props against the wrong contract, so nothing is returned and
-// the component is reported as one whose props cannot be checked.
+// Nothing else counts. A file with no default export names no component under
+// a bare selector, however many functions it happens to declare — picking one
+// would be a guess, and a guess checks props against the wrong contract without
+// saying so. Those functions are reachable, but only by name: "File#Name".
 func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 	if file.Statements == nil {
 		return nil
 	}
-	var (
-		assigned  *ast.Node // `export default X` where X is an identifier
-		candidate *ast.Node // last top-level function seen
-		count     int
-	)
+	var assigned *ast.Node // `export default X` where X is an identifier
 	for _, stmt := range file.Statements.Nodes {
 		switch stmt.Kind {
 		case ast.KindFunctionDeclaration:
-			count++
-			candidate = stmt
 			// HasSyntacticModifier is any-of, so test the pair directly.
 			if stmt.ModifierFlags()&ast.ModifierFlagsExportDefault == ast.ModifierFlagsExportDefault {
 				return stmt
@@ -431,17 +434,9 @@ func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 		}
 	}
 	if assigned != nil {
-		if fn := boundFunction(file, assigned.Text()); fn != nil {
-			return fn
-		}
+		return boundFunction(file, assigned.Text()) // nil if it is not a function
 	}
-	if count == 1 {
-		return candidate
-	}
-	if count == 0 {
-		return soleBoundFunction(file) // nil when there is not exactly one
-	}
-	return nil // ambiguous; see above
+	return nil
 }
 
 func isFunctionExpression(n *ast.Node) bool {
@@ -471,28 +466,8 @@ func boundFunction(file *ast.SourceFile, name string) *ast.Node {
 	return nil
 }
 
-// soleBoundFunction returns the only function expression bound at the top
-// level, if there is exactly one.
-func soleBoundFunction(file *ast.SourceFile) *ast.Node {
-	var found *ast.Node
-	count := 0
-	for _, stmt := range file.Statements.Nodes {
-		if stmt.Kind != ast.KindVariableStatement {
-			continue
-		}
-		for _, decl := range variableDeclarations(stmt) {
-			if init := decl.Initializer(); init != nil && isFunctionExpression(init) {
-				found = init
-				count++
-			}
-		}
-	}
-	if count == 1 {
-		return found
-	}
-	return nil
-}
-
+// variableDeclarations returns the declarations of a `const`/`let`/`var`
+// statement, which may bind several names at once.
 func variableDeclarations(variableStatement *ast.Node) []*ast.Node {
 	list := variableStatement.AsVariableStatement().DeclarationList
 	if list == nil {

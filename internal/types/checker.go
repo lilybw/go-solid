@@ -264,11 +264,21 @@ func (c *Checker) OnBoot(components []*registry.Component) error {
 
 // extraction resolves a component's props type, from cache when it is still
 // valid and by reading the component when it is not.
+// VerifyComponentExport reports whether a selector names something renderable.
+// It parses, but it does not type check: it runs whatever CheckMode holds,
+// because "is there a component here" is a question every render asks.
+func (c *Checker) VerifyComponentExport(component *registry.Component) error {
+	if c == nil || c.extractor == nil {
+		return nil
+	}
+	return c.extractor.VerifyComponentExport(component)
+}
+
 func (c *Checker) extraction(component *registry.Component) (Extraction, bool) {
 	if cached, ok := c.cache.Get(component.Name); ok {
 		return cached, true
 	}
-	extracted, err := c.extractor.Component(component.Path)
+	extracted, err := c.extractor.Component(component.Path, component.Export)
 	if err != nil {
 		log_int.Log(logging.LEVEL_ERROR, fmt.Sprintf(
 			"[go_solid/types] cannot read %q: %v", component.Name, err))
