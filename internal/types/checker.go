@@ -19,9 +19,6 @@ const (
 	// DIAG_PROPS: the Go props do not satisfy the props type the component
 	// declares.
 	DIAG_PROPS DiagnosticKind = iota
-	// DIAG_NO_PROPS: props were supplied to a component that takes no
-	// parameter, so nothing will read them.
-	DIAG_NO_PROPS
 	// DIAG_UNTYPED: the component's props type could not be resolved, so
 	// nothing can be checked against it.
 	DIAG_UNTYPED
@@ -33,14 +30,36 @@ func (k DiagnosticKind) String() string {
 	switch k {
 	case DIAG_PROPS:
 		return "props"
-	case DIAG_NO_PROPS:
-		return "no-props"
 	case DIAG_UNTYPED:
 		return "untyped"
 	case DIAG_UNDERIVABLE:
 		return "underivable"
 	default:
 		return "unknown"
+	}
+}
+
+// Severity separates a contract that was broken from coverage that is absent.
+type Severity uint8
+
+const (
+	// SEVERITY_INFO: nothing is wrong, something is merely unchecked.
+	SEVERITY_INFO Severity = iota
+	// SEVERITY_ERROR: the component states a requirement the props do not meet.
+	SEVERITY_ERROR
+)
+
+// Severity of a finding.
+//
+// A component that declares no props type states no requirement, so nothing
+// can violate it — that is a gap in coverage, not a fault, and it must not stop
+// a boot or a render. Only a requirement the props fail to meet is an error.
+func (k DiagnosticKind) Severity() Severity {
+	switch k {
+	case DIAG_UNTYPED:
+		return SEVERITY_INFO
+	default:
+		return SEVERITY_ERROR
 	}
 }
 
@@ -73,15 +92,36 @@ func (d Diagnostic) String() string {
 	return b.String()
 }
 
-// Reporter receives diagnostics. It is called with a non-empty slice.
-type Reporter = func([]Diagnostic)
+// Reporter receives the diagnostics of one pass, which may be empty, and
+// decides what they mean. Returning an error fails the pass: the boot pass
+// fails New, the runtime pass fails the render it was called for.
+type Reporter = func([]Diagnostic) error
 
-// LogDiagnostics is the default Reporter. It logs at LEVEL_ERROR so findings
-// are visible under the default log level, though nothing here is fatal.
-func LogDiagnostics(diagnostics []Diagnostic) {
+// CoalesceDiagnostics is the default Reporter.
+//
+// Faults are gathered into a single error, so a caller is shown every one in
+// the batch rather than whichever came first. Findings that only report absent
+// coverage are logged and pass, because a component that states no contract
+// cannot have broken one.
+func CoalesceDiagnostics(diagnostics []Diagnostic) error {
+	var faults []Diagnostic
 	for _, d := range diagnostics {
-		log_int.Log(logging.LEVEL_ERROR, "[go_solid/types] "+d.String())
+		if d.Kind.Severity() == SEVERITY_ERROR {
+			faults = append(faults, d)
+			continue
+		}
+		log_int.Log(logging.LEVEL_INFO, "[go_solid/types] "+d.String())
 	}
+	if len(faults) == 0 {
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString("[go_solid/types] type diagnostics:")
+	for _, d := range faults {
+		b.WriteString("\n  " + d.String())
+	}
+	return errors.New(b.String())
 }
 
 // Checker holds the props passed to a template against the type the component
@@ -99,20 +139,20 @@ type Checker struct {
 	cache     *Cache
 	extractor *Extractor
 	mapper    Mapper
-	report    Reporter
+	coalesce  Reporter
 }
 
 // NewChecker roots a checker on a workspace. A nil report defaults to
-// LogDiagnostics.
+// CoalesceDiagnostics.
 func NewChecker(workspace meta.AbsoluteDirectoryPath, mode CheckMode, report Reporter) *Checker {
 	if report == nil {
-		report = LogDiagnostics
+		report = CoalesceDiagnostics
 	}
 	return &Checker{
 		mode:      mode,
 		cache:     NewCache(workspace),
 		extractor: NewExtractor(),
-		report:    report,
+		coalesce:  report,
 	}
 }
 
@@ -131,43 +171,32 @@ func (c *Checker) Invalidate(component meta.QualifiedName) {
 }
 
 // OnPrepare holds props against the component's declared type.
-func (c *Checker) OnPrepare(component *registry.Component, props any) {
+func (c *Checker) OnPrepare(component *registry.Component, props any) error {
 	if c == nil || component == nil || props == nil || !c.mode.AtRuntime() {
-		return
+		return nil
 	}
 
 	shape, err := c.mapper.ShapeOfValue(props)
 	if err != nil {
-		// Nothing to check, and nothing worth saying: an absent props value is
-		// ordinary, and one json cannot encode fails the render loudly already.
+		// An absent props value is ordinary, and one json cannot encode fails
+		// the render loudly on its own.
 		if errors.Is(err, ErrNoProps) || errors.Is(err, ErrUnmarshalable) {
-			return
+			return nil
 		}
-		c.emit([]Diagnostic{{
+		return c.coalesce([]Diagnostic{{
 			Component: component.Name,
 			Kind:      DIAG_UNDERIVABLE,
 			Detail:    err.Error(),
 		}})
-		return
 	}
 
 	extraction, ok := c.extraction(component)
-	if !ok {
-		return
-	}
-	if !extraction.HasParameter {
-		if shape.Empty() {
-			return
-		}
-		c.emit([]Diagnostic{{
-			Component: component.Name,
-			Kind:      DIAG_NO_PROPS,
-			Detail:    "the component takes no parameter, so the props are unreachable",
-		}})
-		return
-	}
-	if !extraction.Found {
-		return // reported once at boot rather than on every render
+	if !ok || !extraction.Found {
+		// No resolvable contract, either because the component takes no
+		// parameter or because its type could not be followed. Supplying more
+		// than is required is always allowed, and a component that requires
+		// nothing is the limiting case of that.
+		return nil
 	}
 
 	detail := ""
@@ -178,7 +207,7 @@ func (c *Checker) OnPrepare(component *registry.Component, props any) {
 	for i := range diagnostics {
 		diagnostics[i].Detail = detail
 	}
-	c.emit(diagnostics)
+	return c.coalesce(diagnostics)
 }
 
 // OnBoot extracts and caches every component's props type, and drops entries
@@ -192,9 +221,9 @@ func (c *Checker) OnPrepare(component *registry.Component, props any) {
 //
 // The pass reads and parses component sources; it neither bundles nor renders,
 // so it is independent of rasterization.
-func (c *Checker) OnBoot(components []*registry.Component) {
+func (c *Checker) OnBoot(components []*registry.Component) error {
 	if c == nil {
-		return
+		return nil
 	}
 
 	names := make([]meta.QualifiedName, 0, len(components))
@@ -226,7 +255,7 @@ func (c *Checker) OnBoot(components []*registry.Component) {
 			Detail:    detail,
 		})
 	}
-	c.emit(diagnostics)
+	return c.coalesce(diagnostics)
 }
 
 // extraction resolves a component's props type, from cache when it is still
@@ -253,10 +282,4 @@ func wrap(component meta.QualifiedName, kind DiagnosticKind, violations []Violat
 		out = append(out, Diagnostic{Component: component, Kind: kind, Violation: &violation})
 	}
 	return out
-}
-
-func (c *Checker) emit(diagnostics []Diagnostic) {
-	if len(diagnostics) > 0 {
-		c.report(diagnostics)
-	}
 }

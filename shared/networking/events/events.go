@@ -20,6 +20,11 @@ type FailureEvent interface {
 	Err() error
 }
 
+type DevelopmentFailureEvent interface {
+	FailureEvent
+	isDevelopmentFailureEvent()
+}
+
 type SuccessEvent interface {
 	NetworkingEvent
 	isSuccessEvent()
@@ -49,6 +54,12 @@ func (f failureBase) HTTPCode() uint {
 	return meta.Ternary(f.httpCode == 0, 500, f.httpCode)
 }
 
+type developmentFailureEventBase struct {
+	failureBase
+}
+
+func (developmentFailureEventBase) isDevelopmentFailureEvent() {}
+
 // successBase is embedded by every success event.
 type successBase struct {
 	networkingEventBase
@@ -63,6 +74,7 @@ type RegistryLookupFailureEvent struct{ failureBase }
 type EntryGenerationFailureEvent struct{ failureBase }
 type TempEntryWriteFailureEvent struct{ failureBase }
 type CompBundlingFailureEvent struct{ failureBase }
+type CompPropsInsufficientFailureEvent struct{ developmentFailureEventBase }
 
 // Constructors keep the embedded Error ergonomic to set.
 
@@ -80,6 +92,18 @@ func NewTempEntryWriteFailure(err error) TempEntryWriteFailureEvent {
 }
 func NewCompBundlingFailure(err error) CompBundlingFailureEvent {
 	return CompBundlingFailureEvent{failureBase{Error: err}}
+}
+func NewCompPropsInsufficientFailure(err error) CompPropsInsufficientFailureEvent {
+	return CompPropsInsufficientFailureEvent{
+		developmentFailureEventBase{
+			failureBase{
+				Error: err,
+				networkingEventBase: networkingEventBase{
+					httpCode: http.StatusInternalServerError,
+				},
+			},
+		},
+	}
 }
 
 // --- SUCCESS events -------------------------------------------------------
@@ -111,12 +135,13 @@ type NetworkingEventHandler func(w http.ResponseWriter, r *http.Request, event N
 // EVENTS holds the reflect.Type of each event, for callers that need the type
 // token without instantiating a value.
 var EVENTS = struct {
-	PropsMarshalingFailure   EventType
-	RegistryLookupFailure    EventType
-	EntryGenerationFailure   EventType
-	TempEntryWriteFailure    EventType
-	CompBundlingFailure      EventType
-	TransmitRenderedTemplate EventType
+	PropsMarshalingFailure       EventType
+	RegistryLookupFailure        EventType
+	EntryGenerationFailure       EventType
+	TempEntryWriteFailure        EventType
+	CompBundlingFailure          EventType
+	TransmitRenderedTemplate     EventType
+	CompPropsInsufficientFailure EventType
 
 	FailureEvent EventType
 	SuccessEvent EventType
@@ -135,12 +160,13 @@ var EVENTS = struct {
 	// Values is Concrete followed by Categories.
 	Values []EventType
 }{
-	PropsMarshalingFailure:   reflect.TypeFor[PropsMarshalingFailureEvent](),
-	RegistryLookupFailure:    reflect.TypeFor[RegistryLookupFailureEvent](),
-	EntryGenerationFailure:   reflect.TypeFor[EntryGenerationFailureEvent](),
-	TempEntryWriteFailure:    reflect.TypeFor[TempEntryWriteFailureEvent](),
-	CompBundlingFailure:      reflect.TypeFor[CompBundlingFailureEvent](),
-	TransmitRenderedTemplate: reflect.TypeFor[TransmitRenderedTemplateEvent](),
+	PropsMarshalingFailure:       reflect.TypeFor[PropsMarshalingFailureEvent](),
+	RegistryLookupFailure:        reflect.TypeFor[RegistryLookupFailureEvent](),
+	EntryGenerationFailure:       reflect.TypeFor[EntryGenerationFailureEvent](),
+	TempEntryWriteFailure:        reflect.TypeFor[TempEntryWriteFailureEvent](),
+	CompBundlingFailure:          reflect.TypeFor[CompBundlingFailureEvent](),
+	TransmitRenderedTemplate:     reflect.TypeFor[TransmitRenderedTemplateEvent](),
+	CompPropsInsufficientFailure: reflect.TypeFor[CompPropsInsufficientFailureEvent](),
 
 	FailureEvent: reflect.TypeFor[FailureEvent](),
 	SuccessEvent: reflect.TypeFor[SuccessEvent](),
@@ -153,6 +179,7 @@ func init() {
 		EVENTS.EntryGenerationFailure,
 		EVENTS.TempEntryWriteFailure,
 		EVENTS.CompBundlingFailure,
+		EVENTS.CompPropsInsufficientFailure,
 		EVENTS.TransmitRenderedTemplate,
 	}
 	EVENTS.Categories = []EventType{

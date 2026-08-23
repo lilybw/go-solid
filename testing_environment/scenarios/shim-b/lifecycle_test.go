@@ -33,8 +33,7 @@ func TestEditingAComponentChangesWhatPropsMustSatisfy(t *testing.T) {
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
 	props := dashboardProps{Title: "Inbox", Unread: 3}
-	assertQuiet(t, "the original contract",
-		observe(t, func() { b.Prepare("pages/Dashboard", props) }))
+	assertAccepted(t, "the original contract", typeFault(t, b, "pages/Dashboard", props))
 
 	rewrite(t, p.componentFile("pages/Dashboard.tsx"), `
 export default function Dashboard(props: {
@@ -46,9 +45,8 @@ export default function Dashboard(props: {
 }
 `)
 
-	out := observe(t, func() { b.Prepare("pages/Dashboard", props) })
-
-	assertReports(t, "the newly required prop", out, "pages/Dashboard", "accountId")
+	assertRejected(t, "the newly required prop",
+		typeFault(t, b, "pages/Dashboard", props), "pages/Dashboard", "accountId")
 }
 
 // The definition is regenerated — the component itself never changes. Nothing
@@ -59,8 +57,7 @@ func TestRegeneratingAnImportedDefinitionInvalidatesItsDependents(t *testing.T) 
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
 	props := articleProps{Slug: "hello-world", CurrentPath: "/blog/hello-world"}
-	assertQuiet(t, "the original composed contract",
-		observe(t, func() { b.Prepare("pages/Article", props) }))
+	assertAccepted(t, "the original composed contract", typeFault(t, b, "pages/Article", props))
 
 	rewrite(t, filepath.Join(p.workspace, shared_types.TYPES_DIR_NAME, "navigation.d.ts"), `
 export interface Navigation {
@@ -70,9 +67,8 @@ export interface Navigation {
 }
 `)
 
-	out := observe(t, func() { b.Prepare("pages/Article", props) })
-
-	assertReports(t, "a requirement added to an imported definition", out, "pages/Article", "locale")
+	assertRejected(t, "a requirement added to an imported definition",
+		typeFault(t, b, "pages/Article", props), "pages/Article", "locale")
 }
 
 // Restarting reuses what the previous run worked out, rather than rewriting it.
@@ -88,10 +84,8 @@ func TestRestartReusesTheCacheOnDisk(t *testing.T) {
 	}
 
 	second := p.boot(t, shared_types.CHECK_RUNTIME_AND_BOOT)
-	out := observe(t, func() {
-		second.Prepare("pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 1})
-	})
-	assertQuiet(t, "a restart over an unchanged tree", out)
+	assertAccepted(t, "a restart over an unchanged tree",
+		typeFault(t, second, "pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 1}))
 
 	info, err := os.Stat(entry)
 	if err != nil {
@@ -122,11 +116,9 @@ export default function Profile(props: ProfileProps) {
 `)
 
 	second := p.boot(t, shared_types.CHECK_RUNTIME)
-	out := observe(t, func() {
-		second.Prepare("pages/Profile", profileProps{UserID: "u-1", DisplayName: "Lily"})
-	})
-
-	assertReports(t, "the contract the edited component now states", out, "pages/Profile", "tenant")
+	assertRejected(t, "the contract the edited component now states",
+		typeFault(t, second, "pages/Profile", profileProps{UserID: "u-1", DisplayName: "Lily"}),
+		"pages/Profile", "tenant")
 }
 
 // Deleting a component leaves an entry behind; the next boot clears it.

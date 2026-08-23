@@ -30,8 +30,11 @@ package shim_b
 import (
 	"bytes"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,6 +42,8 @@ import (
 	types_int "github.com/lilybw/go-solid/internal/types"
 	shared_esbuild "github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/networking/events"
 	shared_types "github.com/lilybw/go-solid/shared/types"
 )
 
@@ -79,10 +84,15 @@ func newProject(t *testing.T) *project {
 // boot starts a bundler over the project with bundling off.
 func (p *project) boot(t *testing.T, check shared_types.CheckMode) *go_solid.Bundler {
 	t.Helper()
+	return p.bootAt(t, check, logging.LEVEL_ERROR)
+}
+
+func (p *project) bootAt(t *testing.T, check shared_types.CheckMode, level logging.LogLevel) *go_solid.Bundler {
+	t.Helper()
 
 	bundler, err := go_solid.New(&go_solid.Config{
 		Components: p.components,
-		LogLevel:   logging.LEVEL_ERROR,
+		LogLevel:   level,
 		Generation: &shared_esbuild.BundlerConfig{Disabled: true},
 		Types:      &shared_types.TypesConfig{Check: check},
 	})
@@ -102,9 +112,25 @@ func (p *project) componentFile(rel string) string {
 	return filepath.Join(p.components, filepath.FromSlash(rel))
 }
 
-// observe captures what go_solid logs while fn runs. Findings are reported
-// through the standard logger, so that is what a consumer sees and what this
-// scenario watches.
+// TYPE_FAULT_MARKER opens every error the type checker produces, which is how
+// the scenario tells a contract fault apart from any other render failure.
+const TYPE_FAULT_MARKER = "[go_solid/types]"
+
+// typeFault renders and returns the type fault, if the render was stopped by
+// one. Bundling is off in this scenario, so a render that clears the type check
+// still fails further down; that failure is not this shim's business and comes
+// back as "".
+func typeFault(t *testing.T, b *go_solid.Bundler, component string, props any) string {
+	t.Helper()
+	_, err := b.Prepare(component, props).Render()
+	if err == nil || !strings.Contains(err.Error(), TYPE_FAULT_MARKER) {
+		return ""
+	}
+	return err.Error()
+}
+
+// observe captures what go_solid logs while fn runs. Coverage gaps are reported
+// this way rather than as errors, so this is how the scenario sees them.
 //
 // The logger is process-global, so nothing here may run in parallel.
 func observe(t *testing.T, fn func()) string {
@@ -121,21 +147,21 @@ func observe(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-func assertQuiet(t *testing.T, what, out string) {
+func assertAccepted(t *testing.T, what, fault string) {
 	t.Helper()
-	if strings.Contains(out, "[go_solid/types]") {
-		t.Fatalf("%s should not have been reported, got:\n%s", what, out)
+	if fault != "" {
+		t.Fatalf("%s should have been accepted, got:\n%s", what, fault)
 	}
 }
 
-func assertReports(t *testing.T, what, out string, fragments ...string) {
+func assertRejected(t *testing.T, what, fault string, fragments ...string) {
 	t.Helper()
-	if !strings.Contains(out, "[go_solid/types]") {
-		t.Fatalf("%s should have been reported, got nothing", what)
+	if fault == "" {
+		t.Fatalf("%s should have failed the render, but it was accepted", what)
 	}
 	for _, fragment := range fragments {
-		if !strings.Contains(out, fragment) {
-			t.Errorf("%s: report should mention %q, got:\n%s", what, fragment, out)
+		if !strings.Contains(fault, fragment) {
+			t.Errorf("%s: fault should mention %q, got:\n%s", what, fragment, fault)
 		}
 	}
 }
@@ -173,13 +199,16 @@ func TestBootCachesEveryComponent(t *testing.T) {
 }
 
 // The one component whose props type cannot be resolved is named at startup,
-// because it is the one the runtime pass will have nothing to check.
+// because it is the one the runtime pass will have nothing to check. It is a
+// gap in coverage rather than a fault, so it is logged and the boot proceeds.
 func TestBootNamesTheComponentItCannotCheck(t *testing.T) {
 	p := newProject(t)
 
-	out := observe(t, func() { p.boot(t, shared_types.CHECK_RUNTIME_AND_BOOT) })
+	out := observe(t, func() { p.bootAt(t, shared_types.CHECK_RUNTIME_AND_BOOT, logging.LEVEL_INFO) })
 
-	assertReports(t, "an untyped component", out, "legacy/Banner", "untyped")
+	if !strings.Contains(out, "legacy/Banner") || !strings.Contains(out, "untyped") {
+		t.Fatalf("an untyped component should be named at boot, got:\n%s", out)
+	}
 	for _, typed := range []string{"pages/Dashboard", "pages/Profile", "pages/Article"} {
 		if strings.Contains(out, typed) {
 			t.Errorf("%q is typed and should not be named:\n%s", typed, out)
@@ -187,12 +216,26 @@ func TestBootNamesTheComponentItCannotCheck(t *testing.T) {
 	}
 }
 
+// An untyped component states no contract, so it cannot have broken one and
+// must never stop a boot. Adopting go_solid in a codebase that is not fully
+// typed depends on this.
+func TestUntypedComponentDoesNotStopABoot(t *testing.T) {
+	p := newProject(t)
+
+	if _, err := os.Stat(p.componentFile("legacy/Banner.jsx")); err != nil {
+		t.Fatalf("the untyped fixture is missing: %v", err)
+	}
+	p.boot(t, shared_types.CHECK_RUNTIME_AND_BOOT) // fatals on error
+}
+
 func TestBootIsSilentUnderRuntimeOnly(t *testing.T) {
 	p := newProject(t)
 
-	out := observe(t, func() { p.boot(t, shared_types.CHECK_RUNTIME) })
+	out := observe(t, func() { p.bootAt(t, shared_types.CHECK_RUNTIME, logging.LEVEL_INFO) })
 
-	assertQuiet(t, "the boot pass under CHECK_RUNTIME", out)
+	if strings.Contains(out, TYPE_FAULT_MARKER) {
+		t.Fatalf("the boot pass under CHECK_RUNTIME should say nothing, got:\n%s", out)
+	}
 }
 
 // The published surface exists from startup and holds only what was put there
@@ -220,11 +263,7 @@ func TestPropsMatchingTheComponentAreAccepted(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 3, Note: "hello"})
-	})
-
-	assertQuiet(t, "matching props", out)
+	assertAccepted(t, "matching props", typeFault(t, b, "pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 3, Note: "hello"}))
 }
 
 // The optional prop may simply be left out.
@@ -232,11 +271,7 @@ func TestOmittedOptionalPropIsAccepted(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 0})
-	})
-
-	assertQuiet(t, "an omitted optional prop", out)
+	assertAccepted(t, "an omitted optional prop", typeFault(t, b, "pages/Dashboard", dashboardProps{Title: "Inbox", Unread: 0}))
 }
 
 // Covariance: a handler may pass more than the component reads.
@@ -250,11 +285,8 @@ func TestPropsCarryingExtraFieldsAreAccepted(t *testing.T) {
 		TraceID  string `json:"traceId"`
 		Features []string
 	}
-	out := observe(t, func() {
-		b.Prepare("pages/Dashboard", withExtras{Title: "Inbox", Unread: 1, TraceID: "abc"})
-	})
-
-	assertQuiet(t, "props carrying more than the component reads", out)
+	assertAccepted(t, "props carrying more than the component reads",
+		typeFault(t, b, "pages/Dashboard", withExtras{Title: "Inbox", Unread: 1, TraceID: "abc"}))
 }
 
 // A props type declared as a local interface resolves the same as an inline one.
@@ -262,11 +294,7 @@ func TestPropsAgainstALocalInterfaceAreAccepted(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("pages/Profile", profileProps{UserID: "u-1", DisplayName: "Lily"})
-	})
-
-	assertQuiet(t, "props against a local interface", out)
+	assertAccepted(t, "props against a local interface", typeFault(t, b, "pages/Profile", profileProps{UserID: "u-1", DisplayName: "Lily"}))
 }
 
 // A component composing a synthesised definition is checked across both halves.
@@ -274,20 +302,14 @@ func TestPropsSatisfyingAComposedTypeAreAccepted(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("pages/Article", articleProps{Slug: "hello-world", CurrentPath: "/blog/hello-world"})
-	})
-
-	assertQuiet(t, "props satisfying a composed type", out)
+	assertAccepted(t, "props satisfying a composed type", typeFault(t, b, "pages/Article", articleProps{Slug: "hello-world", CurrentPath: "/blog/hello-world"}))
 }
 
 func TestComponentWithoutPropsIsAcceptedWithNilProps(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() { b.Prepare("widgets/Clock", nil) })
-
-	assertQuiet(t, "a component rendered without props", out)
+	assertAccepted(t, "a component rendered without props", typeFault(t, b, "widgets/Clock", nil))
 }
 
 // ------------------------------------------------------ props that do not
@@ -299,9 +321,8 @@ func TestMissingRequiredPropIsReported(t *testing.T) {
 	type incomplete struct {
 		Title string `json:"title"`
 	}
-	out := observe(t, func() { b.Prepare("pages/Dashboard", incomplete{Title: "Inbox"}) })
-
-	assertReports(t, "a missing required prop", out, "pages/Dashboard", "unread")
+	assertRejected(t, "a missing required prop",
+		typeFault(t, b, "pages/Dashboard", incomplete{Title: "Inbox"}), "pages/Dashboard", "unread")
 }
 
 func TestIncompatiblePropTypeIsReported(t *testing.T) {
@@ -312,9 +333,8 @@ func TestIncompatiblePropTypeIsReported(t *testing.T) {
 		Title  string `json:"title"`
 		Unread string `json:"unread"` // the component wants a number
 	}
-	out := observe(t, func() { b.Prepare("pages/Dashboard", wrongType{Title: "Inbox", Unread: "three"}) })
-
-	assertReports(t, "an incompatible prop type", out, "unread", "number")
+	assertRejected(t, "an incompatible prop type",
+		typeFault(t, b, "pages/Dashboard", wrongType{Title: "Inbox", Unread: "three"}), "unread", "number")
 }
 
 // A plausible mistake: omitempty on a prop the component requires. The key
@@ -327,9 +347,8 @@ func TestOmitemptyOnARequiredPropIsReported(t *testing.T) {
 		Title  string `json:"title,omitempty"`
 		Unread int    `json:"unread"`
 	}
-	out := observe(t, func() { b.Prepare("pages/Dashboard", sloppy{Title: "Inbox", Unread: 2}) })
-
-	assertReports(t, "omitempty on a required prop", out, "title", "may be absent")
+	assertRejected(t, "omitempty on a required prop",
+		typeFault(t, b, "pages/Dashboard", sloppy{Title: "Inbox", Unread: 2}), "title", "may be absent")
 }
 
 // The requirement comes from the imported definition, not from the component's
@@ -341,29 +360,27 @@ func TestMissingPropFromAComposedTypeIsReported(t *testing.T) {
 	type slugOnly struct {
 		Slug string `json:"slug"`
 	}
-	out := observe(t, func() { b.Prepare("pages/Article", slugOnly{Slug: "hello-world"}) })
-
-	assertReports(t, "a prop required by a composed type", out, "pages/Article", "currentPath")
+	assertRejected(t, "a prop required by a composed type",
+		typeFault(t, b, "pages/Article", slugOnly{Slug: "hello-world"}), "pages/Article", "currentPath")
 }
 
-func TestPropsForAComponentThatTakesNoneAreReported(t *testing.T) {
+// A component that takes no parameter states no requirement. Handing it props
+// is the limiting case of handing a component more than it reads, which is
+// always allowed.
+func TestPropsForAComponentThatTakesNoneAreAccepted(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("widgets/Clock", dashboardProps{Title: "Inbox", Unread: 1})
-	})
-
-	assertReports(t, "props for a component that takes none", out, "widgets/Clock", "no-props")
+	assertAccepted(t, "props for a component that reads none",
+		typeFault(t, b, "widgets/Clock", dashboardProps{Title: "Inbox", Unread: 1}))
 }
 
 func TestPropsThatAreNotAnObjectAreReported(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() { b.Prepare("pages/Dashboard", "just a string") })
-
-	assertReports(t, "props that are not an object", out, "pages/Dashboard", "underivable")
+	assertRejected(t, "props that are not an object",
+		typeFault(t, b, "pages/Dashboard", "just a string"), "pages/Dashboard", "underivable")
 }
 
 // An untyped component cannot be checked, and saying so on every render would
@@ -372,13 +389,9 @@ func TestUntypedComponentIsNotReportedPerRender(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, shared_types.CHECK_RUNTIME)
 
-	out := observe(t, func() {
-		b.Prepare("legacy/Banner", struct {
-			Message string `json:"message"`
-		}{Message: "hi"})
-	})
-
-	assertQuiet(t, "an untyped component at render time", out)
+	assertAccepted(t, "an untyped component at render time", typeFault(t, b, "legacy/Banner", struct {
+		Message string `json:"message"`
+	}{Message: "hi"}))
 }
 
 // CHECK_NEVER still caches, it just stops talking.
@@ -389,10 +402,50 @@ func TestNeverReportsNothingButStillCaches(t *testing.T) {
 	type incomplete struct {
 		Title string `json:"title"`
 	}
-	out := observe(t, func() { b.Prepare("pages/Dashboard", incomplete{Title: "Inbox"}) })
-
-	assertQuiet(t, "anything under CHECK_NEVER", out)
+	assertAccepted(t, "anything under CHECK_NEVER",
+		typeFault(t, b, "pages/Dashboard", incomplete{Title: "Inbox"}))
 	if _, err := os.Stat(p.cacheEntry("pages/Dashboard")); err != nil {
 		t.Errorf("CHECK_NEVER should still warm the cache: %v", err)
+	}
+}
+
+// A broken contract is a development failure, not a server fault the consumer
+// has to infer from an error string: it dispatches an event they can hang their
+// own handling off.
+func TestBrokenContractDispatchesADevelopmentFailureEvent(t *testing.T) {
+	p := newProject(t)
+	b := p.boot(t, shared_types.CHECK_RUNTIME)
+
+	type incomplete struct {
+		Title string `json:"title"`
+	}
+
+	var caught events.FailureEvent
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+
+	_, err := b.Prepare("pages/Dashboard", incomplete{Title: "Inbox"}).
+		ForRequest(rec, req).
+		SetHTTPBehaviour(func(behaviour networking.RequestBehaviourBuilder) {
+			behaviour.Upon(
+				reflect.TypeFor[events.CompPropsInsufficientFailureEvent](),
+				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+					caught = events.CompPropsInsufficientFailureEvent{}
+					return nil
+				},
+			)
+		}).
+		Render()
+
+	if err == nil {
+		t.Fatal("a broken contract must fail the render")
+	}
+	if caught == nil {
+		t.Fatal("a broken contract should have dispatched CompPropsInsufficientFailureEvent")
+	}
+	// The event is a development failure, which is the category a consumer
+	// would treat differently from a genuine server fault.
+	if _, ok := any(caught).(events.DevelopmentFailureEvent); !ok {
+		t.Errorf("%T should be a DevelopmentFailureEvent", caught)
 	}
 }

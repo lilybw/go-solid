@@ -107,7 +107,6 @@ func TestTypes_PrepareReportsPropsThatMissARequiredField(t *testing.T) {
 		"Hello.tsx": `export default function Hello(props: { title: string; missing: number }) { return <div/>; }`,
 	})
 
-	logged := captureLog(t)
 	b, err := New(&Config{
 		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
@@ -115,11 +114,13 @@ func TestTypes_PrepareReportsPropsThatMissARequiredField(t *testing.T) {
 	}
 	defer b.Close()
 
-	b.Prepare("Hello", loginFormProps{Title: "Sign in"})
+	_, err = b.Prepare("Hello", loginFormProps{Title: "Sign in"}).Render()
 
-	out := logged.String()
-	if !strings.Contains(out, "[go_solid/types]") || !strings.Contains(out, "missing") {
-		t.Fatalf("expected a props diagnostic naming the absent field, got:\n%s", out)
+	if err == nil {
+		t.Fatal("a render whose props miss a required field must fail")
+	}
+	if !strings.Contains(err.Error(), "[go_solid/types]") || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("expected a props diagnostic naming the absent field, got: %v", err)
 	}
 }
 
@@ -130,7 +131,6 @@ func TestTypes_PrepareIsQuietWhenPropsSatisfyTheComponent(t *testing.T) {
 		"Hello.tsx": `export default function Hello(props: { title: string }) { return <div/>; }`,
 	})
 
-	logged := captureLog(t)
 	b, err := New(&Config{
 		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
@@ -138,10 +138,12 @@ func TestTypes_PrepareIsQuietWhenPropsSatisfyTheComponent(t *testing.T) {
 	}
 	defer b.Close()
 
-	b.Prepare("Hello", loginFormProps{Title: "Sign in", Attempts: 2})
+	_, err = b.Prepare("Hello", loginFormProps{Title: "Sign in", Attempts: 2}).Render()
 
-	if out := logged.String(); strings.Contains(out, "[go_solid/types]") {
-		t.Fatalf("props carrying more than the component reads are fine, got:\n%s", out)
+	// Bundling is off, so the render cannot complete; what matters is that it
+	// was not the type check that stopped it.
+	if err != nil && strings.Contains(err.Error(), "[go_solid/types]") {
+		t.Fatalf("props carrying more than the component reads are fine, got: %v", err)
 	}
 }
 
@@ -157,7 +159,6 @@ export default function Home(props: { title: string } & Navigation) { return <di
 		"types/navigation.d.ts": "export interface Navigation { currentPath: string }\n",
 	})
 
-	logged := captureLog(t)
 	b, err := New(&Config{
 		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
@@ -166,11 +167,10 @@ export default function Home(props: { title: string } & Navigation) { return <di
 	defer b.Close()
 
 	// currentPath comes from the imported definition, and is not supplied.
-	b.Prepare("pages/Home", loginFormProps{Title: "Home"})
+	_, err = b.Prepare("pages/Home", loginFormProps{Title: "Home"}).Render()
 
-	out := logged.String()
-	if !strings.Contains(out, "currentPath") {
-		t.Fatalf("a requirement from an imported definition should be enforced, got:\n%s", out)
+	if err == nil || !strings.Contains(err.Error(), "currentPath") {
+		t.Fatalf("a requirement from an imported definition should be enforced, got: %v", err)
 	}
 }
 
@@ -180,7 +180,6 @@ func TestTypes_NilPropsAreNotChecked(t *testing.T) {
 		"Hello.tsx": `export default function Hello(props: { title: string }) { return <div/>; }`,
 	})
 
-	logged := captureLog(t)
 	b, err := New(&Config{
 		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
@@ -188,10 +187,10 @@ func TestTypes_NilPropsAreNotChecked(t *testing.T) {
 	}
 	defer b.Close()
 
-	b.Prepare("Hello", nil)
+	_, err = b.Prepare("Hello", nil).Render()
 
-	if out := logged.String(); strings.Contains(out, "[go_solid/types]") {
-		t.Fatalf("nil props are not a finding, got:\n%s", out)
+	if err != nil && strings.Contains(err.Error(), "[go_solid/types]") {
+		t.Fatalf("nil props are not a finding, got: %v", err)
 	}
 }
 
@@ -252,9 +251,9 @@ func TestTypes_BootNamesUncheckableComponents(t *testing.T) {
 
 	logged := captureLog(t)
 	b, err := New(&Config{
-		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration()})
+		LogLevel: logging.LEVEL_INFO, Components: comps, Generation: disabledGeneration()})
 	if err != nil {
-		t.Fatalf("New: %v", err)
+		t.Fatalf("a component nobody typed must not stop a boot: %v", err)
 	}
 	defer b.Close()
 

@@ -3,6 +3,7 @@ package types
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,8 +14,11 @@ import (
 // collector is a Reporter that keeps what it is handed.
 type collector struct{ diagnostics []Diagnostic }
 
-func (c *collector) report(diagnostics []Diagnostic) {
+// coalesce records what it is handed and defers to the real policy for
+// whether the pass fails, so the tests see both the findings and their effect.
+func (c *collector) coalesce(diagnostics []Diagnostic) error {
 	c.diagnostics = append(c.diagnostics, diagnostics...)
+	return CoalesceDiagnostics(diagnostics)
 }
 
 func (c *collector) kinds() []DiagnosticKind {
@@ -55,7 +59,7 @@ func newHarness(t *testing.T, mode shared_types.CheckMode) *harness {
 	if err := os.MkdirAll(h.components, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h.checker = NewChecker(h.workspace, mode, h.collected.report)
+	h.checker = NewChecker(h.workspace, mode, h.collected.coalesce)
 	return h
 }
 
@@ -110,10 +114,30 @@ func TestChecker_MissingRequiredPropIsReported(t *testing.T) {
 	component := h.component("Hello",
 		`export default function Hello(props: { title: string; count: number }) { return <div/>; }`)
 
-	h.checker.OnPrepare(component, titleProps{Title: "hi"})
+	err := h.checker.OnPrepare(component, titleProps{Title: "hi"})
 
 	if !h.collected.has(DIAG_PROPS) {
 		t.Fatalf("expected a props diagnostic, got %v", h.collected.kinds())
+	}
+	if err == nil {
+		t.Fatal("a broken contract must fail the render it was found on")
+	}
+	if !strings.Contains(err.Error(), "count") {
+		t.Errorf("the error should name the field, got: %v", err)
+	}
+}
+
+// The two severities exist so that a broken contract stops a render while a
+// component nobody typed does not stop anything.
+func TestDiagnosticKind_SeveritySeparatesFaultsFromGaps(t *testing.T) {
+	for kind, want := range map[DiagnosticKind]Severity{
+		DIAG_PROPS:       SEVERITY_ERROR,
+		DIAG_UNDERIVABLE: SEVERITY_ERROR,
+		DIAG_UNTYPED:     SEVERITY_INFO,
+	} {
+		if got := kind.Severity(); got != want {
+			t.Errorf("%s.Severity() = %d, want %d", kind, got, want)
+		}
 	}
 }
 
@@ -122,10 +146,45 @@ func TestChecker_IncompatiblePropTypeIsReported(t *testing.T) {
 	component := h.component("Hello",
 		`export default function Hello(props: { title: number }) { return <div/>; }`)
 
-	h.checker.OnPrepare(component, titleProps{Title: "hi"})
+	err := h.checker.OnPrepare(component, titleProps{Title: "hi"})
 
 	if !h.collected.has(DIAG_PROPS) {
 		t.Fatalf("expected a props diagnostic, got %v", h.collected.kinds())
+	}
+	if err == nil {
+		t.Fatal("a broken contract must fail the render it was found on")
+	}
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("the error should name the field, got: %v", err)
+	}
+}
+
+func TestCoalesceDiagnostics_GathersFaultsAndPassesGaps(t *testing.T) {
+	if err := CoalesceDiagnostics(nil); err != nil {
+		t.Errorf("no diagnostics is no error, got %v", err)
+	}
+	if err := CoalesceDiagnostics([]Diagnostic{
+		{Component: "A", Kind: DIAG_UNTYPED, Detail: "unchecked"},
+	}); err != nil {
+		t.Errorf("a coverage gap must not fail the pass, got %v", err)
+	}
+
+	err := CoalesceDiagnostics([]Diagnostic{
+		{Component: "A", Kind: DIAG_UNTYPED, Detail: "unchecked"},
+		{Component: "B", Kind: DIAG_PROPS, Violation: &Violation{Kind: VIOLATION_MISSING, Field: "one"}},
+		{Component: "B", Kind: DIAG_PROPS, Violation: &Violation{Kind: VIOLATION_MISSING, Field: "two"}},
+	})
+	if err == nil {
+		t.Fatal("faults must fail the pass")
+	}
+	// Every fault in the batch, not just the first.
+	for _, want := range []string{"one", "two"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should name %q, got: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "unchecked") {
+		t.Errorf("a coverage gap does not belong in the error, got: %v", err)
 	}
 }
 
@@ -160,14 +219,17 @@ func TestChecker_DifferentCallSitesAreCheckedIndependently(t *testing.T) {
 	}
 }
 
-func TestChecker_PropsForAComponentThatTakesNoneIsReported(t *testing.T) {
+// A component that takes no parameter states no requirement, and supplying
+// more than is required is always allowed.
+func TestChecker_PropsForAComponentThatTakesNoneAreAccepted(t *testing.T) {
 	h := newHarness(t, shared_types.CHECK_RUNTIME)
 	component := h.component("Hello", `export default function Hello() { return <div/>; }`)
 
-	h.checker.OnPrepare(component, titleProps{Title: "hi"})
-
-	if !h.collected.has(DIAG_NO_PROPS) {
-		t.Fatalf("expected a no-props diagnostic, got %v", h.collected.kinds())
+	if err := h.checker.OnPrepare(component, titleProps{Title: "hi"}); err != nil {
+		t.Fatalf("props for a component that reads none should be accepted: %v", err)
+	}
+	if len(h.collected.diagnostics) != 0 {
+		t.Fatalf("nothing to report, got %v", h.collected.kinds())
 	}
 }
 
@@ -248,7 +310,11 @@ func TestChecker_BootNamesComponentsItCannotCheck(t *testing.T) {
 		`export default function Typed(props: { title: string }) { return <div/>; }`)
 	noProps := h.component("NoProps", `export default function NoProps() { return <div/>; }`)
 
-	h.checker.OnBoot([]*registry.Component{untyped, typed, noProps})
+	// Naming a component it cannot check must not stop a boot: an untyped
+	// component states no contract, so it has broken none.
+	if err := h.checker.OnBoot([]*registry.Component{untyped, typed, noProps}); err != nil {
+		t.Fatalf("an unresolvable props type must not fail the boot pass: %v", err)
+	}
 
 	if !h.collected.has(DIAG_UNTYPED) {
 		t.Fatalf("expected an untyped diagnostic, got %v", h.collected.kinds())

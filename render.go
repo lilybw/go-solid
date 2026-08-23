@@ -18,22 +18,22 @@ import (
 
 // TODO: expand props to varparam, construct props js object from safe-made reflect.Type and let an interface be implemented to enable a props property key overwrite
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {
-	this.checkTypes(component, props)
-	return newRenderCallBuilder(this, component, props)
+	typeError := this.checkTypes(component, props)
+	return newRenderCallBuilder(this, component, props, typeError)
 }
 
 // checkTypes holds the props in hand against the type the component declares
 // for them. Purely advisory: an unregistered component or an unusable props
 // value is left for Render to report, and nothing here can fail a render.
-func (this *Bundler) checkTypes(component meta.QualifiedName, props any) {
+func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
 	if this == nil || this.types == nil || props == nil {
-		return
+		return nil
 	}
 	comp, ok := this.registry.Lookup(component)
 	if !ok {
-		return
+		return nil
 	}
-	this.types.OnPrepare(comp, props)
+	return this.types.OnPrepare(comp, props)
 }
 
 func (this *Bundler) Render(component meta.QualifiedName, configurator meta.Configurator[RenderCallBuilder], props any) (*caching.Rendered, error) {
@@ -51,6 +51,7 @@ type renderData struct {
 	root         networking.HTMLElementID
 	htmlHeadTags networking.HTMLHeadSegmentBuilder
 	request      *networking.RequestBehaviour
+	typeError    error // if non-nil, the props were not assignable to the component's declared types
 }
 
 func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) error {
@@ -68,6 +69,13 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	if err := data.ctx.Err(); err != nil {
 		return nil, err // caller already cancelled / deadline exceeded
+	}
+
+	if data.typeError != nil { // type check error can not be resolved before now without cluttering the render call builder api
+		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
+			return req.Dispatch(events.NewCompPropsInsufficientFailure(data.typeError))
+		})
+		return nil, data.typeError
 	}
 
 	propsJSON, err := marshalProps(data)

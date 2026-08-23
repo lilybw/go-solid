@@ -91,6 +91,16 @@ func defaultResponderFor(evType events.EventType) defaultResponder {
 		return defaultFailureHandler
 	case evType.Implements(events.EVENTS.SuccessEvent):
 		return defaultSuccessHandler
+	case evType == events.EVENTS.CompPropsInsufficientFailure:
+		return func(rb *RequestBehaviour, event events.NetworkingEvent) error {
+			cast, err := require[events.CompPropsInsufficientFailureEvent](rb, event)
+			if err != nil {
+				return err
+			}
+			rb.CommitStatus(statusOf(event, http.StatusInternalServerError))
+			_, err = rb.W.Write([]byte(cast.Err().Error()))
+			return err
+		}
 	default:
 		return nil
 	}
@@ -120,8 +130,10 @@ func require[T events.NetworkingEvent](rb *RequestBehaviour, event events.Networ
 
 func defaultFailureHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
 	cast, err := require[events.FailureEvent](rb, event)
-	if err != nil {
-		return err
+	if err != nil { // try cast, it is not necessarily a failure event
+		code := meta.Ternary(int(event.HTTPCode()) != 0, int(event.HTTPCode()), http.StatusInternalServerError)
+		rb.CommitStatus(code) // still want the code if present though
+		return nil
 	}
 	// Status first: Write implicitly commits 200 and freezes the header.
 	rb.CommitStatus(statusOf(event, http.StatusInternalServerError))

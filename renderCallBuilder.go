@@ -27,7 +27,7 @@ type RenderCallBuilder interface {
 	Render() (*caching.Rendered, error)
 }
 
-func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, props any) RenderCallBuilder {
+func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, props any, typeError error) RenderCallBuilder {
 	return &renderCallBuilderImpl{
 		bundler: bundler,
 		data: &renderData{
@@ -35,6 +35,7 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 			props:        props,
 			htmlHeadTags: networking_int.NewHTMLHeadSegmentBuilder(),
 			request:      nil,
+			typeError:    typeError,
 		},
 	}
 }

@@ -206,9 +206,9 @@ func New(cfg *Config) (*Bundler, error) {
 		types:    typeChecker,
 	}
 
-	// Ahead of rasterization: the cache should be warm, and anything unchecked
-	// named, even if a component later fails to bundle.
-	bundler.types.OnBoot(registry.Components())
+	if err := bundler.types.OnBoot(registry.Components()); err != nil {
+		return nil, err
+	}
 
 	if cfg.Rasterization.Active() && !cfg.Rasterization.ExpectCompleted {
 		// begin only rasterization when BehaviouralDefaults.HeadSegment have been applied
