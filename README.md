@@ -61,13 +61,34 @@ A given template ```auth/LoginForm.tsx``` are then referenced from the component
 renderedTemplate, err := bundler.Prepare("auth/LoginForm", props).Render()
 ```
 
-## Templating Data
+## Templating with go-solid
 Data is passed to the template using the standard props input for solidjs components. 
 
 In Go, this is expressed as any struct that can be json serialized, for instance a ```map[string]any```:
 
 ```go
 rendered, err := bundler.Prepare("path/to/Component", map[string]any{"title": "Hello World"}).Render()
+```
+
+```ForRequest(writer, request)``` sets status code and content type headers and handles most standard networking automatically
+```go
+rendered, err := bundler.Prepare("path/to/Component", map[string]any{"title": "Hello World"}).
+    ForRequest(writer, request).
+    Render()
+```
+
+All networking behaviour can be altered on a per bundler#Prepare basis using ```SetHTTPBehaviour(configurator)```:
+
+```go
+bundler.Prepare("ComponentName", props).
+		ForRequest(writer, request).
+		SetHTTPBehaviour(func(builder networking.RequestBehaviourBuilder) {
+			builder.TransmitRenderedTemplate(/*...custom handler...*/).
+				UponPropsMarshalingError(/*...custom handler...*/).
+				UponRegistryReloadError(/*...custom handler...*/).
+                SetSuccessCode(201 /*created*/)
+		}).
+		Render()
 ```
 
 ## HMR 
@@ -87,34 +108,22 @@ bundler, err := go_solid.New(solid.New(solid.Config{
 ```
 To avoid potential cors issues, do ensure that the WS connections the library will make to any client visiting your servers endpoints, is directed at the same origin as the template the client has been served. (You can set HMR up over another port, but browsers may be perturbed by this)
 
-## Serving Templates
-This library has direct integration with Go's standard http package and will handle most things automatically when used in combination:
+## Typesafety
+go-solid introspects the types you have defined for your components and cross-references these definitions with the data provided when you call Prepare(component, props) from your code.
+
+In case of a missing parameter or incompatible type, an error will be raised. This error is surfaced as the result of ```RenderCallBuilder#Render``` or, if a networking request
+has been provided (with ```RenderCallBuilder#ForRequest```), as response to said request.
+
+To alter when, or if, these checks should happen, a setting is exposed in the config:
 
 ```go
-mux := http.NewServeMux()
-
-mux.HandleFunc("/<route>", func(w http.ResponseWriter, r *http.Request) {
-  _, serverErr := bundler.Prepare("TestServer", props).ForRequest(w, r).Render()
-})
-
-http.ListenAndServe(":<port>", mux)
+Config{
+    Types: &types.TypesConfig{
+        Check: CHECK_RUNTIME_AND_BOOT // CHECK_BOOT, CHECK_RUNTIME, CHECK_NEVER
+    }
+}
 ```
 
-```ForRequest(writer, request)``` sets status code and content type headers.
-
-All networking behaviour can be altered on a per bundler#Prepare basis using ```SetHTTPBehaviour(configurator)```:
-
-```go
-bundler.Prepare("ComponentName", props).
-		ForRequest(writer, request).
-		SetHTTPBehaviour(func(builder networking.RequestBehaviourBuilder) {
-			builder.TransmitRenderedTemplate(/*...custom handler...*/).
-				UponPropsMarshalingError(/*...custom handler...*/).
-				UponRegistryReloadError(/*...custom handler...*/).
-                SetSuccessCode(201 /*created*/)
-		}).
-		Render()
-```
 
 ### Adapters
 go-solid is rather self-contained and should work with most existing projects. 
