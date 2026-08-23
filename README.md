@@ -1,5 +1,5 @@
 # GO Solid 
-Native SolidJS templating for Go with HMR.
+Native SolidJS templating for Go with HMR and Typesafety.
 
 #### Maturity
 Core API is defined and not likely to change significantly. 
@@ -8,47 +8,10 @@ Tagged versions are available.
 
 This library uses a "release-if-green" methodology. That means that the readiness of the codebase is only given by how well the testing suites have been written. Thus, always depend on a tagged version, never depend on latest.
 
-## How
-Since 1.0.8 this library was moved to lilybw/go-solid-compiler which in turn uses a condensed tsgo fork (lilybw/typescript-go). That means that this library parses and transforms solidjs jsx components natively. 
-
-It is currently not possible to choose what version of solidjs/web to use for templating, as that is bundled with go-solid-compiler.
-However various options for what dev/prod variant to use are extended and customizable. 
-
-#### Roadmap
-Ever since the introduction of tsgo, it is now possible to do rather sophisticated typegen and introspection. Likewise with the move to go 1.27 it is now possible to define rather sophisticated apis. 
-
-In v1.2.0 go-solid will introduce generated types and data validation in development to assure typesafety and ease of debugging. 
-
-From hereon, various "plug-in" like features will be made available, accessed as fields on a components props. 
-
-The already hinted-at "static" feature will introduce easy, yet secure, management and retrieval of static assets but relies on the former and has as such been slightly postponed. 
-
-Version 1.3.0 will introduce "navigation", allowing a reduced endpoint repressentaiton be delivered to this library from your code (however you see fit), then formatting that as nothing but fields on the "navigation" props property. 
-
-Note on version numbering: I dont know how to do versioning.
-
-### Caching
-To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
-
-Caching can be configured in the Config and likewise can the location for the cached js, html, and css files and metafiles be set or overwritten there. 
-
-Given that this library does interact with your filesystem, and potentially project structure, directly, testing suites are run in docker on both linux and windows. More testing environments can be added.
-
-To direct the library where to place its cache, set the Workspace field in the Config:
-
-```go
-bundler, err := solid.New(solid.Config{
-    ...
-    Workspace: "./somewhere/with/write/access",
-    ...
-})
-```
-A new ```.go_solid``` directory will always be created in said workspace.
-
 ## Registry
 This library expects a common folder for components and allows these components to be used as templates in Go using a qualified path from said folder. 
 
-By default, the registry folder is also where the library expects node_modules to be located if not overwritten.
+By default, the registry folder is also where the library expects node_modules to be located if not overwritte (and if required)
 ```go
 bundler, err := solid.New(solid.Config{
     ...
@@ -61,7 +24,7 @@ A given template ```auth/LoginForm.tsx``` are then referenced from the component
 renderedTemplate, err := bundler.Prepare("auth/LoginForm", props).Render()
 ```
 
-## Templating with go-solid
+## Templating
 Data is passed to the template using the standard props input for solidjs components. 
 
 In Go, this is expressed as any struct that can be json serialized, for instance a ```map[string]any```:
@@ -91,11 +54,40 @@ bundler.Prepare("ComponentName", props).
 		Render()
 ```
 
+### Caching & Workspace
+To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
+
+Caching can be configured in the Config and likewise can the location for the cached js, html, and css files and metafiles be set or overwritten there. 
+
+Given that this library does interact with your filesystem, and potentially project structure, directly, testing suites are run in docker on both linux and windows. More testing environments can be added.
+
+To direct the library where to place its cache, set the Workspace field in the Config:
+
+```go
+bundler, err := solid.New(solid.Config{
+    ...
+    Workspace: "./somewhere/with/write/access",
+    ...
+})
+```
+A new ```.go_solid``` directory will always be created in said workspace.
+
 ## HMR 
 go_solid builds a two-way dependency index from esbuilds metafile output when a component is bundled. 
-This index is used to, among other things, do hot module replacement if such is configured. 
+This index is used to, among other things, do module replacement during runtime if such is configured. 
 
-To enable HMR, provide your server's ServeMux in the Bundler Config:
+To enable HMR, provide your server's method for adding endpoints in the Bundler Config. Various adapters are already available in the ```hmr``` package. 
+
+```go
+// MuxLike is anything that can register an http.Handler under a string pattern
+type MuxLike interface {
+	Handle(pattern string, handler http.Handler)
+}
+// Same as above but with any return type
+type RouterLike[T any] interface {
+	Handle(pattern string, handler http.Handler) T
+}
+```
 
 ```go
 mux := http.DefaultServeMux();
@@ -124,6 +116,24 @@ Config{
 }
 ```
 
+## How
+Since 1.0.8 this library was moved to lilybw/go-solid-compiler which in turn uses a condensed tsgo fork (lilybw/typescript-go). That means that this library parses and transforms solidjs jsx components natively. 
+
+It is currently not possible to choose what version of solidjs/web to use for templating, as that is bundled with go-solid-compiler.
+However various options for what dev/prod variant to use are extended and customizable. 
+
+## Roadmap
+Ever since the introduction of tsgo, it is now possible to do rather sophisticated typegen and introspection. Likewise with the move to go 1.27 it is now possible to define rather sophisticated apis. 
+
+In v1.2.0 go-solid will introduce generated types and data validation in development to assure typesafety and ease of debugging. 
+
+From hereon, various "plug-in" like features will be made available, accessed as fields on a components props. 
+
+The already hinted-at "static" feature will introduce easy, yet secure, management and retrieval of static assets but relies on the former and has as such been slightly postponed. 
+
+Version 1.3.0 will introduce "navigation", allowing a reduced endpoint repressentaiton be delivered to this library from your code (however you see fit), then formatting that as nothing but fields on the "navigation" props property. 
+
+Note on version numbering: I dont know how to do versioning.
 
 ### Adapters
 go-solid is rather self-contained and should work with most existing projects. 

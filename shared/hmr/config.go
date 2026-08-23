@@ -31,6 +31,7 @@ type MuxLike interface {
 	Handle(pattern string, handler http.Handler)
 }
 
+// Same as above but with any return type
 type RouterLike[T any] interface {
 	Handle(pattern string, handler http.Handler) T
 }
