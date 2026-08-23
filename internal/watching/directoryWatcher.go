@@ -15,11 +15,12 @@ import (
 )
 
 type DirectoryWatcher[T any] struct {
-	fsw    *fsnotify.Watcher
-	root   meta.AbsoluteDirectoryPath
-	cfg    *DWConfig[T]
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	fsw      *fsnotify.Watcher
+	root     meta.AbsoluteDirectoryPath
+	cfg      *DWConfig[T]
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 func NewDirectoryWatcher[T any](root meta.AbsoluteDirectoryPath, cfg *DWConfig[T]) (*DirectoryWatcher[T], error) {
@@ -138,8 +139,15 @@ func (this *DirectoryWatcher[T]) handle(event fsnotify.Event) {
 	}
 }
 
+// Stop halts the watcher and releases fsnotify resources. Idempotent, and safe
+// on a nil receiver; concurrent calls all return once the shutdown completes.
 func (this *DirectoryWatcher[T]) Stop() {
-	close(this.stopCh)
-	this.wg.Wait()
-	this.fsw.Close()
+	if this == nil {
+		return
+	}
+	this.stopOnce.Do(func() {
+		close(this.stopCh)
+		this.wg.Wait()
+		this.fsw.Close()
+	})
 }

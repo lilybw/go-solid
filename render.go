@@ -23,8 +23,12 @@ func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCall
 }
 
 // checkTypes holds the props in hand against the type the component declares
-// for them. Purely advisory: an unregistered component or an unusable props
-// value is left for Render to report, and nothing here can fail a render.
+// for them.
+//
+// A finding is carried on the builder and fails the render it was raised for
+// (render0 aborts on it). What is advisory is the scope, not the outcome: an
+// unregistered component, absent props, or a props value the mapper cannot
+// describe all yield no finding and are left for Render to report.
 func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
 	if this == nil || this.types == nil || props == nil {
 		return nil
@@ -126,11 +130,11 @@ func marshalProps(data *renderData) (string, error) {
 // component, from cache if present, otherwise by bundling and caching it.
 // The returned *Rendered is shared and must be treated as read-only.
 func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, error) {
-	key := caching.NewMemCacheKey(data.component, data.root)
-	if cached, ok := bundler.searchCaches(key); ok {
-		return cached, nil
-	}
-
+	// Resolve the component, and with it the default mount root, before the key
+	// is built. The root is part of the key and is baked into the shell, so
+	// leaving it unresolved until after the lookup emits a warm render whose
+	// <div id> is empty while the cached bundle mounts on the component's real
+	// root id — a page that renders nothing, but only once the cache is warm.
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
@@ -142,6 +146,11 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 	}
 	if data.root == "" {
 		data.root = comp.MountRootID
+	}
+
+	key := caching.NewBuildCacheKey(data.component, data.root, bundler.buildID)
+	if cached, ok := bundler.searchCaches(key); ok {
+		return cached, nil
 	}
 
 	artifact, sources, err := bundler.bundleComponent(data, comp)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,13 +241,42 @@ func TestWatcher_StopIsIdempotentlySafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
-	// Stop once; must not panic or hang. (Calling twice would panic on the
-	// double close(stopCh) — see note in the review below; we assert single Stop.)
+	// Stop is a shutdown hook: Bundler.Close calls it, and so does any consumer
+	// with its own teardown. Both happening is ordinary, so a second call must
+	// not panic on a double close(stopCh).
 	done := make(chan struct{})
-	go func() { w.Stop(); close(done) }()
+	go func() {
+		w.Stop()
+		w.Stop()
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Stop hung")
 	}
+
+	// Concurrent teardown resolves the same way: every caller returns, once.
+	var wg sync.WaitGroup
+	w2, err := NewWatcher(root, index, h, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	for range 4 {
+		wg.Add(1)
+		go func() { defer wg.Done(); w2.Stop() }()
+	}
+	settled := make(chan struct{})
+	go func() { wg.Wait(); close(settled) }()
+	select {
+	case <-settled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("concurrent Stop hung")
+	}
+}
+
+// A nil watcher is what Bundler holds when HMR was never switched on.
+func TestWatcher_StopOnNilIsSafe(t *testing.T) {
+	var w *Watcher
+	w.Stop()
 }

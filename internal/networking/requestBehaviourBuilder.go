@@ -69,6 +69,14 @@ func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
 			continue
 		}
 		rb.Handlers.AddType(evType, func(e events.NetworkingEvent) error {
+			if rb.W == nil {
+				// No writer was ever bound. SetHTTPBehaviour without
+				// ForRequest is a supported way to render — the caller takes
+				// the HTML and writes it itself — so there is simply no
+				// response for a built-in responder to write. A configuration,
+				// not a fault.
+				return nil
+			}
 			return responder(rb, e)
 		}, HANDLER_MODE_REPLACE)
 	}
@@ -83,17 +91,16 @@ type defaultResponder func(rb *RequestBehaviour, event events.NetworkingEvent) e
 // defaultResponderFor picks the built-in responder for a concrete event type.
 // The capability buckets in events.EVENTS.Categories deliberately get none:
 // they are reserved for cross-cutting user handlers.
+// Order matters: the concrete cases come first. A development failure also
+// implements FailureEvent, so behind the category case its own responder would
+// never be reached.
 func defaultResponderFor(evType events.EventType) defaultResponder {
 	switch {
 	case evType == events.EVENTS.TransmitRenderedTemplate:
 		return defaultTransmitHandler
-	case evType.Implements(events.EVENTS.FailureEvent):
-		return defaultFailureHandler
-	case evType.Implements(events.EVENTS.SuccessEvent):
-		return defaultSuccessHandler
 	case evType == events.EVENTS.CompPropsInsufficientFailure:
 		return func(rb *RequestBehaviour, event events.NetworkingEvent) error {
-			cast, err := require[events.CompPropsInsufficientFailureEvent](rb, event)
+			cast, err := require[events.CompPropsInsufficientFailureEvent](event)
 			if err != nil {
 				return err
 			}
@@ -101,6 +108,10 @@ func defaultResponderFor(evType events.EventType) defaultResponder {
 			_, err = rb.W.Write([]byte(cast.Err().Error()))
 			return err
 		}
+	case evType.Implements(events.EVENTS.FailureEvent):
+		return defaultFailureHandler
+	case evType.Implements(events.EVENTS.SuccessEvent):
+		return defaultSuccessHandler
 	default:
 		return nil
 	}
@@ -116,11 +127,11 @@ func statusOf(event events.NetworkingEvent, fallback int) int {
 // it means defaultResponderFor mispicked, which is a bug in this package: it
 // reports an error rather than writing a diagnostic into the user's response
 // body, where it would masquerade as the page.
-func require[T events.NetworkingEvent](rb *RequestBehaviour, event events.NetworkingEvent) (T, error) {
+//
+// An absent writer is not its concern; NewRequestData stops the responder
+// before it gets here.
+func require[T events.NetworkingEvent](event events.NetworkingEvent) (T, error) {
 	var zero T
-	if rb.W == nil {
-		return zero, fmt.Errorf("go_solid: event %T dispatched with no ResponseWriter bound", event)
-	}
 	typed, ok := event.(T)
 	if !ok {
 		return zero, fmt.Errorf("go_solid: default handler for %v received %T", reflect.TypeFor[T](), event)
@@ -129,8 +140,8 @@ func require[T events.NetworkingEvent](rb *RequestBehaviour, event events.Networ
 }
 
 func defaultFailureHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
-	cast, err := require[events.FailureEvent](rb, event)
-	if err != nil { // try cast, it is not necessarily a failure event
+	cast, err := require[events.FailureEvent](event)
+	if err != nil { // not a failure event after all; still honour any code it carries
 		code := meta.Ternary(int(event.HTTPCode()) != 0, int(event.HTTPCode()), http.StatusInternalServerError)
 		rb.CommitStatus(code) // still want the code if present though
 		return nil
@@ -142,7 +153,7 @@ func defaultFailureHandler(rb *RequestBehaviour, event events.NetworkingEvent) e
 }
 
 func defaultSuccessHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
-	if _, err := require[events.SuccessEvent](rb, event); err != nil {
+	if _, err := require[events.SuccessEvent](event); err != nil {
 		return err
 	}
 	rb.CommitStatus(statusOf(event, http.StatusOK))
@@ -150,7 +161,7 @@ func defaultSuccessHandler(rb *RequestBehaviour, event events.NetworkingEvent) e
 }
 
 func defaultTransmitHandler(rb *RequestBehaviour, event events.NetworkingEvent) error {
-	cast, err := require[events.TransmitRenderedTemplateEvent](rb, event)
+	cast, err := require[events.TransmitRenderedTemplateEvent](event)
 	if err != nil {
 		return err
 	}

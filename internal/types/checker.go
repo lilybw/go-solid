@@ -63,8 +63,12 @@ func (k DiagnosticKind) Severity() Severity {
 	}
 }
 
-// Diagnostic is one advisory finding about a component's props. Diagnostics are
-// never fatal: a render that produced one still renders.
+// Diagnostic is one finding about a component's props.
+//
+// What a batch of them means is the Reporter's decision. Under the default
+// Reporter a fault fails the pass it was raised in — the boot pass fails New,
+// the runtime pass fails that render — while a finding that only reports absent
+// coverage is logged and passes.
 type Diagnostic struct {
 	Component meta.QualifiedName
 	Kind      DiagnosticKind

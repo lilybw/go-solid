@@ -235,6 +235,45 @@ func TestRegistry_AddFileDuplicateErrors(t *testing.T) {
 // Stop must be idempotent-safe to call once and must terminate the loop
 // goroutine (verified implicitly by t.Cleanup not deadlocking, and here
 // explicitly by a bounded wait).
+// Stop is reachable twice through ordinary teardown: ComponentRegistry.Close
+// calls it, and so does anything holding the watcher directly.
+func TestRegistryWatcher_StopIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	w, err := watching_int.NewDirectoryWatcher(root, &watching.DWVoidConfig{})
+	if err != nil {
+		t.Fatalf("NewDirectoryWatcher: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		w.Stop()
+		w.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop hung or panicked on a second call")
+	}
+}
+
+// NIL_DW_CONFIG is a package singleton. polyfillConfig writes to whatever it is
+// handed, so a caller passing the singleton must not leave the next caller with
+// its callbacks.
+func TestRegistryWatcher_PolyfillDoesNotWriteThroughTheSingleton(t *testing.T) {
+	before := *watching.NIL_DW_CONFIG
+	w, err := watching_int.NewDirectoryWatcher(t.TempDir(), watching.NIL_DW_CONFIG)
+	if err != nil {
+		t.Fatalf("NewDirectoryWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	if (watching.NIL_DW_CONFIG.OnCreation == nil) != (before.OnCreation == nil) ||
+		(watching.NIL_DW_CONFIG.OnErr == nil) != (before.OnErr == nil) {
+		t.Error("NIL_DW_CONFIG was rewritten by polyfillConfig")
+	}
+}
+
 func TestRegistryWatcher_StopTerminates(t *testing.T) {
 	root := t.TempDir()
 

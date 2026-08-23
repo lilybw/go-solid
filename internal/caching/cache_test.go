@@ -7,34 +7,55 @@ import (
 )
 
 func Test_Deterministic(t *testing.T) {
-	a := NewMemCacheKey("auth/LoginForm", `{"title":"Hi"}`)
-	b := NewMemCacheKey("auth/LoginForm", `{"title":"Hi"}`)
+	a := NewBuildCacheKey("auth/LoginForm", "app-root", "build-1")
+	b := NewBuildCacheKey("auth/LoginForm", "app-root", "build-1")
 	if a.String() != b.String() {
-		t.Errorf("caching.MemCacheKey not deterministic: %q != %q", a, b)
+		t.Errorf("caching.CacheKey not deterministic: %q != %q", a, b)
 	}
 }
 
+// Every field is part of the identity the disk cache matches on. Comparing the
+// *pointers* here would compare two fresh allocations and pass whatever String
+// does, so the assertion has to go through String.
 func Test_Key_SensitiveToEachInput(t *testing.T) {
-	base := NewMemCacheKey("comp", `{"a":1}`)
+	base := NewBuildCacheKey("comp", "root", "build")
 
 	cases := map[string]*CacheKey{
-		"different name":  NewMemCacheKey("other", `{"a":1}`),
-		"different props": NewMemCacheKey("comp", `{"a":2}`),
+		"different component": NewBuildCacheKey("other", "root", "build"),
+		"different root":      NewBuildCacheKey("comp", "other-root", "build"),
+		"different build":     NewBuildCacheKey("comp", "root", "other-build"),
 	}
 	for label, got := range cases {
-		if got == base {
-			t.Errorf("caching.MemCacheKey collision for %s: key did not change", label)
+		if got.String() == base.String() {
+			t.Errorf("caching.CacheKey collision for %s: key did not change", label)
 		}
 	}
 }
 
-// The separator bytes matter: without them, name="ab"+props="c" would collide
-// with name="a"+props="bc". Guard against that regression.
+// The mount root is not part of what a bundle contains, but it is part of what
+// an entry is: the shell that ships with the artifact names it. Two roots must
+// not share one disk entry.
+func Test_Key_RootReachesTheDiskIdentity(t *testing.T) {
+	a := NewMemCacheKey("comp", "root-a")
+	b := NewMemCacheKey("comp", "root-b")
+	if a.String() == b.String() {
+		t.Error("CacheKey.String ignores Root; the disk cache cannot tell two mount roots apart")
+	}
+	if entryStem(a) == entryStem(b) {
+		t.Error("entryStem collapses two roots onto one entry; Put would overwrite")
+	}
+}
+
+// The length prefixes matter: without them, component="ab"+root="c" would
+// digest identically to component="a"+root="bc".
 func Test_cacheKey_NoConcatenationCollision(t *testing.T) {
-	x := NewMemCacheKey("ab", "c")
-	y := NewMemCacheKey("a", "bc")
-	if x == y {
-		t.Error("caching.MemCacheKey collides across the name/props boundary (missing separator)")
+	for _, pair := range [][2]*CacheKey{
+		{NewMemCacheKey("ab", "c"), NewMemCacheKey("a", "bc")},
+		{NewBuildCacheKey("a", "b", "cd"), NewBuildCacheKey("a", "bc", "d")},
+	} {
+		if pair[0].String() == pair[1].String() {
+			t.Errorf("CacheKey collides across a field boundary: %+v vs %+v", *pair[0], *pair[1])
+		}
 	}
 }
 
@@ -74,6 +95,43 @@ func TestCache_PutGetRoundTrip(t *testing.T) {
 	}
 	if got != want {
 		t.Errorf("get returned %+v, want same pointer %+v", got, want)
+	}
+}
+
+// Clear resets the cache. Leaving byName populated leaks a key set per
+// component for the lifetime of the process and leaves the reverse index
+// describing entries that are gone.
+func TestCache_ClearEmptiesBothIndexes(t *testing.T) {
+	c := NewMemCache(true)
+	c.Put(NewMemCacheKey("comp", "root"), &Rendered{JS: "x"})
+	c.Clear()
+
+	if _, ok := c.Get(NewMemCacheKey("comp", "root")); ok {
+		t.Error("Clear left an entry behind")
+	}
+	c.mu.RLock()
+	stale := len(c.byName)
+	c.mu.RUnlock()
+	if stale != 0 {
+		t.Errorf("Clear left %d stale byName buckets", stale)
+	}
+}
+
+// Two artifacts built under different settings are different artifacts. Nothing
+// else in the key distinguishes them, so the build fingerprint has to.
+func TestCache_BuildFingerprintSeparatesEntries(t *testing.T) {
+	c := NewMemCache(true)
+	c.Put(NewBuildCacheKey("comp", "root", "minified"), &Rendered{JS: "min"})
+	c.Put(NewBuildCacheKey("comp", "root", "readable"), &Rendered{JS: "raw"})
+
+	got, ok := c.Get(NewBuildCacheKey("comp", "root", "minified"))
+	if !ok || got.JS != "min" {
+		t.Fatalf("build fingerprint did not key the entry: ok=%v got=%+v", ok, got)
+	}
+	// Invalidation is by component, so it must still reach both.
+	c.InvalidateComponent("comp")
+	if _, ok := c.Get(NewBuildCacheKey("comp", "root", "readable")); ok {
+		t.Error("InvalidateComponent missed an entry under a different build fingerprint")
 	}
 }
 

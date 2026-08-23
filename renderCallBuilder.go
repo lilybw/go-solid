@@ -43,23 +43,35 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 type renderCallBuilderImpl struct {
 	bundler *Bundler
 	data    *renderData
+	// behaviour is built at most once per render call. Constructing it applies
+	// Config.Defaults.Requests, so a second construction would register those
+	// defaults twice — which for any POSTFIX/PREFIX/PARALLEL handler means
+	// running it twice for a single event.
+	behaviour networking.RequestBehaviourBuilder
+}
+
+// behaviourBuilder returns the render call's request behaviour, creating it and
+// applying the configured defaults on first use.
+func (this *renderCallBuilderImpl) behaviourBuilder() networking.RequestBehaviourBuilder {
+	if this.behaviour == nil {
+		if this.data.request == nil {
+			// Bind reads W and R at dispatch time, so a behaviour created
+			// before either is known still writes to the real ones.
+			this.data.request = networking_int.NewRequestData(nil, nil)
+		}
+		this.behaviour = networking_int.NewRequestBehaviourBuilder(this.data.request)
+	}
+	return this.behaviour
 }
 
 func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
-	if this.data.request == nil {
-		this.data.request = networking_int.NewRequestData(nil, nil)
-	}
-	fn(networking_int.NewRequestBehaviourBuilder(this.data.request))
+	fn(this.behaviourBuilder())
 	return this
 }
 
 func (this *renderCallBuilderImpl) ForRequest(w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-	if this.data.request != nil {
-		this.data.request.W, this.data.request.R = w, r
-		return this
-	}
-	this.data.request = networking_int.NewRequestData(w, r)
-	networking_int.NewRequestBehaviourBuilder(this.data.request)
+	this.behaviourBuilder()
+	this.data.request.W, this.data.request.R = w, r
 	return this
 }
 
@@ -84,7 +96,9 @@ func (this *renderCallBuilderImpl) Render() (*caching.Rendered, error) {
 }
 
 func (this *renderCallBuilderImpl) resolveCTXSource() context.Context {
-	if this.data.request != nil {
+	// A behaviour can exist without a request: SetHTTPBehaviour alone builds
+	// one with no writer and no request, and only ForRequest supplies them.
+	if this.data.request != nil && this.data.request.R != nil {
 		return this.data.request.R.Context()
 	}
 	if this.data.ctx == nil {

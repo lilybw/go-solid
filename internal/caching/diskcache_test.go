@@ -416,6 +416,33 @@ func TestDiskCache_PreservesServingNames(t *testing.T) {
 
 // Two keys sharing the 12-char stem prefix must not be confused: get matches on
 // the full Key stored in the manifest, not the truncated filename.
+// The memory layer keys on root and build; the disk layer must agree, or a
+// warm process misses and a restarted one hits the wrong entry.
+func TestDiskCache_DistinguishesRootAndBuild(t *testing.T) {
+	dc, ws := newTestDiskCache(t)
+	src := writeSource(t, ws, "C.tsx", "x")
+
+	entries := map[*CacheKey]string{
+		NewBuildCacheKey("C", "root-a", "min"): "a-min",
+		NewBuildCacheKey("C", "root-b", "min"): "b-min",
+		NewBuildCacheKey("C", "root-a", "raw"): "a-raw",
+	}
+	for key, js := range entries {
+		if err := dc.Put(key, true, &Rendered{JS: js, JSName: js + ".js"}, []string{src}); err != nil {
+			t.Fatalf("Put(%+v): %v", *key, err)
+		}
+	}
+	for key, want := range entries {
+		got, ok := dc.Get(key)
+		if !ok {
+			t.Fatalf("Get(%+v) missed", *key)
+		}
+		if got.JS != want {
+			t.Errorf("Get(%+v).JS = %q, want %q — entries share a stem", *key, got.JS, want)
+		}
+	}
+}
+
 func TestDiskCache_PrefixCollisionSafe(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "C.tsx", "x")

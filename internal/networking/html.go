@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/networking"
@@ -76,7 +77,11 @@ func (this *htmlHeadSegmentBuilder) Add(tag HTMLTag) HTMLHeadSegmentBuilder {
 }
 
 func (this *htmlHeadSegmentBuilder) Build() string {
-	all := this.rest
+	// Build reads; it must not write. Appending onto this.rest would land in
+	// its spare capacity and sorting would reorder the builder's own slice, so
+	// the tags to emit are assembled somewhere else.
+	all := make([]HTMLTag, 0, len(this.rest)+len(this.unique))
+	all = append(all, this.rest...)
 	for k, v := range this.unique {
 		all = append(all, HTMLTag{
 			Name:      k,
@@ -84,21 +89,28 @@ func (this *htmlHeadSegmentBuilder) Build() string {
 		})
 	}
 	if this.deterministic {
-		sort.Slice(all, func(i, j int) bool {
+		// Stable, so two tags sharing a name keep the order they were added in.
+		sort.SliceStable(all, func(i, j int) bool {
 			return all[i].Name < all[j].Name
 		})
 	}
-	html := ""
+	var b strings.Builder
 	for _, tag := range all {
-		html += "<" + tag.Name
-		for attr, val := range tag.HTMLTagAttributes {
-			html += " " + attr + "=\"" + val + "\""
+		b.WriteString("<" + tag.Name)
+		// Map iteration is unordered, which would leave the output varying run
+		// to run even with DeterministicOutput set.
+		attrs := slices.Collect(maps.Keys(tag.HTMLTagAttributes))
+		if this.deterministic {
+			sort.Strings(attrs)
 		}
-		html += ">"
+		for _, attr := range attrs {
+			b.WriteString(" " + attr + "=\"" + tag.HTMLTagAttributes[attr] + "\"")
+		}
+		b.WriteString(">")
 		if tag.InnerHTML != "" {
-			html += tag.InnerHTML
+			b.WriteString(tag.InnerHTML)
 		}
-		html += "</" + tag.Name + ">\n"
+		b.WriteString("</" + tag.Name + ">\n")
 	}
-	return html
+	return b.String()
 }

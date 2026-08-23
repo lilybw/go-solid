@@ -220,6 +220,119 @@ func TestRender_CacheHitReusesArtifact(t *testing.T) {
 	}
 }
 
+// The end-to-end form of the shell/cache agreement: a warm render must produce
+// the same document a cold one did. Anything the cache short-circuits past that
+// the shell also needs — the mount root above all — shows up here as a diff
+// between the first render and the second.
+func TestRender_WarmRenderMatchesColdRender(t *testing.T) {
+	b := newTestBundler(t, map[string]string{
+		"Hello.tsx": simpleComponent,
+	}, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
+
+	ctx := context.Background()
+	props := map[string]any{"name": "same"}
+
+	cold, err := b.Prepare("Hello", props).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("cold Render: %v", err)
+	}
+	warm, err := b.Prepare("Hello", props).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("warm Render: %v", err)
+	}
+
+	if cold.HTML != warm.HTML {
+		t.Errorf("warm render differs from cold render\ncold:\n%s\nwarm:\n%s",
+			head(cold.HTML, 600), head(warm.HTML, 600))
+	}
+
+	comp, ok := b.Registry().Lookup("Hello")
+	if !ok {
+		t.Fatal("Hello not registered")
+	}
+	mount := `<div id="` + comp.MountRootID + `">`
+	for label, html := range map[string]string{"cold": cold.HTML, "warm": warm.HTML} {
+		if !strings.Contains(html, mount) {
+			t.Errorf("%s render does not mount on %q; the bundle will find no root\n%s",
+				label, comp.MountRootID, head(html, 600))
+		}
+	}
+}
+
+// The disk layer has to agree with the memory layer about what an entry is: a
+// second Bundler over the same workspace reads only the disk, so a shell it
+// assembles from a disk hit must still name the right root.
+func TestRender_DiskHitInAFreshBundlerKeepsTheMountRoot(t *testing.T) {
+	components := map[string]string{"Hello.tsx": simpleComponent}
+	first := newTestBundler(t, components, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
+
+	ctx := context.Background()
+	cold, err := first.Prepare("Hello", nil).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("cold Render: %v", err)
+	}
+	comp, _ := first.Registry().Lookup("Hello")
+	first.Close()
+
+	// Same components root, so the same workspace and the same disk cache.
+	second, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: first.cfg.Components,
+		Generation: &esbuild.BundlerConfig{
+			Minify: true, Dependencies: first.cfg.Generation.Dependencies, Disabled: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("second New: %v", err)
+	}
+	t.Cleanup(second.Close)
+
+	// Disabled generation means this can only be answered from disk.
+	warm, err := second.Prepare("Hello", nil).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("disk-only Render: %v", err)
+	}
+	if !strings.Contains(warm.HTML, `<div id="`+comp.MountRootID+`">`) {
+		t.Errorf("disk hit lost the mount root:\n%s", head(warm.HTML, 600))
+	}
+	if warm.JS != cold.JS {
+		t.Error("disk hit returned a different bundle than the one written")
+	}
+}
+
+// Changing a setting that changes the emitted bytes must not be answered from
+// an entry written before the change.
+func TestRender_ChangedBuildSettingsAreNotServedFromCache(t *testing.T) {
+	components := map[string]string{"Hello.tsx": simpleComponent}
+	minified := newTestBundler(t, components, &Config{Generation: &esbuild.BundlerConfig{Minify: true}})
+
+	ctx := context.Background()
+	small, err := minified.Prepare("Hello", nil).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("minified Render: %v", err)
+	}
+	componentsRoot, deps := minified.cfg.Components, minified.cfg.Generation.Dependencies
+	minified.Close()
+
+	readable, err := New(&Config{
+		LogLevel:   logging.LEVEL_ERROR,
+		Components: componentsRoot,
+		Generation: &esbuild.BundlerConfig{Minify: false, Dependencies: deps},
+	})
+	if err != nil {
+		t.Fatalf("second New: %v", err)
+	}
+	t.Cleanup(readable.Close)
+
+	large, err := readable.Prepare("Hello", nil).WithCtx(ctx).Render()
+	if err != nil {
+		t.Fatalf("unminified Render: %v", err)
+	}
+	if large.JS == small.JS {
+		t.Error("flipping Minify was answered from the cache written under the old setting")
+	}
+}
+
 func TestRender_UnknownComponentErrors(t *testing.T) {
 	b := newTestBundler(t, map[string]string{
 		"Hello.tsx": simpleComponent,

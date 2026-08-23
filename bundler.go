@@ -108,7 +108,10 @@ var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
 }
 
 type Bundler struct {
-	cfg      *Config
+	cfg *Config
+	// buildID fingerprints the generation settings every artifact in the
+	// caches was produced under; see buildFingerprint.
+	buildID  string
 	registry *internal.ComponentRegistry
 	mem      *caching.MemCache
 	disk     *caching.DiskCache
@@ -198,6 +201,7 @@ func New(cfg *Config) (*Bundler, error) {
 	bundler := &Bundler{
 		// if a bundler is correctly made through New(), the config is at this point assured to be validated, all fields present, and all field values correctly assigned.
 		cfg:      cfg,
+		buildID:  buildFingerprint(cfg.Generation),
 		registry: registry,
 		mem:      mem,
 		disk:     disk,
@@ -255,6 +259,20 @@ func New(cfg *Config) (*Bundler, error) {
 	}
 
 	return bundler, nil
+}
+
+// buildFingerprint identifies the settings that change the bytes esbuild emits.
+// It is part of every cache key, so an artifact built under one set of settings
+// is never served after they change.
+//
+// Dependencies and Disabled are deliberately absent: neither alters the output
+// of a build that does happen.
+func buildFingerprint(cfg *esbuild.BundlerConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	return caching.ShortHash(fmt.Sprintf("minify=%v;sourcemap=%d;solid=%+v",
+		cfg.Minify, cfg.Sourcemap, cfg.Solid), 16)
 }
 
 func (cfg *Config) isHMROn() bool {

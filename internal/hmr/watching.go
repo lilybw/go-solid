@@ -27,6 +27,7 @@ type Watcher struct {
 	// browser is told to reload, or the reload re-fetches the stale bundle.
 	invalidate func(meta.QualifiedName)
 	stopCh     chan struct{}
+	stopOnce   sync.Once
 	wg         sync.WaitGroup
 
 	debounce time.Duration
@@ -166,9 +167,15 @@ func (w *Watcher) handleEvent(event fsnotify.Event, pending map[meta.QualifiedNa
 	}
 }
 
-// Stop halts the watcher and releases fsnotify resources. Safe to call once.
+// Stop halts the watcher and releases fsnotify resources. Idempotent, and safe
+// on a nil receiver; concurrent calls all return once the shutdown completes.
 func (w *Watcher) Stop() {
-	close(w.stopCh)
-	w.wg.Wait()
-	w.fsw.Close()
+	if w == nil {
+		return
+	}
+	w.stopOnce.Do(func() {
+		close(w.stopCh)
+		w.wg.Wait()
+		w.fsw.Close()
+	})
 }

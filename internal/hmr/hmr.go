@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/lilybw/go-solid/internal/meta"
@@ -59,6 +60,11 @@ func (h *Hub) remove(component meta.QualifiedName, c *websocket.Conn) {
 	}
 }
 
+// reloadWriteTimeout bounds one reload write. Writes are sequential and run on
+// the watcher goroutine, so an unbounded one lets a single wedged tab stop every
+// other tab from ever being reloaded again.
+const reloadWriteTimeout = 5 * time.Second
+
 // Reload pushes a reload to every connection viewing the named component. Write
 // failures are ignored: a dead connection is cleaned up by its own read loop.
 func (h *Hub) Reload(component meta.QualifiedName) {
@@ -70,7 +76,9 @@ func (h *Hub) Reload(component meta.QualifiedName) {
 	h.mu.Unlock()
 
 	for _, c := range targets {
-		_ = c.Write(context.Background(), websocket.MessageText, []byte("reload"))
+		ctx, cancel := context.WithTimeout(context.Background(), reloadWriteTimeout)
+		_ = c.Write(ctx, websocket.MessageText, []byte("reload"))
+		cancel()
 	}
 }
 

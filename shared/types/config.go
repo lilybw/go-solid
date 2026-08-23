@@ -10,8 +10,9 @@ import "fmt"
 // it requires, at a compatible type. Supplying extra fields, or declaring them
 // in another order, is not a finding.
 //
-// Correlation is advisory: a mismatch is reported, never fatal. Extracting and
-// caching the component's props type is not gated by this setting.
+// A mismatch fails the pass that found it: at boot it fails New, at runtime it
+// fails that render. Extracting and caching the component's props type is not
+// gated by this setting.
 type CheckMode uint8
 
 const (
@@ -22,8 +23,8 @@ const (
 	// CHECK_BOOT correlates every component's declared props type with its
 	// generated definition once, during New.
 	//
-	// Requires rasterization: the pass walks the whole registry, which is
-	// exactly the preload rasterization already performs.
+	// The pass reads and parses component sources; it neither bundles nor
+	// renders, so it is independent of rasterization and of Generation.
 	CHECK_BOOT
 
 	// CHECK_RUNTIME holds the Go props against the component's props type on

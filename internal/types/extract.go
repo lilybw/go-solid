@@ -155,6 +155,11 @@ const maxTypeResolutionDepth = 8
 
 // resolver carries the state of one extraction: the files it has touched, the
 // names it could not follow, and a guard against a type that refers to itself.
+//
+// visited holds the names on the current resolution path, not every name the
+// extraction has ever seen. The distinction matters for a diamond — two arms of
+// an intersection reaching the same type — which is not a cycle and must
+// resolve on both arms.
 type resolver struct {
 	extractor  *Extractor
 	sources    map[meta.AbsoluteFilePath]bool
@@ -235,6 +240,7 @@ func (r *resolver) resolveNamed(f *parsedFile, name string, depth int) (Shape, b
 		return Shape{}, false // a type that refers to itself
 	}
 	r.visited[key] = true
+	defer delete(r.visited, key) // scoped to this path; see resolver
 
 	if decl := topLevelType(f.tree, name); decl != nil {
 		return r.shapeOfDeclaration(f, decl, depth)

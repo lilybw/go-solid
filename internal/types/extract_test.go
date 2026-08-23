@@ -295,3 +295,68 @@ export default function Hello(props: Props) { return <div/>; }
 		t.Error("a self-referential alias resolves to nothing")
 	}
 }
+
+// A diamond is not a cycle. Two arms of an intersection reaching the same type
+// is the ordinary shape of a props type composed from shared fragments, and
+// both arms have to contribute.
+func TestExtract_DiamondResolvesOnBothArms(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("common.d.ts", "export interface Common { id: string }\n")
+	write("left.d.ts", `import type { Common } from "./common";
+export type Left = Common & { left: number };
+`)
+	write("right.d.ts", `import type { Common } from "./common";
+export type Right = Common & { right: boolean };
+`)
+
+	extraction := extractionIn(t, dir, "Hello.tsx", `
+import type { Left } from "./left";
+import type { Right } from "./right";
+export default function Hello(props: Left & Right) { return <div/>; }
+`)
+
+	assertDeclared(t, extraction, "id:string;left:number;right:boolean")
+	if len(extraction.Unresolved) != 0 {
+		t.Errorf("Unresolved = %v, want empty: Common resolves on both arms", extraction.Unresolved)
+	}
+}
+
+// The same type named twice in one intersection is degenerate but legal, and
+// must not report itself as unresolvable the second time.
+func TestExtract_RepeatedArmIsNotAnUnresolvedName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "shared.d.ts"),
+		[]byte("export interface Shared { id: string }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	extraction := extractionIn(t, dir, "Hello.tsx", `
+import type { Shared } from "./shared";
+export default function Hello(props: Shared & Shared) { return <div/>; }
+`)
+	assertDeclared(t, extraction, "id:string")
+	if slices.Contains(extraction.Unresolved, "Shared") {
+		t.Errorf("Unresolved = %v, want Shared absent", extraction.Unresolved)
+	}
+}
+
+// The path-scoped guard must still terminate a genuine self-reference.
+func TestExtract_MutualAliasStillTerminates(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "loop.d.ts"),
+		[]byte("export type A = B;\nexport type B = A;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	extraction := extractionIn(t, dir, "Hello.tsx", `
+import type { A } from "./loop";
+export default function Hello(props: A) { return <div/>; }
+`)
+	if extraction.Found {
+		t.Error("a mutual alias resolves to nothing")
+	}
+}

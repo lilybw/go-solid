@@ -22,20 +22,23 @@ import (
 // Entries live under <caching/shared.go#CACHE_DIR_NAME> as human-readable, inspectable
 // files. Each cache entry is a set of sibling files sharing a base name:
 //
-//   auth_LoginForm__root-a__<hash>.meta.json   manifest (component, sources, ...)
-//   auth_LoginForm__root-a__<hash>.html
-//   auth_LoginForm__root-a__<hash>.js
-//   auth_LoginForm__root-a__<hash>.css          (only if the bundle has CSS)
+//   auth_LoginForm__<hash>.meta.json   manifest (component, sources, ...)
+//   auth_LoginForm__<hash>.html
+//   auth_LoginForm__<hash>.js
+//   auth_LoginForm__<hash>.css          (only if the bundle has CSS)
+//
+// The component name is only the readable half of the stem; the hash is
+// CacheKey.String, which is what actually distinguishes two entries for the
+// same component (different mount root, different build settings).
 //
 // Invalidation is by SOURCE CONTENT HASH, not timestamps: the manifest records
 // each source file's sha256, and an entry is valid only if every source still
 // hashes to the recorded value. generatedAt is stored for humans, never used for
 // correctness.
 //
-// A reverse index (<caching/shared.go#CACHE_DIR_NAME>/_index.json) maps each source file to the
-// entry keys that depend on it, for fast "what must I invalidate" queries. The
-// index is derived data: it is always rebuildable from the manifests, which are
-// the source of truth. RebuildIndex regenerates it from scratch.
+// There is no on-disk reverse index: InvalidateComponent scans the manifests,
+// which are the source of truth. The in-process reverse graph lives in
+// internal.DependencyIndex.
 
 type HTMLElementID = string
 

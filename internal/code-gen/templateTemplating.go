@@ -2,6 +2,7 @@ package code_gen
 
 import (
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -128,8 +129,19 @@ func inlineJSON(s string) string {
 	return strings.ReplaceAll(s, "</", "<\\/")
 }
 
+// scriptClose matches the sequence that ends a <script> block. The HTML parser
+// matches it without regard to case, so "</SCRIPT" closes the element just as
+// "</script" does.
+var scriptClose = regexp.MustCompile(`(?i)</script`)
+
+// inlineJS makes a script body safe to place inside a <script> element, whose
+// content the HTML parser ends at the first "</script" in any case. The
+// original casing is kept, so a string literal that held "</SCRIPT>" still
+// evaluates to it at runtime.
 func inlineJS(js string) string {
-	return strings.ReplaceAll(js, "</script", "<\\/script")
+	return scriptClose.ReplaceAllStringFunc(js, func(match string) string {
+		return "<\\/" + match[len("</"):]
+	})
 }
 
 func derivePropsMountIdFromCompRootID(rootID string) string {
