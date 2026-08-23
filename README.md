@@ -132,7 +132,7 @@ bundler, err := go_solid.New(&go_solid.Config{
 To avoid potential cors issues, do ensure that the WS connections the library will make to any client visiting your servers endpoints, is directed at the same origin as the template the client has been served. (You can set HMR up over another port, but browsers may be perturbed by this)
 
 ## Typesafety
-go-solid introspects the types you have defined for your components and cross-references these definitions with the data provided when you call Prepare(component, props) from your code.
+Since v 1.2.0 go-solid introspects the types you have defined for your components and cross-references these definitions with the data provided when you call Prepare(component, props) from your code.
 
 In case of a missing parameter or incompatible type, an error will be raised. This error is surfaced as the result of ```RenderCallBuilder#Render``` or, if a networking request
 has been provided (with ```RenderCallBuilder#ForRequest```), as response to said request.
@@ -155,11 +155,7 @@ However various options for what dev/prod variant to use are extended and custom
 
 
 ## Roadmap
-Ever since the introduction of tsgo, it is now possible to do rather sophisticated typegen and introspection. Likewise with the move to go 1.27 it is now possible to define rather sophisticated apis. 
-
-In v1.2.0 go-solid will introduce generated types and data validation in development to assure typesafety and ease of debugging. 
-
-From hereon, various "plug-in" like features will be made available, accessed as fields on a components props. 
+Various "plug-in" like features will be made available, accessed as fields on a components props. 
 
 The already hinted-at "static" feature will introduce easy, yet secure, management and retrieval of static assets but relies on the former and has as such been slightly postponed. 
 
