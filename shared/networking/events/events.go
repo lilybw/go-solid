@@ -20,6 +20,12 @@ type FailureEvent interface {
 	Err() error
 }
 
+// DevelopmentFailureEvent narrows FailureEvent to faults in how the library was
+// used rather than faults in serving the request: a props type the component
+// does not accept, and in time anything else worth telling a developer about
+// and worth suppressing in production. It is a capability bucket like the
+// others, so a handler registered under it runs for every such event, ahead of
+// the broader FailureEvent handlers.
 type DevelopmentFailureEvent interface {
 	FailureEvent
 	isDevelopmentFailureEvent()
@@ -143,8 +149,9 @@ var EVENTS = struct {
 	TransmitRenderedTemplate     EventType
 	CompPropsInsufficientFailure EventType
 
-	FailureEvent EventType
-	SuccessEvent EventType
+	FailureEvent            EventType
+	DevelopmentFailureEvent EventType
+	SuccessEvent            EventType
 
 	// Concrete is every event the library can actually emit. Each one gets a
 	// built-in responder; ranging over this is how a new event type is picked
@@ -168,8 +175,9 @@ var EVENTS = struct {
 	TransmitRenderedTemplate:     reflect.TypeFor[TransmitRenderedTemplateEvent](),
 	CompPropsInsufficientFailure: reflect.TypeFor[CompPropsInsufficientFailureEvent](),
 
-	FailureEvent: reflect.TypeFor[FailureEvent](),
-	SuccessEvent: reflect.TypeFor[SuccessEvent](),
+	FailureEvent:            reflect.TypeFor[FailureEvent](),
+	DevelopmentFailureEvent: reflect.TypeFor[DevelopmentFailureEvent](),
+	SuccessEvent:            reflect.TypeFor[SuccessEvent](),
 }
 
 func init() {
@@ -182,7 +190,9 @@ func init() {
 		EVENTS.CompPropsInsufficientFailure,
 		EVENTS.TransmitRenderedTemplate,
 	}
+	// Ordered narrowest first, which is the order Dispatch runs them in.
 	EVENTS.Categories = []EventType{
+		EVENTS.DevelopmentFailureEvent,
 		EVENTS.FailureEvent,
 		EVENTS.SuccessEvent,
 	}

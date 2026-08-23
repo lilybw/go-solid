@@ -117,6 +117,7 @@ type Bundler struct {
 	disk     *caching.DiskCache
 	index    *internal.DependencyIndex
 	static   static_int.StaticRegistry
+	defaults *networking_int.Defaults
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
 	types    *types_int.Checker
@@ -131,9 +132,12 @@ func New(cfg *Config) (*Bundler, error) {
 		return nil, err
 	}
 
+	// Behavioural defaults belong to this Bundler, not to the process: two
+	// Bundlers in one program keep their own.
+	defaults := networking_int.NewDefaults()
 	if consumerDefaults {
-		networking_int.SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment)
-		networking_int.SetRequestBehaviourTemplate(cfg.Defaults.Requests)
+		defaults.SetHTMLHeadSegment(cfg.Defaults.HeadSegment)
+		defaults.SetRequestBehaviour(cfg.Defaults.Requests)
 	}
 
 	if !cfg.Generation.Disabled {
@@ -151,8 +155,9 @@ func New(cfg *Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	// Caches are enabled unless explicitly disabled.
-	disk, err := caching.NewDiskCache(cfg.Workspace, !cfg.DisableCaching)
+	// Caches are enabled unless explicitly disabled. The cache root is the
+	// workspace unless Rasterization.Location moved it.
+	disk, err := caching.NewDiskCache(cfg.componentCacheRoot(), !cfg.DisableCaching)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +212,7 @@ func New(cfg *Config) (*Bundler, error) {
 		disk:     disk,
 		index:    index,
 		static:   static,
+		defaults: defaults,
 		types:    typeChecker,
 	}
 
@@ -247,7 +253,7 @@ func New(cfg *Config) (*Bundler, error) {
 		// NewWatcher starts its own goroutine before returning, so there is no
 		// separate Start call to forget.
 		w, err := hmr_int.NewWatcher(
-			string(cfg.Components), bundler.index, bundler.hub, registry,
+			string(cfg.Components), bundler.index, bundler.hub,
 			invalidateComponent,
 			func(e error) {
 				fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)
@@ -273,6 +279,17 @@ func buildFingerprint(cfg *esbuild.BundlerConfig) string {
 	}
 	return caching.ShortHash(fmt.Sprintf("minify=%v;sourcemap=%d;solid=%+v",
 		cfg.Minify, cfg.Sourcemap, cfg.Solid), 16)
+}
+
+// componentCacheRoot is the directory holding the component cache.
+//
+// Rasterization.Location overrides the workspace, so a pre-built cache can be
+// produced into, and shipped from, somewhere the workspace does not reach.
+func (cfg *Config) componentCacheRoot() meta.AbsoluteDirectoryPath {
+	if cfg.Rasterization != nil && cfg.Rasterization.Location != "" {
+		return cfg.Rasterization.Location
+	}
+	return cfg.Workspace
 }
 
 func (cfg *Config) isHMROn() bool {
@@ -310,13 +327,18 @@ func configValidationAndNormalization(cfg *Config) error {
 		return fmt.Errorf("go_solid: create workspace %q: %w", cfg.Workspace, err)
 	}
 
+	// The two unconfigured states differ on purpose. A nil Generation takes the
+	// null object's opinions — Minify on, which is what an unattended build
+	// should do. A supplied one is taken at its word, zero values included, so
+	// nothing the consumer wrote is overridden by a default they did not ask
+	// for. Both are reachable by "I did not configure bundling", so the choice
+	// of nil versus &BundlerConfig{} is a choice of Minify.
 	if cfg.Generation == nil {
 		cfg.Generation = meta.Copy(esbuild.NIL_BUNDLER_CONFIG)
 		cfg.Generation.Dependencies = cfg.Components
 	} else {
 		cfg.Generation.Solid.Normalize()
-		// no need for minify: defaults to false
-		// no need for sourcemap: defaults to 0 aka SourceMapNone
+		// Minify and Sourcemap are left as given; see above.
 		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
 			cfg.Generation.Dependencies = cfg.Components
 		}
@@ -365,6 +387,16 @@ func configValidationAndNormalization(cfg *Config) error {
 			cfg.Rasterization.Disabled = true
 		}
 	}
+	// Location names the component cache wherever it is, so it is resolved
+	// whether or not rasterization itself is on.
+	if cfg.Rasterization.Location != "" {
+		abs, err := filepath.Abs(cfg.Rasterization.Location)
+		if err != nil {
+			return fmt.Errorf("go_solid: Expected absolute path to Rasterization.Location %q: %w",
+				cfg.Rasterization.Location, err)
+		}
+		cfg.Rasterization.Location = abs
+	}
 	if cfg.Rasterization.Active() {
 		cfg.DisableCaching = false // rasterization requires caching
 		if cfg.Rasterization.Location == "" {
@@ -377,6 +409,9 @@ func configValidationAndNormalization(cfg *Config) error {
 			cfg.HMR.Disabled = true // expecting completed rasterization disables HMR
 			cfg.ReactiveRegistry = false
 			cfg.Generation.Disabled = true // expecting completed rasterization disables esbuild
+		} else if err := os.MkdirAll(cfg.Rasterization.Location, 0o755); err != nil {
+			return fmt.Errorf("go_solid: create rasterization location %q: %w",
+				cfg.Rasterization.Location, err)
 		}
 	}
 

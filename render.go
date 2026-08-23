@@ -11,6 +11,7 @@ import (
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/meta"
+	networking_int "github.com/lilybw/go-solid/internal/networking"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 	"github.com/lilybw/go-solid/shared/registry"
@@ -29,6 +30,20 @@ func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCall
 // (render0 aborts on it). What is advisory is the scope, not the outcome: an
 // unregistered component, absent props, or a props value the mapper cannot
 // describe all yield no finding and are left for Render to report.
+// behaviourDefaults is this Bundler's request/head templates. A nil Bundler
+// yields nil, which Defaults handles as "library defaults only", so Prepare on
+// one does not panic before Render can report it.
+func (this *Bundler) behaviourDefaults() *networking_int.Defaults {
+	if this == nil {
+		return nil
+	}
+	return this.defaults
+}
+
+func (this *Bundler) headSegment() networking.HTMLHeadSegmentBuilder {
+	return this.behaviourDefaults().NewHTMLHeadSegmentBuilder()
+}
+
 func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
 	if this == nil || this.types == nil || props == nil {
 		return nil

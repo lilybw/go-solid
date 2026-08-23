@@ -10,7 +10,6 @@ import (
 
 	"github.com/lilybw/go-solid/internal/meta"
 	watching_int "github.com/lilybw/go-solid/internal/watching"
-	"github.com/lilybw/go-solid/shared/registry"
 	. "github.com/lilybw/go-solid/shared/registry"
 	watching "github.com/lilybw/go-solid/shared/watching"
 )
@@ -67,7 +66,19 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 // qualified name of a component whose backing file was removed; onTouch is
 // called with the path of any watched file that was created or written, so the
 // caller can invalidate whatever it derived from that file.
+// A registry can only be made reactive once: a second watcher over the same
+// tree would double every callback and orphan the first one's goroutine.
 func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onTouch func(meta.AbsoluteFilePath), onErr func(error)) error {
+	this.mu.Lock()
+	already := this.watcher != nil
+	this.mu.Unlock()
+	if already {
+		return fmt.Errorf("registry: already reactive; call Close before making it reactive again")
+	}
+
+	if onDrop == nil {
+		onDrop = func(meta.QualifiedName) {}
+	}
 	if onTouch == nil {
 		onTouch = func(meta.AbsoluteFilePath) {}
 	}
@@ -95,16 +106,25 @@ func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onT
 	if err != nil {
 		return fmt.Errorf("registry: make reactive: %w", err)
 	}
+
+	this.mu.Lock()
 	this.watcher = rw
+	this.mu.Unlock()
 	return nil
 }
 
+// Close stops the reactive watcher, if MakeReactive started one. Idempotent,
+// and safe on a nil receiver.
 func (this *ComponentRegistry) Close() {
-	if this == nil || this.watcher == nil {
+	if this == nil {
 		return
 	}
-	this.watcher.Stop()
+	this.mu.Lock()
+	watcher := this.watcher
 	this.watcher = nil
+	this.mu.Unlock()
+
+	watcher.Stop() // nil-safe
 }
 
 // NameForFile maps a path under the components root to its qualified name.
@@ -208,7 +228,7 @@ func (this *ComponentRegistry) Reload() error {
 			return fmt.Errorf("registry: duplicate component %q from %s and %s",
 				name, existing.Path, path)
 		}
-		found[name] = *registry.NewComponent(name, path, ext)
+		found[name] = *NewComponent(name, path, ext)
 		return nil
 	})
 	if walkErr != nil {
@@ -227,14 +247,6 @@ func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (*Component,
 	defer this.mu.RUnlock()
 	c, ok := this.components[component]
 	return &c, ok
-}
-
-type QualifiedNameSlice []meta.QualifiedName
-
-func (this QualifiedNameSlice) ToStringSlice() []string {
-	out := make([]string, len(this))
-	copy(out, this)
-	return out
 }
 
 // Names returns all registered component names, sorted.

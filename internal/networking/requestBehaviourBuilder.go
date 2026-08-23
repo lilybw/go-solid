@@ -6,30 +6,24 @@ import (
 	"reflect"
 
 	"github.com/lilybw/go-solid/internal/meta"
-	"github.com/lilybw/go-solid/internal/noop"
 	. "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
-
-var requestBehaviourBuilderTemplate = noop.T_o_Void[RequestBehaviourBuilder]()
-
-func SetRequestBehaviourTemplate(fn meta.Configurator[RequestBehaviourBuilder]) {
-	requestBehaviourBuilderTemplate = fn
-}
 
 type requestBehaviourBuilder struct {
 	data *RequestBehaviour
 }
 
+// NewRequestBehaviourBuilder returns a builder carrying no consumer defaults.
+// For one with a Bundler's configured request template applied, use
+// Defaults.NewRequestBehaviourBuilder.
 func NewRequestBehaviourBuilder(data *RequestBehaviour) RequestBehaviourBuilder {
-	instance := &requestBehaviourBuilder{data: data}
-	requestBehaviourBuilderTemplate(instance)
-	return instance
+	return &requestBehaviourBuilder{data: data}
 }
 
 func (this *requestBehaviourBuilder) SetWriter(w http.ResponseWriter) RequestBehaviourBuilder {
 	meta.PanicIfTrue(w == nil, "SetWriter: writer cannot be nil")
-	this.data.W = w
+	this.data.BindWriter(w)
 	return this
 }
 
@@ -58,7 +52,8 @@ func (this *requestBehaviourBuilder) CodeUpon(event events.EventType, statusCode
 }
 
 func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
-	rb := &RequestBehaviour{W: w, R: r, Handlers: NewHandlerMap()}
+	rb := &RequestBehaviour{R: r, Handlers: NewHandlerMap()}
+	rb.BindWriter(w)
 	// A default responder per concrete event type. Ranging over EVENTS.Concrete
 	// means a newly declared event gets one for free. Bind resolves W/R at
 	// dispatch time, so a behaviour built with (nil, nil) by SetHTTPBehaviour

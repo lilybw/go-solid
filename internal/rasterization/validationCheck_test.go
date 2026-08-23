@@ -36,7 +36,7 @@ func writeValidLayout(t *testing.T) string {
 	return root
 }
 
-// writeEntry writes a <stem>.meta.json plus the HTML/JS/CSS artifacts it names.
+// writeEntry writes a <stem>.meta.json plus the JS/CSS artifacts it names.
 // mutate lets a caller tweak the manifest before it's written.
 func writeEntry(t *testing.T, cacheDir, stem string, mutate func(*caching_int.ComponentDiskManifest)) {
 	t.Helper()
@@ -44,7 +44,6 @@ func writeEntry(t *testing.T, cacheDir, stem string, mutate func(*caching_int.Co
 	var m caching_int.ComponentDiskManifest
 	m.Component = "auth/LoginForm"
 	m.Key = "deadbeefcafe"
-	m.Artifacts.HTML = meta.RelativeFilePath(stem + ".html")
 	m.Artifacts.JS = meta.RelativeFilePath(stem + ".js")
 	// no CSS by default
 
@@ -53,9 +52,6 @@ func writeEntry(t *testing.T, cacheDir, stem string, mutate func(*caching_int.Co
 	}
 
 	// Write artifacts the manifest points at (only the non-empty ones).
-	if m.Artifacts.HTML != "" {
-		mustWrite(t, filepath.Join(cacheDir, string(m.Artifacts.HTML)), "<div></div>")
-	}
 	if m.Artifacts.JS != "" {
 		mustWrite(t, filepath.Join(cacheDir, string(m.Artifacts.JS)), "// js")
 	}
@@ -132,14 +128,6 @@ func TestExpectCompletedValidationCheck_Failures(t *testing.T) {
 				})
 			},
 			wantSub: "is invalid",
-		},
-		{
-			name: "manifest references missing HTML artifact",
-			mutate: func(t *testing.T, root string) {
-				cacheDir := filepath.Join(root, caching_int.CACHE_DIR_NAME)
-				rm(t, filepath.Join(cacheDir, "auth_LoginForm__root-a__deadbeef.html"))
-			},
-			wantSub: "missing HTML artifact",
 		},
 		{
 			name: "manifest references missing JS artifact",

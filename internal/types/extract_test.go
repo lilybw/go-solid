@@ -360,3 +360,98 @@ export default function Hello(props: A) { return <div/>; }
 		t.Error("a mutual alias resolves to nothing")
 	}
 }
+
+// TypeScript's ESM-style specifiers name the emitted file, not the source one:
+// under node16 or bundler resolution a .ts file imports its sibling as
+// "./types.js". Refusing to follow that leaves the component unchecked.
+func TestExtract_FollowsEmittedExtensionSpecifiers(t *testing.T) {
+	for _, tc := range []struct{ file, specifier string }{
+		{"types.ts", "./types.js"},
+		{"types.tsx", "./types.js"},
+		{"types.d.ts", "./types.js"},
+		{"types.mts", "./types.mjs"},
+		{"types.cts", "./types.cjs"},
+		{"types.ts", "./types"},
+	} {
+		t.Run(tc.file+" via "+tc.specifier, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, tc.file),
+				[]byte("export interface P { id: string }\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			extraction := extractionIn(t, dir, "Hello.tsx", `
+import type { P } from "`+tc.specifier+`";
+export default function Hello(props: P) { return <div/>; }
+`)
+			assertDeclared(t, extraction, "id:string")
+		})
+	}
+}
+
+// A source file that exists under the name the specifier gives wins over the
+// extension substitution, so a genuine .js sibling is still reachable.
+func TestExtract_PrefersTheTypeScriptSourceOverTheEmittedFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("types.ts", "export interface P { fromTS: string }\n")
+	write("types.js", "export const nothing = 1;\n")
+
+	extraction := extractionIn(t, dir, "Hello.tsx", `
+import type { P } from "./types.js";
+export default function Hello(props: P) { return <div/>; }
+`)
+	assertDeclared(t, extraction, "fromTS:string")
+}
+
+// Several top-level functions and no default export names no component.
+// Picking one would be a guess, and a guess checks props against the wrong
+// contract without saying so.
+func TestExtract_AmbiguousTopLevelFunctionsResolveToNothing(t *testing.T) {
+	extraction := extractionIn(t, t.TempDir(), "Hello.tsx", `
+function Header(props: { a: string }) { return <div/>; }
+function Footer(props: { b: number }) { return <div/>; }
+`)
+	if extraction.Found {
+		t.Errorf("guessed a component from an ambiguous file: %s", extraction.Shape.Fingerprint())
+	}
+}
+
+// The disambiguating export still resolves, whichever form it takes.
+func TestExtract_DefaultExportDisambiguatesSeveralFunctions(t *testing.T) {
+	for name, source := range map[string]string{
+		"export default function": `
+function Header(props: { a: string }) { return <div/>; }
+export default function Hello(props: { title: string }) { return <div/>; }
+`,
+		"export default binding": `
+function Header(props: { a: string }) { return <div/>; }
+function Hello(props: { title: string }) { return <div/>; }
+export default Hello;
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			assertDeclared(t, extractionIn(t, t.TempDir(), "Hello.tsx", source), "title:string")
+		})
+	}
+}
+
+// Shape keeps its members sorted and deduplicated so Lookup can binary-search.
+// Handing out the backing slice would let a caller break that from outside.
+func TestShape_FieldsIsACopy(t *testing.T) {
+	shape := NewShape([]Field{{Name: "a", TS: "string"}, {Name: "b", TS: "number"}})
+
+	fields := shape.Fields()
+	fields[0] = Field{Name: "z", TS: "boolean"}
+
+	if got, ok := shape.Lookup("a"); !ok || got.TS != "string" {
+		t.Errorf("mutating the returned slice reached the shape: Lookup(a) = %+v, ok=%v", got, ok)
+	}
+	if shape.Len() != 2 {
+		t.Errorf("Len() = %d, want 2", shape.Len())
+	}
+}

@@ -22,10 +22,6 @@ var NIL_HMR_CONFIG = &HMRConfig{ // null object
 	Mux:      nil,
 }
 
-type VoidBiFunc[T any, U any] interface {
-	Call(t T, u U)
-}
-
 // MuxLike is anything that can register an http.Handler under a string pattern
 type MuxLike interface {
 	Handle(pattern string, handler http.Handler)

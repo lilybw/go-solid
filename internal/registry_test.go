@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lilybw/go-solid/internal/meta"
 )
@@ -204,4 +205,69 @@ func mustGetwd(t *testing.T) string {
 		t.Fatalf("Getwd: %v", err)
 	}
 	return wd
+}
+
+// MakeReactive starts a watcher. Starting a second over the same tree would
+// double every callback and leave the first goroutine running with nothing
+// holding it, so the second call is refused rather than accepted quietly.
+func TestRegistry_MakeReactiveRefusesASecondWatcher(t *testing.T) {
+	root := writeTree(t, map[string]string{"A.tsx": "export default () => null;"})
+	reg, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(reg.Close)
+
+	if err := reg.MakeReactive(nil, nil, nil); err != nil {
+		t.Fatalf("first MakeReactive: %v", err)
+	}
+	if err := reg.MakeReactive(nil, nil, nil); err == nil {
+		t.Error("a second MakeReactive was accepted; the first watcher is now orphaned")
+	}
+
+	// Close releases the watcher, so the registry can be made reactive again.
+	reg.Close()
+	if err := reg.MakeReactive(nil, nil, nil); err != nil {
+		t.Errorf("MakeReactive after Close: %v", err)
+	}
+}
+
+// Every callback is optional. A nil onDrop used to reach the watcher goroutine
+// and panic there, where no caller could recover it.
+func TestRegistry_MakeReactiveAcceptsNilCallbacks(t *testing.T) {
+	root := writeTree(t, map[string]string{"A.tsx": "export default () => null;"})
+	reg, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	t.Cleanup(reg.Close)
+
+	if err := reg.MakeReactive(nil, nil, nil); err != nil {
+		t.Fatalf("MakeReactive with nil callbacks: %v", err)
+	}
+	// Drive a change through the watcher; a nil callback must not panic it.
+	if err := os.WriteFile(filepath.Join(root, "B.tsx"), []byte("export default () => null;"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, "A.tsx")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+}
+
+// Close is a teardown hook, reachable from several owners.
+func TestRegistry_CloseIsIdempotentAndNilSafe(t *testing.T) {
+	var absent *ComponentRegistry
+	absent.Close()
+
+	root := writeTree(t, map[string]string{"A.tsx": "export default () => null;"})
+	reg, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if err := reg.MakeReactive(nil, nil, nil); err != nil {
+		t.Fatalf("MakeReactive: %v", err)
+	}
+	reg.Close()
+	reg.Close()
 }

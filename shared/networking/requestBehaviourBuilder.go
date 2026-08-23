@@ -55,6 +55,13 @@ func (this *RequestBehaviour) CommitStatus(code int) bool {
 	return true
 }
 
+// BindWriter installs w as the response writer, wrapped so that chains
+// dispatched in parallel cannot corrupt it. Every path that supplies a writer
+// goes through here; assigning W directly opts out of that protection.
+func (this *RequestBehaviour) BindWriter(w http.ResponseWriter) {
+	this.W = Synchronized(w)
+}
+
 // Bind turns a builder-style handler into a stored Handler. W and R are read at
 // dispatch time, so a behaviour built before the writer is known still writes
 // to the real one.
@@ -86,12 +93,17 @@ func (this *RequestBehaviour) Dispatch(event events.NetworkingEvent) error {
 
 	run(reflect.TypeOf(event))
 
-	// Category fallback: an event belongs to exactly one bucket.
-	switch event.(type) {
-	case events.SuccessEvent:
-		run(events.EVENTS.SuccessEvent)
-	case events.FailureEvent:
+	// Category buckets run after the event's own handlers, narrowest first. An
+	// event may sit in more than one — a development failure is also a failure
+	// — so these are independent tests, not a switch.
+	if _, ok := event.(events.DevelopmentFailureEvent); ok {
+		run(events.EVENTS.DevelopmentFailureEvent)
+	}
+	if _, ok := event.(events.FailureEvent); ok {
 		run(events.EVENTS.FailureEvent)
+	}
+	if _, ok := event.(events.SuccessEvent); ok {
+		run(events.EVENTS.SuccessEvent)
 	}
 
 	return firstErr

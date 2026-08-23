@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/networking"
 )
 
@@ -17,7 +16,8 @@ type htmlHeadSegmentBuilder struct {
 	deterministic bool
 }
 
-func generateEmptyHeadSegmentBuilderTemplate() *htmlHeadSegmentBuilder {
+// newHeadSegmentBuilder is the library default: a title and nothing else.
+func newHeadSegmentBuilder() *htmlHeadSegmentBuilder {
 	instance := &htmlHeadSegmentBuilder{
 		unique:        make(map[HTMLTagName]string),
 		rest:          make([]HTMLTag, 0),
@@ -27,22 +27,20 @@ func generateEmptyHeadSegmentBuilderTemplate() *htmlHeadSegmentBuilder {
 	return instance
 }
 
-var _htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
-
-func SetHTMLHeadSegmentTemplate(fn meta.Configurator[HTMLHeadSegmentBuilder]) {
-	_htmlHeadBuilderTemplate = generateEmptyHeadSegmentBuilderTemplate()
-	fn(_htmlHeadBuilderTemplate)
+func (this *htmlHeadSegmentBuilder) clone() *htmlHeadSegmentBuilder {
+	return &htmlHeadSegmentBuilder{
+		unique:        maps.Clone(this.unique),
+		rest:          slices.Clone(this.rest),
+		deterministic: this.deterministic,
+	}
 }
 
+// NewHTMLHeadSegmentBuilder returns a builder carrying only the library
+// defaults. For one seeded from a Bundler's configured head template, use
+// Defaults.NewHTMLHeadSegmentBuilder — the defaults are per-Bundler, so there
+// is no process-wide template to consult here.
 func NewHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
-	instance := &htmlHeadSegmentBuilder{
-		unique:        make(map[HTMLTagName]string),
-		rest:          make([]HTMLTag, 0),
-		deterministic: _htmlHeadBuilderTemplate.deterministic,
-	}
-	instance.rest = slices.Clone(_htmlHeadBuilderTemplate.rest)
-	instance.unique = maps.Clone(_htmlHeadBuilderTemplate.unique)
-	return instance
+	return newHeadSegmentBuilder()
 }
 
 func (this *htmlHeadSegmentBuilder) AddLink(rel, href string) HTMLHeadSegmentBuilder {

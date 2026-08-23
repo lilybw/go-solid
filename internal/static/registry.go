@@ -13,9 +13,8 @@ type StaticRegistry interface {
 }
 
 type enabledStaticRegistry struct {
-	cfg       *StaticConfig
-	graph     *Node[os.DirEntry]
-	generated string
+	cfg   *StaticConfig
+	graph *Node[os.DirEntry]
 }
 
 // NewStaticRegistry returns a disabled registry when no location is configured.

@@ -21,7 +21,6 @@ type Watcher struct {
 	root  string
 	index *internal.DependencyIndex
 	hub   *Hub
-	reg   *internal.ComponentRegistry
 	onErr func(error)
 	// invalidate drops cached artifacts for a component. It must run before the
 	// browser is told to reload, or the reload re-fetches the stale bundle.
@@ -41,7 +40,6 @@ func NewWatcher(
 	root string,
 	index *internal.DependencyIndex,
 	hub *Hub,
-	reg *internal.ComponentRegistry,
 	invalidate func(meta.QualifiedName),
 	onErr func(error),
 ) (*Watcher, error) {
@@ -57,7 +55,6 @@ func NewWatcher(
 		root:       root,
 		index:      index,
 		hub:        hub,
-		reg:        reg,
 		invalidate: invalidate,
 		onErr:      onErr,
 		stopCh:     make(chan struct{}),

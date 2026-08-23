@@ -201,12 +201,11 @@ func TestUserHandlersDoNotDisplaceDefaults(t *testing.T) {
 }
 
 // A user-supplied template (Config.Defaults.Requests) is applied through
-// NewRequestBehaviourBuilder. It must be additive, not destructive.
+// Defaults.NewRequestBehaviourBuilder. It must be additive, not destructive.
 func TestRequestBehaviourTemplate_AppliesWithoutLosingDefaults(t *testing.T) {
-	t.Cleanup(func() { SetRequestBehaviourTemplate(func(shared.RequestBehaviourBuilder) {}) })
-
 	var templateRan bool
-	SetRequestBehaviourTemplate(func(b shared.RequestBehaviourBuilder) {
+	defaults := NewDefaults()
+	defaults.SetRequestBehaviour(func(b shared.RequestBehaviourBuilder) {
 		b.Upon(events.EVENTS.TransmitRenderedTemplate, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 			templateRan = true
 			return nil
@@ -214,7 +213,7 @@ func TestRequestBehaviourTemplate_AppliesWithoutLosingDefaults(t *testing.T) {
 	})
 
 	data, rec := newBoundRequestData(t)
-	NewRequestBehaviourBuilder(data) // applies the template
+	defaults.NewRequestBehaviourBuilder(data) // applies the template
 
 	const html = "<html>tpl</html>"
 	if err := data.Dispatch(events.NewTransmitRenderedTemplate(rendered(html))); err != nil {

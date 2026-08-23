@@ -29,7 +29,7 @@ import (
 // regression does not cascade through the rest of the suite.
 //
 // Not covered: the networking head/request templates set by
-// SetHTMLHeadSegmentTemplate / SetRequestBehaviourTemplate, which are only
+// the behavioural defaults, which are per-Bundler now and only
 // touched when Defaults was supplied by the consumer.
 func resetPackageState(t *testing.T) {
 	t.Helper()

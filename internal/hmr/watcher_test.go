@@ -93,7 +93,7 @@ func TestWatcher_FileChangeTriggersReload(t *testing.T) {
 
 	h, awaitReload := hubWithClient(t, "ui/Button")
 
-	w, err := NewWatcher(root, index, h, nil, nil, func(e error) { t.Logf("watch err: %v", e) })
+	w, err := NewWatcher(root, index, h, nil, func(e error) { t.Logf("watch err: %v", e) })
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestWatcher_UnrelatedFileDoesNotReload(t *testing.T) {
 
 	h, awaitReload := hubWithClient(t, "ui/Button")
 
-	w, err := NewWatcher(root, index, h, nil, nil, func(e error) { t.Logf("watch err: %v", e) })
+	w, err := NewWatcher(root, index, h, nil, func(e error) { t.Logf("watch err: %v", e) })
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestWatcher_DebounceCoalescesBurst(t *testing.T) {
 
 	h, awaitReload := hubWithClient(t, "ui/Button")
 
-	w, err := NewWatcher(root, index, h, nil, nil, func(e error) { t.Logf("watch err: %v", e) })
+	w, err := NewWatcher(root, index, h, nil, func(e error) { t.Logf("watch err: %v", e) })
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestWatcher_NewDirectoryIsWatched(t *testing.T) {
 	index := internal.NewDepIndex()
 	h, awaitReload := hubWithClient(t, "ui/NewComp")
 
-	w, err := NewWatcher(root, index, h, nil, nil, func(e error) { t.Logf("watch err: %v", e) })
+	w, err := NewWatcher(root, index, h, nil, func(e error) { t.Logf("watch err: %v", e) })
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestWatcher_StopIsIdempotentlySafe(t *testing.T) {
 	index := internal.NewDepIndex()
 	h := NewHub(NIL_HMR_CONFIG)
 
-	w, err := NewWatcher(root, index, h, nil, nil, nil)
+	w, err := NewWatcher(root, index, h, nil, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestWatcher_StopIsIdempotentlySafe(t *testing.T) {
 
 	// Concurrent teardown resolves the same way: every caller returns, once.
 	var wg sync.WaitGroup
-	w2, err := NewWatcher(root, index, h, nil, nil, nil)
+	w2, err := NewWatcher(root, index, h, nil, nil)
 	if err != nil {
 		t.Fatalf("NewWatcher: %v", err)
 	}

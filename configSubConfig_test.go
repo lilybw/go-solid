@@ -282,9 +282,6 @@ func stageRasterizedWorkspace(t *testing.T, ws string) {
 		t.Fatal(err)
 	}
 	stem := "auth_LoginForm__abc123"
-	if err := os.WriteFile(filepath.Join(cacheDir, stem+".html"), []byte("<html></html>"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(filepath.Join(cacheDir, stem+".js"), []byte("export default 0;"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +291,7 @@ func stageRasterizedWorkspace(t *testing.T, ws string) {
   "generatedAt": "2024-01-01T00:00:00Z",
   "key": "abcdef",
   "sources": {},
-  "artifacts": { "html": "` + stem + `.html", "js": "` + stem + `.js" },
+  "artifacts": { "js": "` + stem + `.js" },
   "serveNames": { "js": "auth_LoginForm.deadbeef.js" }
 }`
 	if err := os.WriteFile(filepath.Join(cacheDir, stem+".meta.json"), []byte(manifest), 0o644); err != nil {

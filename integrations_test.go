@@ -247,8 +247,8 @@ func TestNew_DefaultsConfiguratorsInvokedWhenProvided(t *testing.T) {
 	}
 	defer b.Close()
 
-	// New() calls SetHTMLHeadSegmentTemplate(cfg.Defaults.HeadSegment), which
-	// invokes the configurator exactly once against the fresh template.
+	// New() hands cfg.Defaults.HeadSegment to this Bundler's Defaults, which
+	// invokes the configurator exactly once against a fresh template.
 	if headCalls != 1 {
 		t.Fatalf("HeadSegment configurator call count = %d, want 1", headCalls)
 	}

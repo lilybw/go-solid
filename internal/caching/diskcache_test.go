@@ -45,7 +45,6 @@ func writeSource(t *testing.T, dir, name, contents string) string {
 
 func sampleRendered() *Rendered {
 	return &Rendered{
-		HTML:    "<div id=\"r\"></div>",
 		JS:      "console.log('hi')",
 		CSS:     ".r{color:red}",
 		JSName:  "W.abc.js",
@@ -145,8 +144,11 @@ func TestDiskCache_PutGetRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("get miss after put")
 	}
-	if got.HTML != want.HTML || got.JS != want.JS || got.CSS != want.CSS {
+	if got.JS != want.JS || got.CSS != want.CSS {
 		t.Errorf("round trip mismatch:\n got %+v\nwant %+v", got, want)
+	}
+	if got.HTML != "" {
+		t.Errorf("disk cache returned HTML %q; the document is assembled per request, never stored", got.HTML)
 	}
 	if got.JSName != want.JSName || got.CSSName != want.CSSName {
 		t.Errorf("asset names lost: got js=%q css=%q", got.JSName, got.CSSName)
@@ -189,7 +191,7 @@ func TestDiskCache_ManifestIsReadableJSON(t *testing.T) {
 func TestDiskCache_NoCSSOmitsCSSFile(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "W.tsx", "export default 1;")
-	r := &Rendered{HTML: "<div></div>", JS: "1", JSName: "w.js"} // no CSS
+	r := &Rendered{JS: "1", JSName: "w.js"} // no CSS
 	dc.Put(&CacheKey{Component: "k"}, false, r, []string{src})
 
 	got, ok := dc.Get(&CacheKey{Component: "k"})
@@ -384,13 +386,12 @@ func TestDiskCache_PersistsAcrossNewInstance(t *testing.T) {
 }
 
 // Regression: a disk-cache hit must return the ORIGINAL serving names (the
-// content-hashed names baked into the HTML), not storage filenames. Otherwise
-// HTML and JSName disagree and asset serving breaks.
+// content-hashed names the shell references), not storage filenames. Otherwise
+// the shell and JSName disagree and asset serving breaks.
 func TestDiskCache_PreservesServingNames(t *testing.T) {
 	dc, ws := newTestDiskCache(t)
 	src := writeSource(t, ws, "C.tsx", "x")
 	want := &Rendered{
-		HTML:    "<script src=\"/static/dist/comp.abc123.js\"></script>",
 		JS:      "1;",
 		CSS:     ".x{}",
 		JSName:  "comp.abc123.js",
@@ -407,10 +408,6 @@ func TestDiskCache_PreservesServingNames(t *testing.T) {
 	}
 	if got.CSSName != want.CSSName {
 		t.Errorf("CSSName not preserved: got %q want %q", got.CSSName, want.CSSName)
-	}
-	// And the HTML (which references the serving name) must match what get returns.
-	if !strings.Contains(got.HTML, got.JSName) {
-		t.Error("returned HTML references a different name than JSName")
 	}
 }
 
@@ -449,8 +446,8 @@ func TestDiskCache_PrefixCollisionSafe(t *testing.T) {
 
 	keyA := "0123456789ab_AAAA"
 	keyB := "0123456789ab_BBBB" // identical first 12 chars
-	dc.Put(&CacheKey{Component: keyA}, true, &Rendered{HTML: "A", JS: "jsA", JSName: "a.js"}, []string{src})
-	dc.Put(&CacheKey{Component: keyB}, true, &Rendered{HTML: "B", JS: "jsB", JSName: "b.js"}, []string{src})
+	dc.Put(&CacheKey{Component: keyA}, true, &Rendered{JS: "jsA", JSName: "a.js"}, []string{src})
+	dc.Put(&CacheKey{Component: keyB}, true, &Rendered{JS: "jsB", JSName: "b.js"}, []string{src})
 
 	gotA, okA := dc.Get(&CacheKey{Component: keyA})
 	gotB, okB := dc.Get(&CacheKey{Component: keyB})
@@ -476,7 +473,7 @@ func TestDiskCache_InvalidatesOnTransitiveSourceEdit(t *testing.T) {
 }
 
 func TestAppendUnique_Dedups(t *testing.T) {
-	l := appendUnique(appendUnique(appendUnique(nil, "a"), "b"), "a")
+	l := []string{"a", "b"}
 	if len(l) != 2 {
 		t.Errorf("dup not removed: %v", l)
 	}

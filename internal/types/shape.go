@@ -15,10 +15,15 @@ type Field struct {
 
 // Shape is the structural description of a component's props.
 //
-// Fields are held sorted by name, so two shapes describing the same object are
-// equal and fingerprint identically whatever order they were built in.
+// Members are held sorted by name and deduplicated, which is what lets Lookup
+// binary-search and two shapes describing the same object fingerprint
+// identically whatever order they were built in. That invariant is the type's
+// whole contract, so the slice is not exported: NewShape is the only way in.
+//
+//	shape := types.NewShape([]types.Field{{Name: "title", TS: "string"}})
+//	field, ok := shape.Lookup("title")
 type Shape struct {
-	Fields []Field
+	fields []Field
 }
 
 // NewShape sorts fields by name and drops later duplicates.
@@ -26,21 +31,28 @@ func NewShape(fields []Field) Shape {
 	sorted := slices.Clone(fields)
 	slices.SortStableFunc(sorted, func(a, b Field) int { return strings.Compare(a.Name, b.Name) })
 	sorted = slices.CompactFunc(sorted, func(a, b Field) bool { return a.Name == b.Name })
-	return Shape{Fields: sorted}
+	return Shape{fields: sorted}
 }
 
-// Empty reports whether the shape carries no fields.
-func (s Shape) Empty() bool { return len(s.Fields) == 0 }
+// Fields returns the members, sorted by name. The result is a copy; mutating it
+// cannot break the ordering the shape relies on.
+func (s Shape) Fields() []Field { return slices.Clone(s.fields) }
+
+// Len is the number of members.
+func (s Shape) Len() int { return len(s.fields) }
+
+// Empty reports whether the shape carries no members.
+func (s Shape) Empty() bool { return len(s.fields) == 0 }
 
 // Lookup returns the field named name.
 func (s Shape) Lookup(name string) (Field, bool) {
-	i, ok := slices.BinarySearchFunc(s.Fields, name, func(f Field, n string) int {
+	i, ok := slices.BinarySearchFunc(s.fields, name, func(f Field, n string) int {
 		return strings.Compare(f.Name, n)
 	})
 	if !ok {
 		return Field{}, false
 	}
-	return s.Fields[i], true
+	return s.fields[i], true
 }
 
 // Fingerprint is a canonical single-line encoding, stable across formatting
@@ -52,7 +64,7 @@ func (s Shape) Lookup(name string) (Field, bool) {
 // CanonicalTS. An empty shape encodes as the empty string.
 func (s Shape) Fingerprint() string {
 	var b strings.Builder
-	for i, f := range s.Fields {
+	for i, f := range s.fields {
 		if i > 0 {
 			b.WriteByte(';')
 		}
@@ -118,7 +130,7 @@ type Violation struct {
 // violation; that is what optional means.
 func Violations(target, source Shape) []Violation {
 	var out []Violation
-	for _, want := range target.Fields {
+	for _, want := range target.fields {
 		got, present := source.Lookup(want.Name)
 		if !present {
 			if !want.Optional {

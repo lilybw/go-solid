@@ -430,7 +430,7 @@ func objectLiteral(s Shape) string {
 	}
 	var b strings.Builder
 	b.WriteString("{ ")
-	for i, f := range s.Fields {
+	for i, f := range s.fields {
 		if i > 0 {
 			b.WriteString("; ")
 		}

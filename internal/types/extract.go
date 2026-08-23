@@ -1,13 +1,16 @@
 package types
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 
+	log_int "github.com/lilybw/go-solid/internal/logging"
 	"github.com/lilybw/go-solid/internal/meta"
+	logging "github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/ast"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/core"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/parser"
@@ -222,7 +225,7 @@ func (r *resolver) shapeOfTypeNode(f *parsedFile, typeNode *ast.Node, depth int)
 				continue
 			}
 			resolved = true
-			merged = append(merged, shape.Fields...)
+			merged = append(merged, shape.fields...)
 		}
 		return NewShape(merged), "", resolved
 	}
@@ -308,8 +311,18 @@ func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFileP
 			if property := spec.AsImportSpecifier().PropertyName; property != nil {
 				exported = property.Text()
 			}
-			target, ok := resolveModule(f.path, decl.ModuleSpecifier.Text())
+			specifier := decl.ModuleSpecifier.Text()
+			target, ok := resolveModule(f.path, specifier)
 			if !ok {
+				// A bare specifier is skipped by design. A relative one that
+				// resolves to nothing is a real miss — a moved definition, a
+				// path typo, an extension the resolver does not know — and
+				// saying so beats leaving the component quietly unchecked.
+				if isRelativeSpecifier(specifier) {
+					log_int.Log(logging.LEVEL_ERROR, fmt.Sprintf(
+						"[go_solid/types] %s: cannot resolve %q, imported for type %q; "+
+							"props against it are unchecked", f.path, specifier, local))
+				}
 				return "", "", false
 			}
 			return target, exported, true
@@ -320,19 +333,30 @@ func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFileP
 
 // moduleExtensions are tried in TypeScript's order for a specifier that names
 // no extension of its own.
-var moduleExtensions = []string{".ts", ".tsx", ".d.ts"}
+var moduleExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".cts"}
 
-// resolveModule turns a relative module specifier into a file. Bare specifiers
-// are left alone: resolving them needs the node resolution algorithm and would
-// walk into node_modules, which holds nothing go_solid generated.
-func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteFilePath, bool) {
-	if !strings.HasPrefix(specifier, "./") && !strings.HasPrefix(specifier, "../") {
-		return "", false
-	}
-	base := filepath.Join(filepath.Dir(from), filepath.FromSlash(specifier))
+// outputExtensions map an emitted extension back to the sources that produce
+// it. Under node16 and bundler resolution a TypeScript file imports its sibling
+// by the name it will have after compilation — "./types.js" for types.ts — so a
+// specifier naming a JavaScript file is usually a TypeScript one.
+var outputExtensions = map[string][]string{
+	".js":  {".ts", ".tsx", ".d.ts"},
+	".jsx": {".tsx"},
+	".mjs": {".mts", ".d.mts"},
+	".cjs": {".cts", ".d.cts"},
+}
 
-	candidates := make([]string, 0, 2*len(moduleExtensions)+1)
+// resolveCandidates lists the files a relative specifier could name, in the
+// order TypeScript would try them.
+func resolveCandidates(base string) []string {
+	candidates := make([]string, 0, 2*len(moduleExtensions)+len(outputExtensions)+1)
+
 	if ext := filepath.Ext(base); ext != "" {
+		stem := strings.TrimSuffix(base, ext)
+		// The emitted name first, since that is what the specifier asked for.
+		for _, source := range outputExtensions[ext] {
+			candidates = append(candidates, stem+source)
+		}
 		candidates = append(candidates, base)
 	}
 	for _, ext := range moduleExtensions {
@@ -341,7 +365,19 @@ func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteF
 	for _, ext := range moduleExtensions {
 		candidates = append(candidates, filepath.Join(base, "index"+ext))
 	}
-	for _, candidate := range candidates {
+	return candidates
+}
+
+// resolveModule turns a relative module specifier into a file. Bare specifiers
+// are left alone: resolving them needs the node resolution algorithm and would
+// walk into node_modules, which holds nothing go_solid generated.
+func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteFilePath, bool) {
+	if !isRelativeSpecifier(specifier) {
+		return "", false
+	}
+	base := filepath.Join(filepath.Dir(from), filepath.FromSlash(specifier))
+
+	for _, candidate := range resolveCandidates(base) {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			return candidate, true
 		}
@@ -349,9 +385,20 @@ func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteF
 	return "", false
 }
 
+// isRelativeSpecifier separates the imports the extractor follows from the bare
+// package specifiers it deliberately does not.
+func isRelativeSpecifier(specifier string) bool {
+	return strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
+}
+
 // defaultExportedFunction locates the component: an exported default function
 // declaration, an `export default` of a function or of a locally bound one, or
 // failing that the sole function declared at the top level.
+//
+// A file declaring several top-level functions and exporting none of them by
+// default names no component. Picking one would be a guess, and a guess here
+// silently checks props against the wrong contract, so nothing is returned and
+// the component is reported as one whose props cannot be checked.
 func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 	if file.Statements == nil {
 		return nil
@@ -391,10 +438,10 @@ func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 	if count == 1 {
 		return candidate
 	}
-	if fn := soleBoundFunction(file); fn != nil {
-		return fn
+	if count == 0 {
+		return soleBoundFunction(file) // nil when there is not exactly one
 	}
-	return candidate
+	return nil // ambiguous; see above
 }
 
 func isFunctionExpression(n *ast.Node) bool {

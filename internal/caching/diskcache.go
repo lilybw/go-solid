@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,11 +18,11 @@ import (
 // -----------------------------------------------------------------------------
 // Disk-backed component cache
 // -----------------------------------------------------------------------------
-// Entries live under <caching/shared.go#CACHE_DIR_NAME> as human-readable, inspectable
-// files. Each cache entry is a set of sibling files sharing a base name:
+// Entries live under <caching/shared.go#CACHE_DIR_NAME> as human-readable,
+// inspectable files. Each cache entry is a set of sibling files sharing a base
+// name:
 //
 //   auth_LoginForm__<hash>.meta.json   manifest (component, sources, ...)
-//   auth_LoginForm__<hash>.html
 //   auth_LoginForm__<hash>.js
 //   auth_LoginForm__<hash>.css          (only if the bundle has CSS)
 //
@@ -31,14 +30,17 @@ import (
 // CacheKey.String, which is what actually distinguishes two entries for the
 // same component (different mount root, different build settings).
 //
+// What is cached is the component: the props-independent JS and CSS. The
+// document around it is assembled per request — it carries props, the mount
+// root and the HMR client, none of which are cacheable — so no HTML is stored.
+//
 // Invalidation is by SOURCE CONTENT HASH, not timestamps: the manifest records
 // each source file's sha256, and an entry is valid only if every source still
-// hashes to the recorded value. generatedAt is stored for humans, never used for
-// correctness.
+// hashes to the recorded value. generatedAt is stored for humans, never used
+// for correctness.
 //
-// There is no on-disk reverse index: InvalidateComponent scans the manifests,
-// which are the source of truth. The in-process reverse graph lives in
-// internal.DependencyIndex.
+// There is no on-disk reverse index: the manifests are the source of truth. The
+// in-process reverse graph lives in internal.DependencyIndex.
 
 type HTMLElementID = string
 
@@ -50,9 +52,8 @@ type ComponentDiskManifest struct {
 	Key         string             `json:"key"`         // cache key (also the base filename stem)
 	Sources     map[string]string  `json:"sources"`     // absPath -> "sha256:<hex>"
 	Artifacts   struct {
-		HTML meta.RelativeFilePath `json:"html"`
-		JS   meta.RelativeFilePath `json:"js"`
-		CSS  meta.RelativeFilePath `json:"css,omitempty"`
+		JS  meta.RelativeFilePath `json:"js"`
+		CSS meta.RelativeFilePath `json:"css,omitempty"`
 	} `json:"artifacts"`
 	// ServeNames are the names the consumer serves assets under (the
 	// content-hashed names baked into the HTML). Distinct from Artifacts, which
@@ -71,25 +72,41 @@ func (m *ComponentDiskManifest) Validate() error {
 	if m.Key == "" {
 		return fmt.Errorf("manifest: missing key")
 	}
-	if m.Artifacts.HTML == "" {
-		return fmt.Errorf("manifest: missing HTML artifact")
-	}
 	if m.Artifacts.JS == "" {
 		return fmt.Errorf("manifest: missing JS artifact")
 	}
 	return nil
 }
 
-// DiskCache persists rendered bundles and maintains the reverse dependency index.
+// DiskCache persists bundled components.
+//
+// Lookups go through an index of key to manifest path, built by one directory
+// scan on first use and maintained by Put and InvalidateComponent. The
+// manifests remain the source of truth, so a lost index costs only that scan —
+// but an entry another process writes into the directory after the index is
+// built will not be seen. Stage a pre-built cache before constructing the
+// Bundler that reads it.
 type DiskCache struct {
 	directory meta.AbsoluteDirectoryPath
 	mu        sync.Mutex
 	enabled   bool
+
+	indexed bool
+	// byKey maps CacheKey.String to the manifest path holding that entry.
+	byKey map[string]string
+	// byComponent maps a component name to the key strings it has entries for,
+	// which is what invalidation needs.
+	byComponent map[meta.QualifiedName]map[string]struct{}
 }
 
-func NewDiskCache(workspace string, enabled bool) (*DiskCache, error) {
-	dir := filepath.Join(workspace, CACHE_DIR_NAME)
-	dc := &DiskCache{directory: dir, enabled: enabled}
+func NewDiskCache(root string, enabled bool) (*DiskCache, error) {
+	dir := filepath.Join(root, CACHE_DIR_NAME)
+	dc := &DiskCache{
+		directory:   dir,
+		enabled:     enabled,
+		byKey:       map[string]string{},
+		byComponent: map[meta.QualifiedName]map[string]struct{}{},
+	}
 	if !enabled {
 		return dc, nil
 	}
@@ -98,6 +115,9 @@ func NewDiskCache(workspace string, enabled bool) (*DiskCache, error) {
 	}
 	return dc, nil
 }
+
+// Directory is where entries are written.
+func (dc *DiskCache) Directory() meta.AbsoluteDirectoryPath { return dc.directory }
 
 // hashFile returns "sha256:<hex>" for a file's contents, or ok=false if unreadable.
 func hashFile(file meta.AbsoluteFilePath) (string, bool) {
@@ -132,7 +152,7 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
 
-	manifestPath, ok := dc.manifestPathForKey(key)
+	manifestPath, ok := dc.lockedManifestPathForKey(key)
 	if !ok {
 		return nil, false
 	}
@@ -147,18 +167,13 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 			return nil, false // stale (edited or deleted source)
 		}
 	}
-	// Load artifacts.
+
 	base := strings.TrimSuffix(manifestPath, ".meta.json")
-	html, err := os.ReadFile(base + ".html")
-	if err != nil {
-		return nil, false
-	}
 	js, err := os.ReadFile(base + ".js")
 	if err != nil {
 		return nil, false
 	}
 	r := &Rendered{
-		HTML:   string(html),
 		JS:     string(js),
 		JSName: man.ServeNames.JS,
 	}
@@ -171,7 +186,7 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 	return r, true
 }
 
-// Put writes an entry (manifest + artifacts) and updates the reverse index.
+// Put writes an entry (manifest + artifacts) and indexes it.
 // sources are the absolute paths from the bundle's metafile.
 func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []string) error {
 	if !dc.enabled {
@@ -188,13 +203,12 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 		Sources:     map[string]string{},
 	}
 	for _, src := range sources {
-		key := esbuild.NormalizeSourcePath(src)
+		normalized := esbuild.NormalizeSourcePath(src)
 		if h, ok := hashFile(src); ok {
-			man.Sources[key] = h
+			man.Sources[normalized] = h
 		}
 	}
 	stem := entryStem(key)
-	man.Artifacts.HTML = stem + ".html"
 	man.Artifacts.JS = stem + ".js"
 	if r.CSS != "" {
 		man.Artifacts.CSS = stem + ".css"
@@ -203,9 +217,6 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 	man.ServeNames.CSS = r.CSSName
 
 	base := filepath.Join(dc.directory, stem)
-	if err := atomicWrite(base+".html", []byte(r.HTML)); err != nil {
-		return err
-	}
 	if err := atomicWrite(base+".js", []byte(r.JS)); err != nil {
 		return err
 	}
@@ -218,66 +229,85 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(base+".meta.json", manBytes); err != nil {
+	manifestPath := base + ".meta.json"
+	if err := atomicWrite(manifestPath, manBytes); err != nil {
 		return err
 	}
 
+	dc.lockedIndex(man.Key, man.Component, manifestPath)
 	return nil
 }
 
-// InvalidateComponent removes every cached entry whose manifest names the given
-// component. Returns the number of entries removed. Safe to call when disabled
-// (no-op) — it just finds nothing.
+// InvalidateComponent removes every cached entry for the given component.
+// Returns the number of entries removed. Safe to call when disabled (no-op).
 func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 	if !dc.enabled {
 		return 0
 	}
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
+	dc.lockedEnsureIndex()
 
-	entries, err := os.ReadDir(dc.directory)
-	if err != nil {
-		return 0
-	}
 	removed := 0
-	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".meta.json") {
-			continue
-		}
-		manifestPath := filepath.Join(dc.directory, e.Name())
-		man, err := ReadManifest(manifestPath)
-		if err != nil || man.Component != component {
+	for keyStr := range dc.byComponent[component] {
+		manifestPath, ok := dc.byKey[keyStr]
+		if !ok {
 			continue
 		}
 		base := strings.TrimSuffix(manifestPath, ".meta.json")
 		// Remove the whole entry set; ignore individual errors (best-effort,
 		// a missing sibling just means it was never written, e.g. no CSS).
-		for _, suffix := range []string{".html", ".js", ".css", ".meta.json"} {
+		for _, suffix := range []string{".js", ".css", ".meta.json"} {
 			_ = os.Remove(base + suffix)
 		}
+		delete(dc.byKey, keyStr)
 		removed++
 	}
+	delete(dc.byComponent, component)
 	return removed
 }
 
-func (dc *DiskCache) manifestPathForKey(key *CacheKey) (string, bool) {
-	// The stem includes a 12-char key prefix; scan for the manifest whose Key
-	// matches exactly (prefix could in principle collide, so verify).
+// lockedManifestPathForKey resolves a key to its manifest. Callers hold dc.mu.
+func (dc *DiskCache) lockedManifestPathForKey(key *CacheKey) (string, bool) {
+	dc.lockedEnsureIndex()
+	path, ok := dc.byKey[key.String()]
+	return path, ok
+}
+
+// lockedEnsureIndex reads the cache directory once and records where each entry
+// lives, so a lookup is a map hit rather than a scan that parses every manifest
+// in the tree. Callers hold dc.mu.
+func (dc *DiskCache) lockedEnsureIndex() {
+	if dc.indexed {
+		return
+	}
+	dc.indexed = true // a directory that cannot be read stays empty, not rescanned
+
 	entries, err := os.ReadDir(dc.directory)
 	if err != nil {
-		return "", false
+		return
 	}
-	keyStr := key.String()
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".meta.json") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".meta.json") {
 			continue
 		}
-		p := filepath.Join(dc.directory, e.Name())
-		if man, err := ReadManifest(p); err == nil && man.Key == keyStr {
-			return p, true
+		path := filepath.Join(dc.directory, e.Name())
+		man, err := ReadManifest(path)
+		if err != nil || man.Key == "" {
+			continue
 		}
+		dc.lockedIndex(man.Key, man.Component, path)
 	}
-	return "", false
+}
+
+func (dc *DiskCache) lockedIndex(keyStr string, component meta.QualifiedName, manifestPath string) {
+	dc.byKey[keyStr] = manifestPath
+	keys := dc.byComponent[component]
+	if keys == nil {
+		keys = map[string]struct{}{}
+		dc.byComponent[component] = keys
+	}
+	keys[keyStr] = struct{}{}
 }
 
 func ReadManifest(path string) (*ComponentDiskManifest, error) {
@@ -309,11 +339,4 @@ func atomicWrite(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
-}
-
-func appendUnique(list []string, v string) []string {
-	if slices.Contains(list, v) {
-		return list
-	}
-	return append(list, v)
 }

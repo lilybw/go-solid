@@ -38,18 +38,7 @@ func Copy[T any](src *T) *T {
 	return &c
 }
 
-type TBD any
-
 var NIL_PROPS = Zero[any]()
-
-// Rendered is the cacheable artifact set for one component+props combination.
-type Rendered struct {
-	HTML    string // index.html referencing the CSS + JS
-	CSS     string
-	JS      string
-	CSSName string // predictable filename, e.g. "auth_LoginForm.<hash>.css"
-	JSName  string
-}
 
 func PanicIfTrue(pred bool, msg string) {
 	if pred {

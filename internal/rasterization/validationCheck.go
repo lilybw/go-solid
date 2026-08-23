@@ -12,8 +12,8 @@ import (
 
 func ExpectCompletedValidationCheck(cfg *RasterizationConfig) error {
 	// Rasterization is pure pre-caching: the location holds the component cache
-	// and nothing else. (Earlier versions also required a transform-worker.*.mjs
-	// here; the compiler is Go now, so no such file is ever emitted.)
+	// and nothing else. What a cached component is, is its JS and any CSS — the
+	// document around it is assembled per request and never stored.
 
 	// sub-dir: component_cache
 
@@ -39,9 +39,6 @@ func ExpectCompletedValidationCheck(cfg *RasterizationConfig) error {
 			}
 			// all mentioned *.meta.json#artifacts should exist within same dir
 			artifactsDir := filepath.Join(cfg.Location, caching_int.CACHE_DIR_NAME)
-			if _, err := os.Stat(filepath.Join(artifactsDir, manifest.Artifacts.HTML)); err != nil {
-				return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, manifest %s references missing HTML artifact %s: %w", cfg.Location, manifestFile.Name(), manifest.Artifacts.HTML, err)
-			}
 			if _, err := os.Stat(filepath.Join(artifactsDir, manifest.Artifacts.JS)); err != nil {
 				return fmt.Errorf("go_solid: RasterizationConfig is invalid, specified location; %q, manifest %s references missing JS artifact %s: %w", cfg.Location, manifestFile.Name(), manifest.Artifacts.JS, err)
 			}
@@ -72,21 +69,3 @@ func FindFirstFileByPattern(base meta.AbsoluteDirectoryPath, pattern string) (os
 	return nil, false, nil
 }
 
-func FindFirstFileByPatternRecursive(base meta.AbsoluteDirectoryPath, pattern string) (os.DirEntry, bool, error) {
-	found := false
-	var file os.DirEntry
-	err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			if matched, _ := filepath.Match(pattern, d.Name()); matched {
-				found = true
-				file = d
-				return filepath.SkipAll
-			}
-		}
-		return nil
-	})
-	return file, found, err
-}

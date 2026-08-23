@@ -219,7 +219,7 @@ func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error
 	raw, err := encodeEntry(entry{
 		Component:  component,
 		Sources:    sources,
-		Fields:     extraction.Shape.Fields,
+		Fields:     extraction.Shape.fields,
 		Name:       extraction.Name,
 		Found:      extraction.Found,
 		HasParam:   extraction.HasParameter,

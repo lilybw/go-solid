@@ -45,14 +45,15 @@ func TestNewShape_SortsAndDeduplicates(t *testing.T) {
 		{Name: "a", TS: "string"},
 		{Name: "a", TS: "boolean"}, // later duplicate is dropped
 	})
-	if len(shape.Fields) != 2 {
-		t.Fatalf("len(Fields) = %d, want 2", len(shape.Fields))
+	fields := shape.Fields()
+	if len(fields) != 2 {
+		t.Fatalf("Len() = %d, want 2", len(fields))
 	}
-	if shape.Fields[0].Name != "a" || shape.Fields[1].Name != "b" {
-		t.Fatalf("fields not sorted: %+v", shape.Fields)
+	if fields[0].Name != "a" || fields[1].Name != "b" {
+		t.Fatalf("fields not sorted: %+v", fields)
 	}
-	if shape.Fields[0].TS != "string" {
-		t.Fatalf("first duplicate should win, got %q", shape.Fields[0].TS)
+	if fields[0].TS != "string" {
+		t.Fatalf("first duplicate should win, got %q", fields[0].TS)
 	}
 }
 
