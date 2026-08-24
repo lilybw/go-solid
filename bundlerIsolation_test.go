@@ -51,7 +51,7 @@ func TestDefaults_HeadTemplateIsPerBundler(t *testing.T) {
 	})
 
 	for label, b := range map[string]*Bundler{"first": first, "second": second} {
-		got := b.headSegment().Build()
+		got := b.defaults.NewHTMLHeadSegmentBuilder().Build()
 		if !strings.Contains(got, "<title>"+label+"</title>") {
 			t.Errorf("%s bundler's head template was overwritten by the other:\n%s", label, got)
 		}
@@ -68,7 +68,7 @@ func TestDefaults_UnconfiguredBundlerKeepsTheLibraryHead(t *testing.T) {
 	})
 	plain := bundlerWithDefaults(t, nil)
 
-	if got := plain.headSegment().Build(); !strings.Contains(got, "<title>go-solid</title>") {
+	if got := plain.defaults.NewHTMLHeadSegmentBuilder().Build(); !strings.Contains(got, "<title>go-solid</title>") {
 		t.Errorf("an unconfigured Bundler inherited another's head template:\n%s", got)
 	}
 }
@@ -115,7 +115,7 @@ func TestDefaults_ConstructionDoesNotRaceWithRendering(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 40 {
-			_ = serving.headSegment().Build()
+			_ = serving.defaults.NewHTMLHeadSegmentBuilder().Build()
 		}
 	}()
 	go func() {
@@ -128,7 +128,7 @@ func TestDefaults_ConstructionDoesNotRaceWithRendering(t *testing.T) {
 	}()
 	wg.Wait()
 
-	if got := serving.headSegment().Build(); !strings.Contains(got, "<title>serving</title>") {
+	if got := serving.defaults.NewHTMLHeadSegmentBuilder().Build(); !strings.Contains(got, "<title>serving</title>") {
 		t.Errorf("the serving Bundler's head template was rewritten:\n%s", got)
 	}
 }

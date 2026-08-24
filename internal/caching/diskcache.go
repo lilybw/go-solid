@@ -19,39 +19,17 @@ import (
 // -----------------------------------------------------------------------------
 // Disk-backed component cache
 // -----------------------------------------------------------------------------
-// Entries live under <caching/shared.go#CACHE_DIR_NAME> as human-readable,
-// inspectable files. Each cache entry is a set of sibling files sharing a base
-// name:
-//
-//   auth_LoginForm__<hash>.meta.json   manifest (component, sources, ...)
-//   auth_LoginForm__<hash>.js
-//   auth_LoginForm__<hash>.css          (only if the bundle has CSS)
-//
-// The component name is only the readable half of the stem; the hash is
-// CacheKey.String, which is what actually distinguishes two entries for the
-// same component (different mount root, different build settings).
-//
-// What is cached is the component: the props-independent JS and CSS. The
-// document around it is assembled per request — it carries props, the mount
-// root and the HMR client, none of which are cacheable — so no HTML is stored.
-//
-// Invalidation is by SOURCE CONTENT HASH, not timestamps: the manifest records
-// each source file's sha256, and an entry is valid only if every source still
-// hashes to the recorded value. generatedAt is stored for humans, never used
-// for correctness.
-//
 // There is no on-disk reverse index: the manifests are the source of truth. The
 // in-process reverse graph lives in internal.DependencyIndex.
 
 type HTMLElementID = string
 
-// ComponentDiskManifest is the on-disk, human-readable entry descriptor.
 type ComponentDiskManifest struct {
 	Component   meta.QualifiedName `json:"component"`
 	Minify      bool               `json:"minify"`
-	GeneratedAt string             `json:"generatedAt"` // RFC3339, for humans
-	Key         string             `json:"key"`         // cache key (also the base filename stem)
-	Sources     map[string]string  `json:"sources"`     // absPath -> "sha256:<hex>"
+	GeneratedAt string             `json:"generatedAt"`
+	Key         string             `json:"key"`     // cache key (also the base filename stem)
+	Sources     map[string]string  `json:"sources"` // absPath -> "sha256:<hex>"
 	Artifacts   struct {
 		JS  meta.RelativeFilePath `json:"js"`
 		CSS meta.RelativeFilePath `json:"css,omitempty"`
@@ -79,14 +57,6 @@ func (m *ComponentDiskManifest) Validate() error {
 	return nil
 }
 
-// DiskCache persists bundled components.
-//
-// Lookups go through an index of key to manifest path, built by one directory
-// scan on first use and maintained by Put and InvalidateComponent. The
-// manifests remain the source of truth, so a lost index costs only that scan —
-// but an entry another process writes into the directory after the index is
-// built will not be seen. Stage a pre-built cache before constructing the
-// Bundler that reads it.
 type DiskCache struct {
 	directory meta.AbsoluteDirectoryPath
 	mu        sync.Mutex
@@ -100,7 +70,7 @@ type DiskCache struct {
 	byComponent map[meta.QualifiedName]map[string]struct{}
 }
 
-func NewDiskCache(root string, enabled bool) (*DiskCache, error) {
+func NewDiskCache(root meta.AbsoluteDirectoryPath, enabled bool) (*DiskCache, error) {
 	dir := filepath.Join(root, CACHE_DIR_NAME)
 	dc := &DiskCache{
 		directory:   dir,
@@ -117,10 +87,8 @@ func NewDiskCache(root string, enabled bool) (*DiskCache, error) {
 	return dc, nil
 }
 
-// Directory is where entries are written.
 func (dc *DiskCache) Directory() meta.AbsoluteDirectoryPath { return dc.directory }
 
-// hashFile returns "sha256:<hex>" for a file's contents, or ok=false if unreadable.
 func hashFile(file meta.AbsoluteFilePath) (string, bool) {
 	b, err := os.ReadFile(file)
 	if err != nil {
@@ -341,4 +309,3 @@ func ReadManifest(path string) (*ComponentDiskManifest, error) {
 	}
 	return &m, nil
 }
-

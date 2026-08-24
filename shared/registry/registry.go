@@ -7,11 +7,6 @@ import (
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
-// Component is one entry discovered in the components directory.
-//
-// One file can back several components. Name is the full selector that
-// identifies this one, so two exports of the same file are two Components with
-// the same Path and different Export and MountRootID.
 type Component struct {
 	// Name is the registry key: the path relative to the components root,
 	// without extension, using forward slashes, optionally followed by
@@ -27,16 +22,12 @@ type Component struct {
 	MountRootID string // the id of the element the HTML shell mounts this component on
 }
 
-// NewComponent describes the default export of a file.
 func NewComponent(name meta.QualifiedName, path meta.AbsoluteFilePath, ext string) *Component {
 	return &Component{Name: name, Path: path, Ext: ext, MountRootID: MountRootIDFor(name)}
 }
 
 // WithExport returns the sibling component backed by the same file: the named
-// export rather than whatever this one selects. An empty name gives the default
-// export.
-//
-//	sub := comp.WithExport("Submit") // Name becomes "auth/LoginForm#Submit"
+// export rather than whatever this one selects.
 func (this *Component) WithExport(export string) *Component {
 	file, _ := meta.SplitSelector(this.Name)
 	name := meta.JoinSelector(file, export)

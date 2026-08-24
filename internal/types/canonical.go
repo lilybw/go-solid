@@ -6,12 +6,7 @@ import "strings"
 // comparison: comments dropped, insignificant whitespace dropped, commas folded
 // onto semicolons, and trailing member separators removed.
 //
-// The result is a comparison key, not valid TypeScript. Both sides of every
-// comparison pass through it, so a hand-written `{ a: string, b?: number }` and
-// an emitted `{a: string; b?: number}` match.
-//
-// Whitespace between two word characters is significant ("keyof T") and is
-// preserved as a single space; everywhere else it is dropped.
+// The result is a comparison key, not valid TypeScript.
 func CanonicalTS(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

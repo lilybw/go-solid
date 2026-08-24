@@ -39,8 +39,10 @@ import (
 	"testing"
 
 	go_solid "github.com/lilybw/go-solid"
+	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/go-solid/shared/networking"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 var (
@@ -112,7 +114,7 @@ func newBundler(t *testing.T) *go_solid.Bundler {
 func TestRegistryDiscoversComponents(t *testing.T) {
 	bundler := newBundler(t)
 
-	names := bundler.Registry().Names()
+	names := bundler.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k })
 	want := map[string]bool{"Home": false, "auth/LoginForm": false}
 	for _, n := range names {
 		if _, ok := want[n]; ok {

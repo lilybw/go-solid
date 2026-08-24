@@ -11,12 +11,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/compat"
 	shared_esbuild "github.com/lilybw/go-solid/shared/esbuild"
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
 	shared_net "github.com/lilybw/go-solid/shared/networking"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 // --- solid-js resolution gate -----------------------------------------------
@@ -73,7 +75,7 @@ func TestNew_RegistryDiscoversComponentsSkippingNodeModulesAndDotDirs(t *testing
 	}
 	defer b.Close()
 
-	names := b.Registry().Names()
+	names := b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k })
 	got := map[string]bool{}
 	for _, n := range names {
 		got[n] = true

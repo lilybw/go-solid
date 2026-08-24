@@ -4,6 +4,7 @@ import (
 	"errors"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/lilybw/go-solid/shared/networking/events"
@@ -117,13 +118,39 @@ func TestTypedAddOnCategoryBucket(t *testing.T) {
 
 // A typed handler that somehow receives the wrong event reports an error
 // rather than panicking the request goroutine.
-func TestTypedHandlerMismatchIsAnError(t *testing.T) {
+// Dispatch reaches a typed handler only through the type it was registered
+// under, so this cannot happen by dispatching. Running a chain directly, as
+// here, is the one way to construct it — and it is a defect either way: a
+// handler that cannot accept what it was handed is wrong for every event of
+// that shape, not for this one.
+//
+// So it panics rather than returning, and it says why in enough detail to act
+// on. See HandlerNarrowingDefect.
+func TestTypedHandlerMismatchPanicsWithADefect(t *testing.T) {
 	m := NewHandlerMap()
 	m.Add(func(PMF) error { return nil }, HANDLER_MODE_POSTFIX)
-
 	c, _ := m.Get[PMF]()
-	if err := c[0].Run(events.NewRegistryLookupFailure(errors.New("x"))); err == nil {
-		t.Fatal("mismatched event produced no error")
+
+	var caught any
+	func() {
+		defer func() { caught = recover() }()
+		_ = c[0].Run(events.NewRegistryLookupFailure(errors.New("x")))
+	}()
+
+	if caught == nil {
+		t.Fatal("a mismatched event was accepted")
+	}
+	defect, ok := caught.(HandlerNarrowingDefect)
+	if !ok {
+		t.Fatalf("panicked with %T (%v), want a HandlerNarrowingDefect", caught, caught)
+	}
+	if defect.Stage != DEFECT_AT_DISPATCH {
+		t.Errorf("Stage = %q, want %q", defect.Stage, DEFECT_AT_DISPATCH)
+	}
+	for _, want := range []string{"PropsMarshalingFailureEvent", "RegistryLookupFailureEvent"} {
+		if !strings.Contains(defect.Error(), want) {
+			t.Errorf("the message does not name %q:\n%s", want, defect.Error())
+		}
 	}
 }
 

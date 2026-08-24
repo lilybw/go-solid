@@ -6,6 +6,7 @@ import (
 )
 
 // Name of component with path from registry directory, however without extension.
+// I.e: folder/File#SubComponent
 type QualifiedName = string
 
 type AbsoluteFilePath = string
@@ -15,6 +16,10 @@ type AbsoluteDirectoryPath = string
 type RelativeFilePath = string
 
 type RelativeDirectoryPath = string
+
+// Fingerprints are an abstract repressentation of the conditions of somethings creation.
+// Might be a hashed version of the bundlers settings when bundling an artifact for instance.
+type Fingerprint = string
 
 // void
 type Void any
@@ -28,16 +33,6 @@ func Zero[T any]() T {
 }
 
 // Copy returns a heap-allocated shallow copy of src.
-//
-// Intended for null-object singletons: a Config must never alias one, or
-// normalization writes through to package-level state shared by every Config in
-// the process.
-//
-//	cfg.HMR = meta.Copy(hmr.NIL_HMR_CONFIG)
-//	cfg.HMR.Disabled = false // NIL_HMR_CONFIG is untouched
-//
-// The copy is shallow. Slice, map and pointer fields still share storage with
-// src and must be cloned separately if they will be mutated.
 func Copy[T any](src *T) *T {
 	c := *src
 	return &c
@@ -46,21 +41,13 @@ func Copy[T any](src *T) *T {
 var NIL_PROPS = Zero[any]()
 
 // EXPORT_SELECTOR separates a component file from the export to take out of it.
-//
-//	"auth/LoginForm"          the file's default export
-//	"auth/LoginForm#Submit"   the file's exported Submit
 const EXPORT_SELECTOR = "#"
 
-// DEFAULT_EXPORT is ESM's name for the default export. Accepted as an explicit
-// spelling — "auth/LoginForm#default" and "auth/LoginForm" select the same
-// thing — so a generator emitting selectors need not special-case it.
+// DEFAULT_EXPORT is ESM's name for the default export.
 const DEFAULT_EXPORT = "default"
 
 // SplitSelector separates a qualified name into the file it names and the
 // export to take from it. An empty export means the default one.
-//
-//	file, export := meta.SplitSelector("auth/LoginForm#Submit") // "auth/LoginForm", "Submit"
-//	file, export := meta.SplitSelector("auth/LoginForm")        // "auth/LoginForm", ""
 func SplitSelector(name QualifiedName) (file QualifiedName, export string) {
 	i := strings.LastIndex(name, EXPORT_SELECTOR)
 	if i < 0 {

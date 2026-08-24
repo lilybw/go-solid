@@ -17,12 +17,7 @@ import (
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/tspath"
 )
 
-// Extraction is what a component file says about its props.
-//
-// The component is the source of truth: whatever it declares is the contract
-// the Go side must satisfy. Sources lists every file that had to be read to
-// work the shape out, which is what makes the result cacheable — an entry is
-// stale as soon as any of them changes.
+// Extraction is what a component file says about its props. The component is the source of truth
 type Extraction struct {
 	// Shape is the props object as declared. Meaningful only when Found.
 	Shape Shape `json:"shape"`
@@ -43,14 +38,7 @@ type Extraction struct {
 
 // Extractor reads props types out of TypeScript and JSX sources.
 //
-// Resolution is syntactic — the parser only, no checker and no program — and
-// covers inline type literals, local interfaces and aliases, intersections of
-// those, and named type imports through relative specifiers. Bare package
-// specifiers are not followed, which also keeps it out of node_modules.
-//
-// Parsed files are held between extractions and re-read when their size or
-// modification time changes, so a tree of components importing one generated
-// definition parses it once.
+// Resolution is syntactic — the parser only, no checker and no program
 type Extractor struct {
 	mu    sync.Mutex
 	files map[meta.AbsoluteFilePath]*parsedFile
@@ -69,11 +57,6 @@ func NewExtractor() *Extractor {
 
 // Component resolves the props type declared by the component at path.
 // Component reads the props type of a component in path.
-//
-// export names which one: empty for the file's default export, otherwise the
-// named export a selector asked for.
-//
-//	extraction, err := e.Component("/app/components/Panel.tsx", "Sidebar")
 func (e *Extractor) Component(path meta.AbsoluteFilePath, export string) (Extraction, error) {
 	root, err := e.file(path)
 	if err != nil {
@@ -142,10 +125,6 @@ func (e *Extractor) file(path meta.AbsoluteFilePath) (*parsedFile, error) {
 }
 
 // Parse builds a syntax tree for text, taking the dialect from path's extension.
-//
-// The file name is only an identity label on the tree, but the parser asserts
-// that it is absolute and slash-normalized and panics otherwise — which an OS
-// path on Windows is not. Normalizing here means no caller has to know that.
 func Parse(path meta.AbsoluteFilePath, text string) *ast.SourceFile {
 	name := tspath.NormalizePath(path)
 	if tspath.GetEncodedRootLength(name) == 0 {
@@ -162,16 +141,12 @@ func Parse(path meta.AbsoluteFilePath, text string) *ast.SourceFile {
 	)
 }
 
+// TODO: Make this a setting in the config
 // maxTypeResolutionDepth bounds alias and import chasing.
 const maxTypeResolutionDepth = 8
 
 // resolver carries the state of one extraction: the files it has touched, the
 // names it could not follow, and a guard against a type that refers to itself.
-//
-// visited holds the names on the current resolution path, not every name the
-// extraction has ever seen. The distinction matters for a diamond — two arms of
-// an intersection reaching the same type — which is not a cycle and must
-// resolve on both arms.
 type resolver struct {
 	extractor  *Extractor
 	sources    map[meta.AbsoluteFilePath]bool
@@ -345,9 +320,7 @@ func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFileP
 var moduleExtensions = []string{".ts", ".tsx", ".d.ts", ".mts", ".cts"}
 
 // outputExtensions map an emitted extension back to the sources that produce
-// it. Under node16 and bundler resolution a TypeScript file imports its sibling
-// by the name it will have after compilation — "./types.js" for types.ts — so a
-// specifier naming a JavaScript file is usually a TypeScript one.
+// it.
 var outputExtensions = map[string][]string{
 	".js":  {".ts", ".tsx", ".d.ts"},
 	".jsx": {".tsx"},
@@ -377,9 +350,7 @@ func resolveCandidates(base string) []string {
 	return candidates
 }
 
-// resolveModule turns a relative module specifier into a file. Bare specifiers
-// are left alone: resolving them needs the node resolution algorithm and would
-// walk into node_modules, which holds nothing go_solid generated.
+// resolveModule turns a relative module specifier into a file.
 func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteFilePath, bool) {
 	if !isRelativeSpecifier(specifier) {
 		return "", false
@@ -403,11 +374,6 @@ func isRelativeSpecifier(specifier string) bool {
 // defaultExportedFunction locates the file's default export, when that export
 // is a function: an `export default function`, an `export default` of a
 // function expression, or an `export default` of a locally bound one.
-//
-// Nothing else counts. A file with no default export names no component under
-// a bare selector, however many functions it happens to declare — picking one
-// would be a guess, and a guess checks props against the wrong contract without
-// saying so. Those functions are reachable, but only by name: "File#Name".
 func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 	if file.Statements == nil {
 		return nil

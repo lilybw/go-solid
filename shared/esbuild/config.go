@@ -13,15 +13,10 @@ type RuntimeSource uint8
 const (
 	// RuntimeInternal serves solid-js from the copy embedded in
 	// go-solid-compiler. No node_modules directory is required.
-	//
-	// This is the zero value, so a BundlerConfig left unset does not quietly
-	// depend on something being installed.
 	RuntimeInternal RuntimeSource = iota
 
 	// RuntimeExternal resolves solid-js from disk, from
-	// BundlerConfig#Dependencies. Use this to run a version of solid-js other
-	// than the embedded one. The peer-dependency preflight checks that
-	// solid-js is present before bundling.
+	// BundlerConfig#Dependencies.
 	RuntimeExternal
 )
 
@@ -37,27 +32,16 @@ func (r RuntimeSource) String() string {
 }
 
 // SolidConfig holds the settings that belong to Solid rather than to bundling.
-//
-// These are passed through rather than inferred. Deriving one from another —
-// development mode from minification, say — couples settings that projects
-// have good reasons to set independently, and is the sort of guess that is
-// hard to discover once it surprises someone.
-//
-// The zero value is valid: embedded runtime, production build, Solid's own
-// defaults for everything else.
 type SolidConfig struct {
 	// Runtime selects where solid-js comes from. Defaults to RuntimeInternal.
 	Runtime RuntimeSource
 
 	// Development selects Solid's development builds, which carry its runtime
-	// warnings and ownership tracking. Independent of Minify: a minified
-	// development build and an unminified production build are both
-	// legitimate things to want.
+	// warnings and ownership tracking. Independent of Minify
 	Development bool
 
 	// ModuleName is the import source for the generated runtime helpers.
-	// Defaults to "solid-js/web". Change it to point at a wrapper module that
-	// re-exports them.
+	// Defaults to "solid-js/web".
 	ModuleName string
 
 	// HelperPrefix is prepended to generated helper identifiers. Defaults to
@@ -68,8 +52,7 @@ type SolidConfig struct {
 	// DisableEventDelegation attaches every event listener to its own element
 	// instead of routing supported events through one document-level listener.
 	//
-	// Delegation is Solid's default and is usually what you want. It is
-	// phrased negatively so that the zero value keeps it on.
+	// Delegation is Solid's default and is usually what you want.
 	DisableEventDelegation bool
 
 	// RuntimeOverride replaces individual solid-js modules by import

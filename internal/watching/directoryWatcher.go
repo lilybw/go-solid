@@ -139,8 +139,6 @@ func (this *DirectoryWatcher[T]) handle(event fsnotify.Event) {
 	}
 }
 
-// Stop halts the watcher and releases fsnotify resources. Idempotent, and safe
-// on a nil receiver; concurrent calls all return once the shutdown completes.
 func (this *DirectoryWatcher[T]) Stop() {
 	if this == nil {
 		return

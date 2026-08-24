@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 var hmrClientTemplate = template.Must(template.New("hmr").Parse(
@@ -24,14 +26,14 @@ var hmrClientTemplate = template.Must(template.New("hmr").Parse(
 })();
 </script>`))
 
+type UrlPrefix = string
+
 // ClientScript renders the injected hot-reload snippet for one component.
-func ClientScript(path, component string) string {
+func ClientScript(path UrlPrefix, component meta.QualifiedName) string {
 	var b strings.Builder
-	// Execute cannot fail: fixed template, fixed data shape. A failure would be
-	// a programming error, not a runtime condition.
 	_ = hmrClientTemplate.Execute(&b, struct {
-		Path      string
-		Component string
+		Path      UrlPrefix
+		Component meta.QualifiedName
 	}{
 		Path:      strconv.Quote(path),
 		Component: strconv.Quote(component),

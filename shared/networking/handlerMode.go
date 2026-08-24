@@ -2,13 +2,6 @@ package networking
 
 import "strconv"
 
-// HandlerMode controls where HandlerMap.Add / AddType inserts a handler.
-//
-// A slot holds Chains: a set of chains dispatched concurrently, each chain run
-// in order and stopped at its first error. Only PARALLEL adds a chain; every
-// other mode edits chain 0, the primary chain. Adding a handler in PREFIX,
-// POSTFIX or REPLACE mode therefore never disturbs chains added in PARALLEL
-// mode.
 type HandlerMode int
 
 const (

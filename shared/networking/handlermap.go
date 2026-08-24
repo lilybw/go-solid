@@ -1,15 +1,11 @@
 package networking
 
 import (
-	"fmt"
 	"reflect"
 
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
-// Handler is a request-bound handler: the writer and request are already
-// captured, so all it receives is the event. It is the single stored handler
-// representation — nothing in the map is typed by event, only keyed by it.
 type Handler func(event events.NetworkingEvent) error
 
 // Chain is a sequence of handlers run in order. The first error stops the rest
@@ -21,13 +17,6 @@ type Chain []Handler
 // HANDLER_MODE_PARALLEL.
 type Chains []Chain
 
-// HandlerMap holds the handlers for one request, keyed by event type. The key
-// is either a concrete event type or one of the capability buckets in
-// events.EVENTS.Categories.
-//
-// Every method tolerates a nil map except those that would have to store
-// something, which panic: silently dropping a handler registration is worse
-// than a stack trace at the call site.
 type HandlerMap struct {
 	internal map[events.EventType]Chains
 }
@@ -65,12 +54,7 @@ func (m *HandlerMap) Clear() {
 
 // --- registration ---------------------------------------------------------
 
-// Add registers a handler that receives its event already typed as T. The key
-// is derived from T rather than passed in, so the handler cannot be filed
-// under a type it does not accept.
-//
-// T may be a capability bucket: Add(func(e events.FailureEvent) error {...})
-// registers one handler for every failure the library can emit.
+// Add registers a handler that receives its event already typed as T.
 func (m *HandlerMap) Add[T events.NetworkingEvent](handler func(T) error, mode HandlerMode) *HandlerMap {
 	if handler == nil {
 		panic("networking: Add with a nil handler")
@@ -79,14 +63,19 @@ func (m *HandlerMap) Add[T events.NetworkingEvent](handler func(T) error, mode H
 	return m.AddType(key, func(event events.NetworkingEvent) error {
 		typed, ok := event.(T)
 		if !ok {
-			// Unreachable while dispatch keys off the dynamic type; an error
-			// rather than a panic so a library bug cannot take down a request.
-			return fmt.Errorf("networking: handler registered for %v received %T", key, event)
+			// Unreachable: dispatch keys concrete handlers by the event's own
+			// dynamic type, and runs a bucket only after testing the event
+			// against it. See HandlerNarrowingDefect for why reaching it panics
+			// rather than returning.
+			panic(HandlerNarrowingDefect{
+				Stage:    DEFECT_AT_DISPATCH,
+				Requires: key,
+				Received: reflect.TypeOf(event),
+			})
 		}
 		return handler(typed)
 	}, mode)
 }
-
 
 func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode HandlerMode) *HandlerMap {
 	switch {
@@ -210,7 +199,6 @@ func (m *HandlerMap) remove(key events.EventType) bool {
 	return true
 }
 
-// primary is chain 0, the chain every non-PARALLEL mode edits.
 func primary(c Chains) Chain {
 	if len(c) == 0 {
 		return nil
@@ -218,8 +206,6 @@ func primary(c Chains) Chain {
 	return c[0]
 }
 
-// withPrimary writes chain back as chain 0, creating the slot if needed and
-// leaving any parallel chains untouched.
 func withPrimary(c Chains, chain Chain) Chains {
 	if len(c) == 0 {
 		return Chains{chain}

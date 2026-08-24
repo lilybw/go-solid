@@ -9,8 +9,10 @@ import (
 	"time"
 
 	solid "github.com/lilybw/go-solid"
+	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 func main() {
@@ -26,7 +28,7 @@ func main() {
 	}
 	defer b.Close()
 
-	fmt.Println("Registered components:", b.Registry().Names())
+	fmt.Println("Registered components:", b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }))
 
 	ctx := context.Background()
 

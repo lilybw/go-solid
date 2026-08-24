@@ -14,18 +14,6 @@ import (
 	. "github.com/lilybw/go-solid/shared/static"
 )
 
-// The manifest
-// -----------------------------------------------------------------------------
-// Walking the asset directory produces one closed list of what may be served,
-// and every later question is answered from it. The endpoint never resolves a
-// client-supplied path against the filesystem — a request either names an entry
-// in this list or it names nothing — so path traversal is not something to
-// defend against so much as something there is no route to.
-//
-// URLs are content-hashed. That makes them immutable, so they can be cached
-// forever without revalidation, and it makes a changed asset a changed URL,
-// which is what lets the rest of the system notice.
-
 type Asset struct {
 	Rel  meta.RelativeFilePath
 	Path meta.AbsoluteFilePath
@@ -40,7 +28,6 @@ type Asset struct {
 
 // Manifest is the closed set of servable assets, indexed by URL.
 type Manifest struct {
-	// Root is the asset directory the manifest describes.
 	Root meta.AbsoluteDirectoryPath
 	// MountPath is the URL prefix every asset sits under.
 	MountPath string
@@ -56,26 +43,21 @@ type Manifest struct {
 	Sources []meta.AbsoluteFilePath
 }
 
+// String santized to be usable as a js identifier
+type SanitizedString = string
+
 // Dir is one directory in the asset tree.
 type Dir struct {
-	// Name is the sanitized key this directory appears under in its parent.
-	Name string
-	// Rel is the directory's path within the asset root, forward-slashed.
-	Rel string
+	Name SanitizedString
+	Rel  meta.RelativeDirectoryPath
 	// Dirs and Files are sorted by key, so generation is deterministic.
 	Dirs  []*Dir
 	Files []*Entry
 }
 
-// Entry is a leaf in the generated object. One key may cover several assets
-// that differ only by extension, in which case they become subfields.
 type Entry struct {
-	// Key is the sanitized name this entry appears under.
-	Key string
-	// Asset is set when the key resolves straight to one asset.
-	Asset *Asset
-	// ByExtension is set instead when several assets share a key, and holds
-	// them under their sanitized extensions.
+	Key         SanitizedString
+	Asset       *Asset
 	ByExtension []*ExtensionEntry
 }
 
@@ -88,18 +70,9 @@ type ExtensionEntry struct {
 // BuildManifest walks root and describes everything servable under it.
 func BuildManifest(cfg *StaticConfig) (*Manifest, error) {
 	root := cfg.Location
-	mount := cfg.MountPath
-	if mount == "" {
-		mount = DEFAULT_MOUNT_PATH
-	}
-	ignore := cfg.Ignore
-	if ignore == nil {
-		ignore = DEFAULT_IGNORE
-	}
-	limit := cfg.InlineLimit
-	if limit == 0 {
-		limit = DEFAULT_INLINE_LIMIT
-	}
+	mount := cfg.EffectiveMountPath()
+	ignore := cfg.EffectiveIgnore()
+	limit := cfg.EffectiveInlineLimit()
 
 	m := &Manifest{
 		Root:      root,
@@ -116,19 +89,15 @@ func BuildManifest(cfg *StaticConfig) (*Manifest, error) {
 	return m, nil
 }
 
-// Lookup resolves an asset by its path within the asset directory.
-//
-//	asset, ok := manifest.Lookup("images/logo.svg")
-func (m *Manifest) Lookup(rel string) (*Asset, bool) {
+func (m *Manifest) Lookup(file meta.RelativeFilePath) (*Asset, bool) {
 	if m == nil {
 		return nil, false
 	}
-	asset, ok := m.ByRel[path.Clean(strings.TrimPrefix(filepath.ToSlash(rel), "/"))]
+	asset, ok := m.ByRel[path.Clean(strings.TrimPrefix(filepath.ToSlash(file), "/"))]
 	return asset, ok
 }
 
-// URL is Lookup returning only the public path, empty when there is no such
-// asset.
+// TODO: NO SILENT FAILURES! NO CAPES!
 func (m *Manifest) URL(rel string) string {
 	if asset, ok := m.Lookup(rel); ok {
 		return asset.URL
@@ -136,7 +105,7 @@ func (m *Manifest) URL(rel string) string {
 	return ""
 }
 
-func scanDir(m *Manifest, dir meta.AbsoluteDirectoryPath, rel string, ignore []FileSelectorPattern, limit int64) (*Dir, error) {
+func scanDir(m *Manifest, dir meta.AbsoluteDirectoryPath, rel meta.RelativeDirectoryPath, ignore []FileSelectorPattern, limit int64) (*Dir, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid/static: read %q: %w", dir, err)
@@ -149,9 +118,9 @@ func scanDir(m *Manifest, dir meta.AbsoluteDirectoryPath, rel string, ignore []F
 
 	// keys maps a sanitized name to what claims it, so a collision is reported
 	// with both sides rather than resolved by whoever was read last.
-	claimed := map[string]string{}
-	grouped := map[string][]*Asset{}
-	var order []string
+	claimed := map[SanitizedString]string{}
+	grouped := map[SanitizedString][]*Asset{}
+	var order []SanitizedString
 
 	for _, entry := range entries {
 		name := entry.Name()
@@ -218,7 +187,7 @@ func scanDir(m *Manifest, dir meta.AbsoluteDirectoryPath, rel string, ignore []F
 // entryFor turns the assets sharing a key into one leaf. A single asset becomes
 // the key itself; several become subfields under their extensions, which is the
 // only unambiguous thing to do with logo.svg beside logo.png.
-func entryFor(key string, assets []*Asset) (*Entry, error) {
+func entryFor(key SanitizedString, assets []*Asset) (*Entry, error) {
 	if len(assets) == 1 {
 		return &Entry{Key: key, Asset: assets[0]}, nil
 	}
@@ -244,7 +213,8 @@ func entryFor(key string, assets []*Asset) (*Entry, error) {
 	return entry, nil
 }
 
-func claim(claimed map[string]string, key, by, kind string) error {
+// kind: 'directory'|'file'
+func claim(claimed map[SanitizedString]string, key SanitizedString, by meta.RelativeFilePath, kind string) error {
 	if previous, taken := claimed[key]; taken {
 		return fmt.Errorf(
 			"go_solid/static: %q and %q both resolve to the key %q; rename one",
@@ -254,7 +224,7 @@ func claim(claimed map[string]string, key, by, kind string) error {
 	return nil
 }
 
-func describe(abs meta.AbsoluteFilePath, rel, mount string, limit int64) (*Asset, error) {
+func describe(abs meta.AbsoluteFilePath, rel meta.RelativeFilePath, mount string, limit int64) (*Asset, error) {
 	body, err := os.ReadFile(abs)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid/static: read %q: %w", abs, err)

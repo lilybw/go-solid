@@ -37,8 +37,7 @@ func (this *htmlHeadSegmentBuilder) clone() *htmlHeadSegmentBuilder {
 
 // NewHTMLHeadSegmentBuilder returns a builder carrying only the library
 // defaults. For one seeded from a Bundler's configured head template, use
-// Defaults.NewHTMLHeadSegmentBuilder — the defaults are per-Bundler, so there
-// is no process-wide template to consult here.
+// Defaults.NewHTMLHeadSegmentBuilder
 func NewHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
 	return newHeadSegmentBuilder()
 }
@@ -75,9 +74,7 @@ func (this *htmlHeadSegmentBuilder) Add(tag HTMLTag) HTMLHeadSegmentBuilder {
 }
 
 func (this *htmlHeadSegmentBuilder) Build() string {
-	// Build reads; it must not write. Appending onto this.rest would land in
-	// its spare capacity and sorting would reorder the builder's own slice, so
-	// the tags to emit are assembled somewhere else.
+	// Build reads; it must not write.
 	all := make([]HTMLTag, 0, len(this.rest)+len(this.unique))
 	all = append(all, this.rest...)
 	for k, v := range this.unique {

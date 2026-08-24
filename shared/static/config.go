@@ -1,6 +1,8 @@
 package static
 
 import (
+	"strings"
+
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/compat"
 )
@@ -14,9 +16,6 @@ var DEFAULT_IGNORE = []FileSelectorPattern{
 	".DS_Store", "Thumbs.db", ".gitkeep", ".gitignore", "*.map", "desktop.ini",
 }
 
-// DEFAULT_MOUNT_PATH is where the asset endpoint is mounted. Asset URLs are
-// content-hashed, so everything below it is immutable and can be cached
-// forever.
 const DEFAULT_MOUNT_PATH = "/__go_solid_static__/"
 
 type StaticConfig struct {
@@ -54,9 +53,6 @@ type StaticConfig struct {
 // memory. Icons and fonts sit under it; images and media do not.
 const DEFAULT_INLINE_LIMIT = 256 << 10 // 256 KiB
 
-// The null object describes a feature that is off, so its Ignore says nothing
-// rather than defaulting: an empty slice, not nil, so a shallow copy of it can
-// be appended to without reaching back here.
 var NIL_STATIC_CONFIG = &StaticConfig{
 	Location:    meta.AbsoluteDirectoryPath(""),
 	Reactive:    false,
@@ -67,7 +63,35 @@ var NIL_STATIC_CONFIG = &StaticConfig{
 	InlineLimit: DEFAULT_INLINE_LIMIT,
 }
 
-// Active reports whether the feature should be built and served.
 func (cfg *StaticConfig) Active() bool {
 	return cfg != nil && !cfg.Disabled && cfg.Location != ""
+}
+
+// The Effective* accessors resolve a setting to what will actually be used.
+func (cfg *StaticConfig) EffectiveMountPath() string {
+	path := DEFAULT_MOUNT_PATH
+	if cfg != nil && cfg.MountPath != "" {
+		path = cfg.MountPath
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if !strings.HasSuffix(path, "/") {
+		path += "/"
+	}
+	return path
+}
+
+func (cfg *StaticConfig) EffectiveIgnore() []FileSelectorPattern {
+	if cfg == nil || cfg.Ignore == nil {
+		return DEFAULT_IGNORE
+	}
+	return cfg.Ignore
+}
+
+func (cfg *StaticConfig) EffectiveInlineLimit() int64 {
+	if cfg == nil || cfg.InlineLimit == 0 {
+		return DEFAULT_INLINE_LIMIT
+	}
+	return cfg.InlineLimit
 }

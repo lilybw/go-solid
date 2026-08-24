@@ -23,13 +23,6 @@ type bundleResult struct {
 }
 
 // solidPlugins returns the plugins that turn Solid JSX into a browser bundle.
-//
-// The transform must own every JSX file in the graph, not just the entry:
-// esbuild's own JSX support is React-shaped and cannot produce Solid's
-// template calls.
-//
-// Every Solid setting is passed straight through from BundlerConfig#Solid.
-// Nothing here is inferred from the bundling options.
 func solidPlugins(cfg *BundlerConfig) []esbuild.Plugin {
 	return esbuildsolid.Plugins(
 		solid.Options{
@@ -46,14 +39,6 @@ func solidPlugins(cfg *BundlerConfig) []esbuild.Plugin {
 }
 
 // BundleEntry bundles one entry module.
-//
-// generated is the directory holding the throwaway entry, as returned by
-// WriteTempEntry. Its contents are excluded from the recorded sources: the
-// entry is regenerated per build, so there is nothing there to invalidate on.
-//
-//	entry, dir, cleanup, err := esbuild.WriteTempEntry(workspace, source)
-//	defer cleanup()
-//	bundle, err := esbuild.BundleEntry(entry, workspace, dir, cfg)
 func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, generated meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
@@ -120,9 +105,7 @@ func withinDirectory(path, dir meta.AbsoluteDirectoryPath) bool {
 }
 
 // ExtractSourcesFromMetafile parses esbuild's metafile JSON and returns the
-// absolute paths of consumer source files in the bundle graph, excluding
-// node_modules, the embedded runtime, and the generated temp entry. These are
-// what invalidation hashes.
+// absolute paths of consumer source files in the bundle graph
 func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirectoryPath, generated meta.AbsoluteDirectoryPath) []string {
 	if metafile == "" {
 		return nil
@@ -149,11 +132,7 @@ func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 		if strings.Contains(filepath.ToSlash(abs), "/node_modules/") {
 			continue
 		}
-		// Skip the throwaway entry module. It is identified by the directory it
-		// was written to rather than by a name pattern: the entry is the only
-		// input with nothing behind it to watch, and everything else under the
-		// workspace — generated modules above all — is a real dependency whose
-		// changes must invalidate the bundles built from it.
+		// Skip the throwaway entry module.
 		if generated != "" && withinDirectory(abs, generated) {
 			continue
 		}
@@ -164,8 +143,7 @@ func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 }
 
 // WriteTempEntry stages the generated entry module and returns its path, the
-// directory it lives in, and a cleanup. The directory is returned so BundleEntry
-// can exclude it from the recorded sources without matching on its name.
+// directory it lives in, and a cleanup.
 func WriteTempEntry(workspace meta.AbsoluteDirectoryPath, transformed string) (entry string, dir string, cleanup func(), err error) {
 	dir, err = os.MkdirTemp(workspace, ".solidbundle-*")
 	if err != nil {

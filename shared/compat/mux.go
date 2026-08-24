@@ -1,10 +1,3 @@
-// Package compat adapts the router types consumers already have into the
-// narrow interfaces go_solid needs.
-//
-// go_solid mounts handlers on a mux it does not own — the HMR socket, and in
-// time the static asset endpoint. Rather than name a router library, it asks
-// for the one method it uses and provides the adapters to get there from the
-// shapes routers actually have.
 package compat
 
 import "net/http"

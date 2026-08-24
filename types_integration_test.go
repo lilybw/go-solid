@@ -15,9 +15,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lilybw/go-solid/internal/meta"
 	types_int "github.com/lilybw/go-solid/internal/types"
 	logging "github.com/lilybw/go-solid/shared/logging"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
+	"github.com/lilybw/go-solid/shared/registry"
 	shared_types "github.com/lilybw/go-solid/shared/types"
 )
 
@@ -101,7 +103,7 @@ func TestTypes_PublishedSurfaceIsCreatedAndSeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		for _, component := range b.Registry().Names() {
+		for _, component := range b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }) {
 			if strings.Contains(entry.Name(), filepath.Base(component)) {
 				t.Errorf("%q is derived from the component %q and does not belong in the published surface",
 					entry.Name(), component)
@@ -245,7 +247,7 @@ func TestTypes_WorkspaceArtifactsAreNotRegisteredAsComponents(t *testing.T) {
 	if err := b.Registry().Reload(); err != nil {
 		t.Fatalf("Reload: %v", err)
 	}
-	for _, name := range b.Registry().Names() {
+	for _, name := range b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }) {
 		if strings.HasPrefix(name, "types/") || strings.HasPrefix(name, types_int.CACHE_DIR_NAME+"/") {
 			t.Errorf("workspace artifact %q must not be registered as a component", name)
 		}

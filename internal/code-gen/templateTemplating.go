@@ -138,11 +138,6 @@ func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON strin
 	return b.String()
 }
 
-// inlineJSON makes a JSON document safe to place inside a
-// <script type="application/json"> element, whose content the HTML parser ends
-// at the first "</script". Escaping "</" as "<\/" — a legal JSON string escape
-// — removes the only way out of the block.
-//
 // This, not the marshaller's escaping, is what keeps the data island safe.
 func inlineJSON(s string) string {
 	return strings.ReplaceAll(s, "</", "<\\/")
@@ -153,10 +148,7 @@ func inlineJSON(s string) string {
 // "</script" does.
 var scriptClose = regexp.MustCompile(`(?i)</script`)
 
-// inlineJS makes a script body safe to place inside a <script> element, whose
-// content the HTML parser ends at the first "</script" in any case. The
-// original casing is kept, so a string literal that held "</SCRIPT>" still
-// evaluates to it at runtime.
+// inlineJS makes a script body safe to place inside a <script> element
 func inlineJS(js string) string {
 	return scriptClose.ReplaceAllStringFunc(js, func(match string) string {
 		return "<\\/" + match[len("</"):]

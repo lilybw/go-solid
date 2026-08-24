@@ -89,7 +89,6 @@ func TestNothingOutsideTheManifestIsServable(t *testing.T) {
 		mount + "images/logo.svg", // the real name, without the content hash
 		mount,
 		b.Static().URL("images/logo.svg") + ".bak",
-		b.Static().URL("images/logo.svg") + "/../logo.svg",
 	} {
 		if rec := servedBy(t, p, http.MethodGet, path); rec.Code != http.StatusNotFound {
 			t.Errorf("%s returned %d, want 404", path, rec.Code)
@@ -97,28 +96,40 @@ func TestNothingOutsideTheManifestIsServable(t *testing.T) {
 	}
 }
 
-// A traversal attempt never reaches the endpoint at all: ServeMux normalises
-// the path first and redirects, and the cleaned path is no longer under the
-// mount. What matters is that nothing is served and nothing is pointed back
-// inside — a redirect that landed under the mount again would just be the same
-// request with the traversal hidden.
-func TestTraversalAttemptsLeaveTheMountEntirely(t *testing.T) {
+// An un-normalised path never reaches the endpoint: ServeMux cleans it first
+// and redirects. Where that leaves you is what matters, and there are two
+// shapes of answer — outside the mount, where this endpoint does not answer at
+// all, or back inside it at a path the manifest still does not name. Both end
+// in nothing being served, and the second is why cleaning cannot be relied on
+// as the protection: it is the manifest that refuses, every time.
+func TestUncleanPathsResolveToNothing(t *testing.T) {
 	p := newProject(t)
-	p.boot(t, options{static: true})
+	b := p.boot(t, options{static: true})
 
 	mount := shared_static.DEFAULT_MOUNT_PATH
 	for _, path := range []string{
 		mount + "../../../etc/passwd",
 		mount + "../components/types.ts", // a real file, outside the asset root
 		mount + "images/../../../../etc/passwd",
+		b.Static().URL("images/logo.svg") + "/../logo.svg", // cleans back inside
 	} {
 		rec := servedBy(t, p, http.MethodGet, path)
 		if rec.Code == http.StatusOK {
 			t.Errorf("%s was served", path)
 			continue
 		}
-		if location := rec.Header().Get("Location"); strings.HasPrefix(location, mount) {
-			t.Errorf("%s was redirected to %q, which is back inside the mount", path, location)
+
+		location := rec.Header().Get("Location")
+		switch {
+		case location == "":
+			continue // refused outright
+		case !strings.HasPrefix(location, mount):
+			continue // sent somewhere this endpoint does not answer for
+		}
+		// Redirected back under the mount, so the cleaned path has to be
+		// refused on its own merits.
+		if again := servedBy(t, p, http.MethodGet, location); again.Code != http.StatusNotFound {
+			t.Errorf("%s redirected to %q, which returned %d, want 404", path, location, again.Code)
 		}
 	}
 }

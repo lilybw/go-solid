@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 
@@ -24,7 +23,6 @@ type ComponentRegistry struct {
 	watcher *watching_int.DirectoryWatcher[meta.Void] // optional: if non-nil, watches the components tree and updates the registry on change
 }
 
-// registryExtensions are the file types treated as component entry points.
 var registryExtensions = map[string]bool{
 	".tsx": true,
 	".jsx": true,
@@ -32,14 +30,8 @@ var registryExtensions = map[string]bool{
 	".js":  true,
 }
 
-// DECLARATION_SUFFIX marks a TypeScript declaration file. Its extension is
-// .ts, but it declares types rather than exporting a component, so it is never
-// a registry entry — including the definitions go_solid generates, which land
-// under the workspace and would otherwise be indexed when the workspace sits
-// inside the components tree.
 const DECLARATION_SUFFIX = ".d.ts"
 
-// eligible reports whether path can back a component.
 func eligible(path meta.AbsoluteFilePath) bool {
 	if strings.HasSuffix(strings.ToLower(path), DECLARATION_SUFFIX) {
 		return false
@@ -48,11 +40,6 @@ func eligible(path meta.AbsoluteFilePath) bool {
 }
 
 // nameIsAddressable rejects a derived name a selector could never reach.
-//
-// "#" separates a file from the export to take out of it, so a file named
-// "Panel#Sidebar.tsx" would register under a name that parses as the Sidebar
-// export of a file called Panel. Refusing it at load beats registering a
-// component nobody can look up.
 func nameIsAddressable(name meta.QualifiedName, path meta.AbsoluteFilePath) error {
 	if strings.Contains(name, meta.EXPORT_SELECTOR) {
 		return fmt.Errorf("registry: %s: %q may not appear in a component path (it selects an export, as in %q)",
@@ -78,10 +65,7 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 
 // MakeReactive starts watching the components tree. onDrop is called with the
 // qualified name of a component whose backing file was removed; onTouch is
-// called with the path of any watched file that was created or written, so the
-// caller can invalidate whatever it derived from that file.
-// A registry can only be made reactive once: a second watcher over the same
-// tree would double every callback and orphan the first one's goroutine.
+// called with the path of any watched file that was created or written.
 func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onTouch func(meta.AbsoluteFilePath), onErr func(error)) error {
 	this.mu.Lock()
 	already := this.watcher != nil
@@ -127,8 +111,6 @@ func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onT
 	return nil
 }
 
-// Close stops the reactive watcher, if MakeReactive started one. Idempotent,
-// and safe on a nil receiver.
 func (this *ComponentRegistry) Close() {
 	if this == nil {
 		return
@@ -141,7 +123,6 @@ func (this *ComponentRegistry) Close() {
 	watcher.Stop() // nil-safe
 }
 
-// NameForFile maps a path under the components root to its qualified name.
 func (this *ComponentRegistry) NameForFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	name, ok := this.qualifiedNameFor(path)
 	if !ok {
@@ -165,8 +146,6 @@ func (this *ComponentRegistry) qualifiedNameFor(path meta.AbsoluteFilePath) (met
 	return strings.TrimSuffix(filepath.ToSlash(rel), ext), true
 }
 
-// AddFile registers a single file if it's a registry-eligible component.
-// Returns the qualified name and true if a component was added or updated.
 func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !eligible(path) {
@@ -190,8 +169,6 @@ func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.Qualifi
 	return name, true, nil
 }
 
-// RemoveFile drops a component by its absolute path. Returns the qualified
-// name that was removed and true if something was actually removed.
 func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !eligible(path) {
@@ -212,8 +189,6 @@ func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.Qual
 	return name, true
 }
 
-// Reload rescans the root directory, rebuilding the index from scratch. Safe to
-// call at runtime (e.g. in dev mode on each request, or on a filesystem watch).
 func (this *ComponentRegistry) Reload() error {
 	found := make(map[meta.QualifiedName]Component)
 
@@ -264,15 +239,6 @@ func (this *ComponentRegistry) Reload() error {
 
 // Lookup returns the component registered under name, or ok=false.
 // Lookup resolves a selector to the component it names.
-//
-// A selector is a file, optionally followed by "#" and the export to take out
-// of it; only the file half is indexed, because the registry never reads a
-// component's contents and so cannot know what a file exports. Whether the
-// named export exists, and is a component, is settled when the component is
-// built.
-//
-//	comp, ok := reg.Lookup("auth/LoginForm")        // the file's default export
-//	comp, ok := reg.Lookup("auth/LoginForm#Submit") // the file's exported Submit
 func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (*Component, bool) {
 	file, export := meta.SplitSelector(component)
 
@@ -288,31 +254,18 @@ func (this *ComponentRegistry) Lookup(component meta.QualifiedName) (*Component,
 	return c.WithExport(export), true
 }
 
-// Names returns all registered component names, sorted.
-func (this *ComponentRegistry) Names() []meta.QualifiedName {
+// Safely map each member of the internal map to some repressentation and return it.
+// Depending on the repressentation, this might not b
+func (this *ComponentRegistry) Map[T any](fn func(k meta.QualifiedName, v *Component) T) []T {
 	this.mu.RLock()
 	defer this.mu.RUnlock()
-	names := make([]meta.QualifiedName, 0, len(this.components))
-	for n := range this.components {
-		names = append(names, n)
+
+	mapped := make([]T, 0, len(this.components))
+	for k, v := range this.components {
+		mapped = append(mapped, fn(k, &v))
 	}
-	sort.Slice(names, func(i, j int) bool {
-		return names[i] < names[j]
-	})
-	return names
+
+	return mapped
 }
 
-// Components returns every registered component, ordered by name.
-func (this *ComponentRegistry) Components() []*Component {
-	this.mu.RLock()
-	defer this.mu.RUnlock()
-	out := make([]*Component, 0, len(this.components))
-	for _, c := range this.components {
-		out = append(out, &c)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
-}
-
-// Root returns the absolute components root directory.
 func (this *ComponentRegistry) Root() string { return this.root }

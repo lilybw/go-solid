@@ -11,7 +11,6 @@ import (
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/meta"
-	networking_int "github.com/lilybw/go-solid/internal/networking"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 	"github.com/lilybw/go-solid/shared/registry"
@@ -21,27 +20,6 @@ import (
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {
 	typeError := this.checkTypes(component, props)
 	return newRenderCallBuilder(this, component, props, typeError)
-}
-
-// checkTypes holds the props in hand against the type the component declares
-// for them.
-//
-// A finding is carried on the builder and fails the render it was raised for
-// (render0 aborts on it). What is advisory is the scope, not the outcome: an
-// unregistered component, absent props, or a props value the mapper cannot
-// describe all yield no finding and are left for Render to report.
-// behaviourDefaults is this Bundler's request/head templates. A nil Bundler
-// yields nil, which Defaults handles as "library defaults only", so Prepare on
-// one does not panic before Render can report it.
-func (this *Bundler) behaviourDefaults() *networking_int.Defaults {
-	if this == nil {
-		return nil
-	}
-	return this.defaults
-}
-
-func (this *Bundler) headSegment() networking.HTMLHeadSegmentBuilder {
-	return this.behaviourDefaults().NewHTMLHeadSegmentBuilder()
 }
 
 func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
@@ -121,15 +99,11 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	return resp, nil
 }
 
-// marshalProps isolates the props->JSON step and its request error hook.
 func marshalProps(data *renderData) (string, error) {
 	if data.props == nil {
 		return "{}", nil
 	}
-	// Deterministic keeps map ordering stable across renders. The escaping
-	// options are v1's defaults, which v2 drops: they are not what makes the
-	// data island safe (inlineJSON is), but keeping them means switching
-	// marshaller cannot regress escaping.
+
 	raw, err := json.Marshal(data.props,
 		json.Deterministic(true),
 		jsontext.EscapeForHTML(true),
@@ -145,11 +119,7 @@ func marshalProps(data *renderData) (string, error) {
 // component, from cache if present, otherwise by bundling and caching it.
 // The returned *Rendered is shared and must be treated as read-only.
 func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, error) {
-	// Resolve the component, and with it the default mount root, before the key
-	// is built. The root is part of the key and is baked into the shell, so
-	// leaving it unresolved until after the lookup emits a warm render whose
-	// <div id> is empty while the cached bundle mounts on the component's real
-	// root id — a page that renders nothing, but only once the cache is warm.
+
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
@@ -157,7 +127,10 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 				fmt.Errorf("component %q not found in registry", data.component)))
 		})
 		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
-			data.component, strings.Join(bundler.registry.Names(), ", "))
+			data.component, strings.Join(
+				// now just imagine the lambda equivalent: .Map((k, v) -> k), but nooooo. How does Java, THE boilerplate language, do this more concisely?
+				bundler.registry.Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }),
+				", "))
 	}
 	if data.root == "" {
 		data.root = comp.MountRootID
@@ -168,10 +141,6 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 		return cached, nil
 	}
 
-	// The registry indexes files, not exports, so it can say a file is there
-	// but not that the selector names a component inside it. Settle that before
-	// bundling, where the same mistake surfaces as an esbuild resolution error
-	// naming a generated temp file the consumer never wrote.
 	if err := bundler.types.VerifyComponentExport(comp); err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.Dispatch(events.NewRegistryLookupFailure(err))
@@ -196,12 +165,9 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 // bundleComponent runs the esbuild pipeline and packages the JS/CSS artifact.
 // It does not assemble HTML and does not touch the caches.
 func (bundler *Bundler) bundleComponent(
-	data *renderData, comp *registry.Component, // adjust to your real type
+	data *renderData, comp *registry.Component,
 ) (*caching.Rendered, []meta.AbsoluteFilePath, error) {
 
-	// Bundling off (an explicit opt-out, or a completed rasterization) means a
-	// cache miss is unrecoverable. Fail loudly rather than reaching for esbuild
-	// anyway, which is what the caller was promised would never happen.
 	if bundler.cfg.Generation.Disabled {
 		err := fmt.Errorf("go_solid#Render: bundling is disabled and %q is not cached", data.component)
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
@@ -252,9 +218,6 @@ func (bundler *Bundler) bundleComponent(
 	return artifact, bundle.Sources, nil
 }
 
-// assembleResponse builds the request-local Rendered: a shallow copy of the
-// cached artifact with freshly assembled HTML. The cached artifact is never
-// mutated, so concurrent renders of the same component don't clobber each other.
 func assembleResponse(
 	bundler *Bundler, data *renderData,
 	artifact *caching.Rendered, propsJSON string,

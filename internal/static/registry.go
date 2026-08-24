@@ -17,18 +17,6 @@ import (
 	"github.com/lilybw/go-solid/shared/watching"
 )
 
-// The static registry
-// -----------------------------------------------------------------------------
-// One object owns the manifest, the generated artifacts, the endpoint and the
-// watcher, because they are four views of the same fact and must never disagree
-// about what the asset directory currently holds.
-//
-// A disabled registry is not an absence. It still writes the module and the
-// definition, so a component importing the specifier resolves and the consumer
-// meets a type error naming the setting to change rather than a resolution
-// failure naming a file they did not write.
-
-// StaticRegistry is what the Bundler holds.
 type StaticRegistry interface {
 	// Active reports whether assets are being served.
 	Active() bool
@@ -58,10 +46,6 @@ func ModulePathFor(workspace meta.AbsoluteDirectoryPath) meta.AbsoluteFilePath {
 }
 
 // EnsureDisabled writes the placeholder module and definition.
-//
-// This is the first of the two passes: every feature that can be switched on
-// gets a resolvable stub before anything is configured, so a component may
-// import one unconditionally and a build never fails on a missing module.
 func EnsureDisabled(workspace meta.AbsoluteDirectoryPath, publishedTypes meta.AbsoluteDirectoryPath) error {
 	if err := os.MkdirAll(ModulesRoot(workspace), 0o755); err != nil {
 		return fmt.Errorf("go_solid/static: create %q: %w", ModulesRoot(workspace), err)
@@ -76,12 +60,6 @@ func EnsureDisabled(workspace meta.AbsoluteDirectoryPath, publishedTypes meta.Ab
 	return nil
 }
 
-// NewStaticRegistry returns a disabled registry when the feature is off.
-// Identity against NIL_STATIC_CONFIG is not a valid test: normalization hands
-// each Config its own copy of the null object.
-//
-// onChange is called after the module has been rewritten, with the module's
-// path, so the caller can invalidate whatever depends on it. Nil is fine.
 func NewStaticRegistry(
 	cfg *StaticConfig,
 	workspace meta.AbsoluteDirectoryPath,
@@ -99,14 +77,16 @@ func NewStaticRegistry(
 		definition:     filepath.Join(publishedTypes, DEFINITION_FILENAME),
 		onChange:       onChange,
 		onErr:          onErr,
-		inlineLimit:    cfg.InlineLimit,
+		inlineLimit:    cfg.EffectiveInlineLimit(),
 		publishedTypes: publishedTypes,
 	}
 	if err := reg.rebuild(); err != nil {
 		return nil, err
 	}
 
-	cfg.Mux.Handle(reg.cfg.MountPath, reg.Handler())
+	// The same accessor the manifest built its URLs from, so the pattern the
+	// endpoint is registered under is the prefix those URLs carry.
+	cfg.Mux.Handle(cfg.EffectiveMountPath(), reg.Handler())
 
 	if cfg.Reactive {
 		if err := reg.watch(); err != nil {
@@ -161,10 +141,6 @@ func (this *enabledStaticRegistry) Manifest() *Manifest {
 func (this *enabledStaticRegistry) ModulePath() meta.AbsoluteFilePath { return this.module }
 
 // rebuild walks the asset directory and republishes both artifacts.
-//
-// The module is written whether or not its contents changed only when they did:
-// rewriting it unchanged would touch a file the dependency index watches and
-// invalidate every bundle importing it for nothing.
 func (this *enabledStaticRegistry) rebuild() error {
 	manifest, err := BuildManifest(this.cfg)
 	if err != nil {
@@ -207,14 +183,7 @@ func writeIfChanged(path meta.AbsoluteFilePath, contents string) (bool, error) {
 	return true, nil
 }
 
-// watch keeps the manifest in step with the directory.
-//
-// Debounced, because a copy of a directory arrives as a burst of events and
-// rebuilding per event would republish the module dozens of times, invalidating
-// every dependent bundle on each.
-// rebuildWindow is how long events are collected before a rebuild. Copying a
-// directory in arrives as a burst, and rebuilding per event would republish the
-// module dozens of times, invalidating every dependent bundle on each.
+// rebuildWindow is how long events are collected before a rebuild.
 const rebuildWindow = 120 * time.Millisecond
 
 func (this *enabledStaticRegistry) watch() error {
@@ -235,11 +204,6 @@ func (this *enabledStaticRegistry) watch() error {
 	return nil
 }
 
-// scheduleRebuild arms the debounce, replacing any pending one.
-//
-// The closed check and the WaitGroup increment happen under one lock, so a
-// rebuild is either refused because Close has begun or counted before Close can
-// wait — never slipping between the two.
 func (this *enabledStaticRegistry) scheduleRebuild(window time.Duration) {
 	this.debounceMu.Lock()
 	defer this.debounceMu.Unlock()
@@ -272,9 +236,6 @@ func (this *enabledStaticRegistry) reportErr(err error) {
 	}
 }
 
-// Close stops watching and waits for any rebuild already under way, so that
-// once it returns nothing is still reading the asset directory or writing the
-// generated module. Idempotent.
 func (this *enabledStaticRegistry) Close() {
 	this.closeOnce.Do(func() {
 		this.debounceMu.Lock()
@@ -289,12 +250,6 @@ func (this *enabledStaticRegistry) Close() {
 	})
 }
 
-// Handler serves the assets.
-//
-// Requests are answered from the manifest and nothing else. A path that names
-// no entry is a 404 before anything touches the filesystem, so there is no
-// route by which "../../etc/passwd" could resolve to a read — the protection is
-// the closed set, not the shape of the URL.
 func (this *enabledStaticRegistry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

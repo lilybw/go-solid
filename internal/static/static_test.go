@@ -334,6 +334,53 @@ func TestHandler_SupportsRangeRequests(t *testing.T) {
 	}
 }
 
+// --- settings resolve in one place -----------------------------------------
+
+// The manifest, the generated module and the endpoint all read the mount path.
+// Resolving it separately in each is how they come to disagree: a default
+// applied in one and not another registers the endpoint under a pattern no
+// asset URL begins with, which used to be a panic on an empty pattern.
+func TestUnsetSettingsResolveConsistently(t *testing.T) {
+	assets := tree(t, map[string]string{"logo.svg": "<svg/>"})
+	workspace := t.TempDir()
+	mux := http.NewServeMux()
+
+	reg, err := NewStaticRegistry(
+		// Nothing but the two required settings; everything else unset.
+		&shared_static.StaticConfig{Location: assets, Mux: mux},
+		workspace, workspace, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("NewStaticRegistry: %v", err)
+	}
+	t.Cleanup(reg.Close)
+
+	url := reg.Manifest().URL("logo.svg")
+	if url == "" {
+		t.Fatal("the asset was not published")
+	}
+	if !strings.HasPrefix(url, shared_static.DEFAULT_MOUNT_PATH) {
+		t.Errorf("URL %q does not begin with the default mount path", url)
+	}
+
+	// The endpoint has to be reachable at the prefix those URLs carry.
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("the endpoint returned %d for its own URL; it is mounted somewhere else", rec.Code)
+	}
+}
+
+// A mount path written without its slashes still names the same prefix.
+func TestMountPathIsBoundedBySlashes(t *testing.T) {
+	for _, given := range []string{"assets", "/assets", "assets/", "/assets/"} {
+		cfg := &shared_static.StaticConfig{MountPath: given}
+		if got := cfg.EffectiveMountPath(); got != "/assets/" {
+			t.Errorf("MountPath %q resolved to %q, want %q", given, got, "/assets/")
+		}
+	}
+}
+
 // --- shutdown --------------------------------------------------------------
 
 // Close has to reach the debounce, not only the watcher. A rebuild armed just

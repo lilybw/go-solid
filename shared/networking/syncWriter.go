@@ -6,20 +6,6 @@ import (
 )
 
 // SynchronizedResponseWriter serializes access to an http.ResponseWriter.
-//
-// Chains registered under one event dispatch concurrently (see
-// HANDLER_MODE_PARALLEL) and http.ResponseWriter is not safe for concurrent
-// use: two handlers writing at once can interleave mid-buffer or race on the
-// header map. Wrapping the writer once, where it is bound, makes every handler
-// queue behind whoever holds it.
-//
-// Safe is not the same as ordered. Which handler's bytes land first is still
-// whichever goroutine wins the lock, so two handlers that each write a body
-// still produce one of two documents — just never a torn one. Handlers whose
-// order matters belong in one chain, where they run in sequence.
-//
-// Header returns the wrapped writer's map, and writes through that map are not
-// covered by the lock. Set headers before dispatch, or from a single chain.
 type SynchronizedResponseWriter struct {
 	mu sync.Mutex
 	w  http.ResponseWriter
@@ -63,6 +49,4 @@ func (this *SynchronizedResponseWriter) Flush() {
 	}
 }
 
-// Unwrap exposes the wrapped writer, which is how http.ResponseController
-// reaches capabilities this type does not forward itself.
 func (this *SynchronizedResponseWriter) Unwrap() http.ResponseWriter { return this.w }

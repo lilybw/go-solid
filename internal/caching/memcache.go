@@ -22,24 +22,12 @@ func NewMemCache(enabled bool) *MemCache {
 	return &MemCache{entries: make(map[CacheKey]*Rendered), byName: make(map[meta.QualifiedName]map[CacheKey]struct{}), enabled: enabled}
 }
 
-// CacheKey identifies one cacheable artifact.
-//
-// Every field participates in String, which is the identity the disk cache
-// stores and matches on. A field left out of it is a field two distinct entries
-// can silently share.
 type CacheKey struct {
 	Component meta.QualifiedName
 	Root      HTMLElementID
-	// Build fingerprints the generation settings the artifact was produced
-	// under. Bundles built with different settings are different artifacts, so
-	// changing minification, sourcemaps or any Solid option must not be
-	// answered from an entry written before the change.
-	Build string
+	Build     meta.Fingerprint
 }
 
-// String is the entry's stable identity: a digest of every field, each
-// length-prefixed so no two values can run together into the same digest
-// ("ab"+"c" must not collide with "a"+"bc").
 func (k *CacheKey) String() string {
 	h := sha256.New()
 	for _, part := range []string{k.Component, k.Root, k.Build} {
@@ -54,11 +42,7 @@ func NewMemCacheKey(component meta.QualifiedName, root HTMLElementID) *CacheKey 
 	return &CacheKey{Component: component, Root: root}
 }
 
-// NewBuildCacheKey keys an artifact by the settings it was built under as well
-// as by what it is.
-//
-//	key := caching.NewBuildCacheKey("auth/LoginForm", "app-root", buildID)
-func NewBuildCacheKey(component meta.QualifiedName, root HTMLElementID, build string) *CacheKey {
+func NewBuildCacheKey(component meta.QualifiedName, root HTMLElementID, build meta.Fingerprint) *CacheKey {
 	return &CacheKey{Component: component, Root: root, Build: build}
 }
 
@@ -98,10 +82,6 @@ func (c *MemCache) InvalidateComponent(component meta.QualifiedName) {
 	delete(c.byName, component)
 }
 
-// ComponentsInFile lists the cached components backed by one component file:
-// the file's own selector and every "#" selection out of it. Invalidation works
-// from a file when the dependency graph is cold, and one file can back several
-// components.
 func (c *MemCache) ComponentsInFile(file meta.QualifiedName) []meta.QualifiedName {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

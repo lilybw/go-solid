@@ -55,7 +55,7 @@ bundler.Prepare("ComponentName", props).
 ```
 
 ### Component Selectors & Resolution
-Since v1.0.15 go-solid places no constraints on how your components are structured nor what files they are in (as long as they in the directory, or a sub-directory thereof, you've told the registry is your components directory). 
+Since v1.0.15 go-solid places no constraints on how your components are structured nor what files they are in (as long as they in the directory you've told the registry is your components directory, or a sub-directory thereof). 
 
 Any file in the provided Components dir may declare any amount of exported components. 
 
@@ -63,7 +63,7 @@ Resolution implementation details:
 
 ```go
 /*
-If only a file is named as the QualifiedName to Bundler#Prepare go-solid will look for a default export.
+If only a file is named as the QualifiedName to Bundler#Prepare, go-solid will look for a default export.
 */
 _, _ = bundler.Prepare("auth/Login", nil).Render()
 
@@ -81,8 +81,6 @@ _, _ = bundler.Prepare("auth/Login", nil).Render()
 // is the same as
 _, _ = bundler.Prepare("auth/Login#default", nil).Render()
 ```
-
-
 
 ### Caching & Workspace
 To try and remain performant, the library uses a mem cache, but also writes bundled and parsed components to disk. 
@@ -106,7 +104,7 @@ A new ```.go_solid``` directory will always be created in said workspace.
 go_solid builds a two-way dependency index from esbuilds metafile output when a component is bundled. 
 This index is used to, among other things, do module replacement during runtime if such is configured. 
 
-To enable HMR, provide your server's method for adding endpoints in the Bundler Config. Various adapters are already available in the ```hmr``` package. 
+To enable HMR, provide your server's method for adding endpoints in the Bundler Config. Various adapters are already available in the ```compat``` package. 
 
 ```go
 // MuxLike is anything that can register an http.Handler under a string pattern
@@ -146,6 +144,14 @@ Config{
     }
 }
 ```
+
+## Modules
+go-solid generates various modules which can be turned on and off through the bundler's config. 
+
+### Static 
+Since 1.3.0 static asset management 
+
+
 
 ## How
 Since 1.0.8 this library was moved to lilybw/go-solid-compiler which in turn uses a condensed tsgo fork (lilybw/typescript-go). That means that this library parses and transforms solidjs jsx components natively. 

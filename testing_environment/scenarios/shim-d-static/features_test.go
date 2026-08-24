@@ -7,7 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lilybw/go-solid/internal/meta"
 	static_int "github.com/lilybw/go-solid/internal/static"
+	"github.com/lilybw/go-solid/shared/registry"
 	shared_types "github.com/lilybw/go-solid/shared/types"
 )
 
@@ -159,7 +161,7 @@ func TestPublishedSurfaceHoldsOnlySynthesisedDefinitions(t *testing.T) {
 	var names []string
 	for _, entry := range entries {
 		names = append(names, entry.Name())
-		for _, component := range b.Registry().Names() {
+		for _, component := range b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }) {
 			if strings.Contains(entry.Name(), filepath.Base(component)) {
 				t.Errorf("%q is derived from the component %q", entry.Name(), component)
 			}

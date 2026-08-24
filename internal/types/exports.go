@@ -12,18 +12,6 @@ import (
 )
 
 // Resolution of a selector to an export
-// -----------------------------------------------------------------------------
-// A selector names a file and, after "#", an export to take out of it. What the
-// file actually exports is only knowable by parsing it, so that answer lives
-// here rather than in the registry, which never reads a component's contents.
-//
-// Nothing below decides whether a component's props are correct. It decides
-// whether there is a component there at all, which is a question every render
-// asks and type checking only sharpens.
-
-// NotAComponentError says a selector resolved to a file, but not to something
-// that can be rendered. Detail carries what is wrong; Exported lists the names
-// the file does offer, so a caller can suggest them.
 type NotAComponentError struct {
 	Component meta.QualifiedName
 	Path      meta.AbsoluteFilePath
@@ -43,18 +31,12 @@ func (e *NotAComponentError) Error() string {
 	return b.String()
 }
 
-// IsNotAComponent reports whether err says a file backs no renderable
-// component. Rasterization uses this to walk past helper modules that happen to
-// live in the components tree instead of failing over them.
 func IsNotAComponent(err error) bool {
 	var target *NotAComponentError
 	return errors.As(err, &target)
 }
 
 // VerifyComponentExport reports whether comp names something renderable.
-//
-// A file with no default export is not an error in itself — it may hold several
-// named components — so the message names what it does export.
 func (e *Extractor) VerifyComponentExport(comp *registry.Component) error {
 	if !meta.ValidExportName(comp.Export) {
 		return &NotAComponentError{
@@ -87,11 +69,6 @@ func (e *Extractor) VerifyComponentExport(comp *registry.Component) error {
 		}
 	}
 
-	// Order matters, and so does asking the right question at each step.
-	// exportsName is value-agnostic on purpose: exported-but-not-a-component
-	// and not-exported-at-all are different mistakes, and the component list
-	// cannot tell them apart because it only holds things that could be
-	// components.
 	switch {
 	case namedExportedFunction(file.tree, comp.Export) != nil:
 		return nil
@@ -105,8 +82,7 @@ func (e *Extractor) VerifyComponentExport(comp *registry.Component) error {
 }
 
 // exportsName reports whether the file exports name at all, whatever the value
-// behind it. Distinct from exportedComponentNames, which lists only the exports
-// that could be rendered.
+// behind it.
 func exportsName(file *ast.SourceFile, name string) bool {
 	if file.Statements == nil || name == "" {
 		return false
@@ -142,8 +118,6 @@ func exportsName(file *ast.SourceFile, name string) bool {
 }
 
 // ExportedComponents lists the named exports of a file that could be rendered.
-// The default export, when there is one, is not listed: it is what a selector
-// with no "#" already names.
 func (e *Extractor) ExportedComponents(path meta.AbsoluteFilePath) ([]string, error) {
 	file, err := e.file(path)
 	if err != nil {
@@ -165,9 +139,6 @@ func isDefaultExported(node *ast.Node) bool {
 	return node.ModifierFlags()&both == both
 }
 
-// hasDefaultExport reports whether the file exports a default at all, whatever
-// its value. It separates "there is nothing there" from "what is there is not a
-// component", which are different mistakes with different fixes.
 func hasDefaultExport(file *ast.SourceFile) bool {
 	if file.Statements == nil {
 		return false

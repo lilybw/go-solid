@@ -29,19 +29,7 @@ const DEFAULT_MAX_DEPTH = 12
 
 // Mapper turns Go types into the TypeScript types a browser actually receives.
 //
-// The mapping follows encoding/json/v2, the marshaller the render path uses,
-// rather than the Go type: props are JSON before they are ever a TypeScript
-// value. That means
-//
-//   - json tags rename fields, `json:"-"` drops them, and untagged embedded
-//     structs are flattened by v2's breadth-first precedence rules
-//   - a nil slice encodes as [] and a nil map as {}, so neither is nullable;
-//     only pointers and interfaces can produce null
-//   - omitzero makes a field optional; omitempty only does so for types that
-//     can encode as null, "", {} or [], which notably excludes numbers and
-//     booleans
-//
-// The zero value is ready to use.
+// The mapping follows encoding/json/v2, the marshaller the render path uses.
 type Mapper struct {
 	// MaxDepth bounds nested struct expansion. Zero means DEFAULT_MAX_DEPTH.
 	MaxDepth int
@@ -54,10 +42,6 @@ var (
 	rawValueType   = reflect.TypeFor[jsontext.Value]()
 )
 
-// Shape derives the props shape of T without needing a value of it.
-//
-//	var m types.Mapper
-//	shape, err := m.Shape[LoginProps]()
 func (m *Mapper) Shape[T any]() (Shape, error) {
 	return m.ShapeOfType(reflect.TypeFor[T]())
 }
@@ -99,9 +83,7 @@ func (m *Mapper) ShapeOfValue(props any) (Shape, error) {
 	}
 }
 
-// notAnObject classifies props that cannot be described as a JSON object,
-// separating what json cannot encode at all from what encodes as something
-// other than an object.
+// notAnObject classifies props that cannot be described as a JSON object
 func notAnObject(t reflect.Type) error {
 	switch t.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Complex64, reflect.Complex128, reflect.UnsafePointer:
@@ -220,7 +202,7 @@ func (m *Mapper) collect(t reflect.Type, depth, embedDepth int, seen map[reflect
 		}
 		ts, optional := m.fieldType(sf.Type, tag, depth+1, seen)
 		*out = append(*out, jsonField{
-			Field:  Field{Name: name, TS: ts, Optional: optional},
+			Name: name, TS: ts, Optional: optional,
 			depth:  embedDepth,
 			tagged: tag.hasName,
 		})
@@ -238,8 +220,7 @@ type jsonTag struct {
 }
 
 // parseJSONTag reads the subset of v2's tag grammar that changes a field's
-// shape. Options v2 understands but that cannot affect the derived type —
-// case, string, format — are accepted and ignored.
+// shape. .
 func parseJSONTag(tag string, hasTag bool) jsonTag {
 	if !hasTag {
 		return jsonTag{}
@@ -297,11 +278,6 @@ func pickField(group []jsonField) (jsonField, bool) {
 
 // fieldType renders a struct field's TypeScript type and decides whether the
 // key can be absent.
-//
-// omitzero drops the Go zero value, so it always makes a field optional.
-// omitempty drops a value that encodes as null, "", {} or [] — which a number
-// or a boolean never does — so it only makes some types optional. Either way a
-// key that can vanish is optional rather than nullable.
 func (m *Mapper) fieldType(t reflect.Type, tag jsonTag, depth int, seen map[reflect.Type]bool) (string, bool) {
 	ts := m.tsType(t, depth, seen)
 	if tag.omitZero || (tag.omitEmpty && m.canEncodeEmpty(t, depth, seen)) {

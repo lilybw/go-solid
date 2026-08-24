@@ -22,6 +22,7 @@ import (
 	logging "github.com/lilybw/go-solid/shared/logging"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/rasterization"
+	reg_shr "github.com/lilybw/go-solid/shared/registry"
 	"github.com/lilybw/go-solid/shared/static"
 	"github.com/lilybw/go-solid/shared/types"
 )
@@ -81,14 +82,6 @@ type Config struct {
 	//	import S from "go-solid/static";
 	//	<img src={S.images.logo} />
 	//	const config = await S.load(S.data.config);
-	//
-	// Leaves are content-hashed URLs, so they are immutable and cached
-	// forever, and a file name becomes a key by replacing whatever a
-	// JavaScript identifier cannot hold with "_". Two names colliding is an
-	// error at New naming both files.
-	//
-	// The module exists whether or not the feature is on; left off, reaching
-	// into it is a TypeScript error naming the setting to change.
 	Static *static.StaticConfig
 
 	// HMR enables hot browser reload in development. When non-nil and not
@@ -130,15 +123,11 @@ type Bundler struct {
 
 func New(cfg *Config) (*Bundler, error) {
 	consumerDefaults := cfg.Defaults != nil
-	// A rasterization the consumer asked for is load-bearing and its failures
-	// are fatal. The default-on one is an optimisation, so it warns instead.
 	consumerRasterization := cfg.Rasterization != nil
 	if err := configValidationAndNormalization(cfg); err != nil {
 		return nil, err
 	}
 
-	// Behavioural defaults belong to this Bundler, not to the process: two
-	// Bundlers in one program keep their own.
 	defaults := networking_int.NewDefaults()
 	if consumerDefaults {
 		defaults.SetHTMLHeadSegment(cfg.Defaults.HeadSegment)
@@ -160,8 +149,6 @@ func New(cfg *Config) (*Bundler, error) {
 		return nil, err
 	}
 
-	// Caches are enabled unless explicitly disabled. The cache root is the
-	// workspace unless Rasterization.Location moved it.
 	disk, err := caching.NewDiskCache(cfg.componentCacheRoot(), !cfg.DisableCaching)
 	if err != nil {
 		return nil, err
@@ -181,8 +168,6 @@ func New(cfg *Config) (*Bundler, error) {
 		typeChecker.Invalidate(name)
 	}
 
-	// invalidateComponentFile drops every component backed by one file: the
-	// default export and every "#" selection out of it.
 	invalidateComponentFile := func(file meta.QualifiedName) {
 		for _, name := range mem.ComponentsInFile(file) {
 			invalidateComponent(name)
@@ -193,13 +178,6 @@ func New(cfg *Config) (*Bundler, error) {
 		invalidateComponent(file)
 	}
 
-	// A touched file invalidates the component it backs plus every component
-	// that bundled it as a dependency.
-	//
-	// The dependency index only knows components that have been rendered, so
-	// after a restart it is empty and the file's own entries are reached by
-	// name instead. One file can back several — its default export and any
-	// number of "#" selections — so that fallback is file-scoped.
 	invalidateForSource := func(file meta.AbsoluteFilePath) {
 		for _, name := range index.DependentsOf(file) {
 			invalidateComponent(name)
@@ -219,17 +197,13 @@ func New(cfg *Config) (*Bundler, error) {
 		}
 	}
 
-	// Pass one: every switchable feature gets a resolvable placeholder, so a
-	// component may import one unconditionally and a build never fails on a
-	// module that was never generated.
+	// Pass one: every switchable feature gets a resolvable placeholder
 	publishedTypes := types_int.PublishedRoot(cfg.Workspace)
 	if err := static_int.EnsureDisabled(cfg.Workspace, publishedTypes); err != nil {
 		return nil, err
 	}
 
-	// Pass two: with the caches and the dependency graph in place, build the
-	// features that were configured. Regenerating the static module invalidates
-	// every bundle that imported it, which is why this needs invalidateForSource.
+	// Pass two
 	static, err := static_int.NewStaticRegistry(
 		cfg.Static, cfg.Workspace, publishedTypes,
 		invalidateForSource,
@@ -242,7 +216,6 @@ func New(cfg *Config) (*Bundler, error) {
 	}
 
 	bundler := &Bundler{
-		// if a bundler is correctly made through New(), the config is at this point assured to be validated, all fields present, and all field values correctly assigned.
 		cfg:      cfg,
 		buildID:  buildFingerprint(cfg.Generation),
 		registry: registry,
@@ -254,21 +227,16 @@ func New(cfg *Config) (*Bundler, error) {
 		types:    typeChecker,
 	}
 
-	if err := bundler.types.OnBoot(registry.Components()); err != nil {
+	if err := bundler.types.OnBoot(registry.Map(func(_ meta.QualifiedName, comp *reg_shr.Component) *reg_shr.Component { return comp })); err != nil {
 		return nil, err
 	}
 
 	if cfg.Rasterization.Active() && !cfg.Rasterization.ExpectCompleted {
-		// begin only rasterization when BehaviouralDefaults.HeadSegment have been applied
-		for _, comp := range registry.Names() {
-			// pre-render all components with disk cache enabled
+		for _, comp := range registry.Map(func(name meta.QualifiedName, _ *reg_shr.Component) meta.QualifiedName { return name }) {
 			_, err := bundler.Render(comp, noop.T_o_Void[RenderCallBuilder](), meta.NIL_PROPS)
 			if err == nil {
 				continue
 			}
-			// A file in the components tree that exports no component is a
-			// helper module, not a broken build. Rasterization walks past it;
-			// asking for it by name is still an error, at the render that asks.
 			if types_int.IsNotAComponent(err) {
 				log_int.Log(logging.LEVEL_INFO, fmt.Sprintf(
 					"[go_solid] rasterization skipped %q: %v", comp, err))
@@ -282,9 +250,6 @@ func New(cfg *Config) (*Bundler, error) {
 		}
 	}
 
-	// Hot browser reload: opt-in, and go_solid mounts its own handler on the
-	// consumer-provided mux. When inactive, none of this is constructed and the
-	// emitted HTML is byte-identical to a plain render.
 	if cfg.isHMROn() {
 		normalized, err := hmr_int.NormalizeHMRConfig(cfg.HMR)
 		if err != nil {
@@ -293,11 +258,8 @@ func New(cfg *Config) (*Bundler, error) {
 		bundler.cfg.HMR = normalized
 
 		bundler.hub = hmr_int.NewHub(normalized)
-		// go_solid registers its own endpoint — the consumer never wires it.
 		normalized.Mux.Handle(normalized.Path, bundler.hub.Handler())
 
-		// NewWatcher starts its own goroutine before returning, so there is no
-		// separate Start call to forget.
 		w, err := hmr_int.NewWatcher(
 			string(cfg.Components), bundler.index, bundler.hub,
 			invalidateComponent,
@@ -327,10 +289,6 @@ func buildFingerprint(cfg *esbuild.BundlerConfig) string {
 		cfg.Minify, cfg.Sourcemap, cfg.Solid), 16)
 }
 
-// componentCacheRoot is the directory holding the component cache.
-//
-// Rasterization.Location overrides the workspace, so a pre-built cache can be
-// produced into, and shipped from, somewhere the workspace does not reach.
 func (cfg *Config) componentCacheRoot() meta.AbsoluteDirectoryPath {
 	if cfg.Rasterization != nil && cfg.Rasterization.Location != "" {
 		return cfg.Rasterization.Location
@@ -349,7 +307,7 @@ func configValidationAndNormalization(cfg *Config) error {
 	}
 	log_int.SetLevel(cfg.LogLevel)
 	log_int.LogJSON(logging.LEVEL_TRACE, "[bundler.go#configValidationAndNormalization] user config:", cfg)
-	// POLYFILL
+
 	if cfg.Components == "" {
 		return fmt.Errorf("go_solid: ComponentsDir is required")
 	}
@@ -373,18 +331,11 @@ func configValidationAndNormalization(cfg *Config) error {
 		return fmt.Errorf("go_solid: create workspace %q: %w", cfg.Workspace, err)
 	}
 
-	// The two unconfigured states differ on purpose. A nil Generation takes the
-	// null object's opinions — Minify on, which is what an unattended build
-	// should do. A supplied one is taken at its word, zero values included, so
-	// nothing the consumer wrote is overridden by a default they did not ask
-	// for. Both are reachable by "I did not configure bundling", so the choice
-	// of nil versus &BundlerConfig{} is a choice of Minify.
 	if cfg.Generation == nil {
 		cfg.Generation = meta.Copy(esbuild.NIL_BUNDLER_CONFIG)
 		cfg.Generation.Dependencies = cfg.Components
 	} else {
 		cfg.Generation.Solid.Normalize()
-		// Minify and Sourcemap are left as given; see above.
 		if cfg.Generation.Dependencies == esbuild.NIL_BUNDLER_CONFIG.Dependencies {
 			cfg.Generation.Dependencies = cfg.Components
 		}
@@ -416,9 +367,6 @@ func configValidationAndNormalization(cfg *Config) error {
 	if cfg.Static == nil {
 		cfg.Static = meta.Copy(static.NIL_STATIC_CONFIG)
 	} else {
-		// A supplied config means the feature was asked for, so an incomplete
-		// one is a mistake rather than a way of leaving it off. Disabled is how
-		// you leave it off while keeping the settings written down.
 		if !cfg.Static.Disabled {
 			if cfg.Static.Location == "" {
 				return fmt.Errorf("go_solid: Config.Static was provided but Location is unset; " +
@@ -438,26 +386,12 @@ func configValidationAndNormalization(cfg *Config) error {
 				return fmt.Errorf("go_solid: Static.Location %q is not a readable directory", abs)
 			}
 		}
-		if cfg.Static.Ignore == nil {
-			cfg.Static.Ignore = static.DEFAULT_IGNORE
-		}
-		if cfg.Static.MountPath == "" {
-			cfg.Static.MountPath = static.DEFAULT_MOUNT_PATH
-		}
-		if !strings.HasPrefix(cfg.Static.MountPath, "/") {
-			cfg.Static.MountPath = "/" + cfg.Static.MountPath
-		}
-		if !strings.HasSuffix(cfg.Static.MountPath, "/") {
-			cfg.Static.MountPath += "/"
-		}
-		if cfg.Static.InlineLimit == 0 {
-			cfg.Static.InlineLimit = static.DEFAULT_INLINE_LIMIT
-		}
+
+		cfg.Static.Ignore = cfg.Static.EffectiveIgnore()
+		cfg.Static.MountPath = cfg.Static.EffectiveMountPath()
+		cfg.Static.InlineLimit = cfg.Static.EffectiveInlineLimit()
 	}
-	// The generated modules resolve under stable specifiers rather than
-	// workspace paths, so nothing in user code depends on where the workspace
-	// happens to be. Registered before the fingerprint is taken, since a change
-	// here changes what esbuild emits.
+
 	if cfg.Generation.Alias == nil {
 		cfg.Generation.Alias = map[string]string{}
 	}
@@ -466,15 +400,11 @@ func configValidationAndNormalization(cfg *Config) error {
 	rasterizationProvided := cfg.Rasterization != nil
 	if !rasterizationProvided {
 		cfg.Rasterization = meta.Copy(rasterization.NIL_RASTERIZATION_CONFIG)
-		// Rasterization is on by default, but a default must not override an
-		// explicit choice: it has nowhere to write without caches, and nothing
-		// to build without bundling.
 		if cfg.DisableCaching || cfg.Generation.Disabled {
 			cfg.Rasterization.Disabled = true
 		}
 	}
-	// Location names the component cache wherever it is, so it is resolved
-	// whether or not rasterization itself is on.
+
 	if cfg.Rasterization.Location != "" {
 		abs, err := filepath.Abs(cfg.Rasterization.Location)
 		if err != nil {
@@ -511,11 +441,6 @@ func configValidationAndNormalization(cfg *Config) error {
 }
 
 // normalizeTypes resolves Types.Check and reconciles it with rasterization.
-//
-// The boot pass rides on rasterization's registry walk, so it cannot run
-// without it. Asking for it outright is an error; arriving at it by leaving
-// Check unset drops the boot half and keeps going, since the consumer never
-// asked for something that cannot be delivered.
 func normalizeTypes(cfg *Config) error {
 	if cfg.Types == nil {
 		cfg.Types = meta.Copy(types.NIL_TYPES_CONFIG)
@@ -523,18 +448,11 @@ func normalizeTypes(cfg *Config) error {
 	if cfg.Types.Check == types.CHECK_UNSET {
 		cfg.Types.Check = types.DEFAULT_CHECK
 	}
-	// Check is honoured as given. The boot pass reads and parses component
-	// sources; it neither bundles nor renders, so it has no bearing on
-	// rasterization and must not quietly switch it on.
 	return nil
 }
 
 func (b *Bundler) Registry() *internal.ComponentRegistry { return b.registry }
 
-// Static is the asset manifest, for the Go side of the same data the generated
-// module exposes to the browser. Nil when the feature is off.
-//
-//	url := bundler.Static().URL("images/hero.png")
 func (b *Bundler) Static() *static_int.Manifest {
 	if b == nil || b.static == nil {
 		return nil
@@ -580,10 +498,6 @@ func (b *Bundler) searchCaches(key *caching.CacheKey) (*caching.Rendered, bool) 
 }
 
 func (b *Bundler) constructHMRScript(component meta.QualifiedName) string {
-	// Inject the hot-reload client only when HMR is active. Generated here in
-	// package go_solid (which imports both hmr and internal) and passed to
-	// AssembleHTML as a plain string, so internal never imports hmr — avoiding
-	// the import cycle (hmr already imports internal).
 	hmrScript := ""
 	if b.hub != nil {
 		hmrScript = hmr_int.ClientScript(b.cfg.HMR.Path, component)

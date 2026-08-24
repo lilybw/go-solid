@@ -9,11 +9,6 @@ import (
 )
 
 // RequestBehaviourBuilder configures the handlers for one request.
-//
-// Its methods take a runtime events.EventType rather than a type parameter:
-// Go 1.27 allows generic methods on concrete types but not on interfaces, and
-// a generic method cannot implement an interface method. For handlers that
-// receive their concrete event type, reach for RequestBehaviour.Handlers.Add.
 type RequestBehaviourBuilder interface {
 	SetWriter(w http.ResponseWriter) RequestBehaviourBuilder
 	SetRequest(r *http.Request) RequestBehaviourBuilder
@@ -39,11 +34,7 @@ type RequestBehaviour struct {
 }
 
 // CommitStatus writes code as the response status the first time it is called
-// for this request, reporting whether it did. Later calls are no-ops, so the
-// built-in default responder cannot clobber a status an explicit handler
-// (CodeUpon, or a user handler running earlier in the chain) already set.
-//
-// Chains are dispatched concurrently, hence the lock.
+// for this request, reporting whether it did. Later calls are no-ops
 func (this *RequestBehaviour) CommitStatus(code int) bool {
 	this.statusMu.Lock()
 	defer this.statusMu.Unlock()
@@ -55,16 +46,10 @@ func (this *RequestBehaviour) CommitStatus(code int) bool {
 	return true
 }
 
-// BindWriter installs w as the response writer, wrapped so that chains
-// dispatched in parallel cannot corrupt it. Every path that supplies a writer
-// goes through here; assigning W directly opts out of that protection.
 func (this *RequestBehaviour) BindWriter(w http.ResponseWriter) {
 	this.W = Synchronized(w)
 }
 
-// Bind turns a builder-style handler into a stored Handler. W and R are read at
-// dispatch time, so a behaviour built before the writer is known still writes
-// to the real one.
 func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler) Handler {
 	return func(event events.NetworkingEvent) error {
 		return fn(this.W, this.R, event)
@@ -72,11 +57,7 @@ func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler) Handler {
 }
 
 // Dispatch runs the handlers for event: first those registered for its own
-// type, then those registered for the capability bucket it belongs to. It
-// returns the first error any of them reported.
-//
-// A nil behaviour, a nil handler map or a nil event is a no-op, so a render
-// that was never bound to a request needs no guard at the call site.
+// type, then those registered for the capability bucket it belongs to.
 func (this *RequestBehaviour) Dispatch(event events.NetworkingEvent) error {
 	if this == nil || this.Handlers == nil || event == nil {
 		return nil

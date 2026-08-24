@@ -11,10 +11,6 @@ import (
 
 // PeerDepsForConfig returns the packages that must resolve from disk for a
 // given configuration.
-//
-// With Solid.Runtime INTERNAL there are none: solid-js is served from a copy
-// inside the compiler, and the compiler itself is Go. With EXTERNAL, solid-js
-// must be installed under BundlerConfig#Dependencies.
 func PeerDepsForConfig(cfg SolidConfig) []string {
 	if cfg.Runtime == RuntimeExternal {
 		return []string{"solid-js"}

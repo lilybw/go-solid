@@ -18,26 +18,10 @@ import (
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
-// CACHE_DIR_NAME is the workspace sub-directory holding extracted props shapes.
-//
-// It is an internal cache, not a published surface: nothing here is meant to be
-// imported, the layout and format are free to change, and deleting it costs
-// only the work of extracting again. The importable definitions live under
-// shared/types#TYPES_DIR_NAME.
 const CACHE_DIR_NAME = "type_cache"
-
-// CACHE_ENTRY_EXT is the extension of a cache entry, and the one place the
-// on-disk format is named. Entries are JSON while the shape of the data is
-// still moving; encodeEntry and decodeEntry are the only seam a packed binary
-// format would have to replace.
 const CACHE_ENTRY_EXT = ".types.json"
 
 // entry is one component's extraction as it is stored.
-//
-// Sources records every file the shape was read from, each with the digest it
-// had at the time. An entry is valid only while all of them still match, so
-// editing a definition a component imports invalidates that component too —
-// which a timestamp on the component alone would miss.
 type entry struct {
 	Component  meta.QualifiedName `json:"component"`
 	Sources    map[string]string  `json:"sources"` // absPath -> "sha256:<hex>"
@@ -107,14 +91,10 @@ func NewCache(workspace meta.AbsoluteDirectoryPath) *Cache {
 	}
 }
 
-// Root is the directory holding the cache.
 func (c *Cache) Root() meta.AbsoluteDirectoryPath { return c.root }
 
 // Path is where a component's entry lives. The tree mirrors the components
 // directory, so an entry is findable from the component it describes.
-// Path is where a component's entry lives. The export selector folds into the
-// filename, so two components backed by one file get two entries and neither
-// puts a "#" in a path.
 func (c *Cache) Path(component meta.QualifiedName) meta.AbsoluteFilePath {
 	file, export := meta.SplitSelector(component)
 	stem := filepath.FromSlash(file)
@@ -124,7 +104,6 @@ func (c *Cache) Path(component meta.QualifiedName) meta.AbsoluteFilePath {
 	return filepath.Join(c.root, stem+CACHE_ENTRY_EXT)
 }
 
-// Get returns a valid extraction for component, from memory or from disk.
 func (c *Cache) Get(component meta.QualifiedName) (Extraction, bool) {
 	c.mu.Lock()
 	hit, ok := c.mem[component]
@@ -141,7 +120,6 @@ func (c *Cache) Get(component meta.QualifiedName) (Extraction, bool) {
 	return stored, true
 }
 
-// Put stores an extraction in both layers.
 func (c *Cache) Put(component meta.QualifiedName, extraction Extraction) error {
 	if err := validComponentName(component); err != nil {
 		return err
@@ -150,8 +128,6 @@ func (c *Cache) Put(component meta.QualifiedName, extraction Extraction) error {
 	return c.write(component, extraction)
 }
 
-// Invalidate drops component from memory. The disk entry is left to its own
-// digests, which already refuse to answer for a changed source.
 func (c *Cache) Invalidate(component meta.QualifiedName) {
 	c.mu.Lock()
 	delete(c.mem, component)
@@ -252,8 +228,6 @@ func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error
 	return nil
 }
 
-// Prune removes entries for components that no longer exist, and any directory
-// left empty by doing so.
 func (c *Cache) Prune(known []meta.QualifiedName) (int, error) {
 	if _, err := os.Stat(c.root); err != nil {
 		return 0, nil // nothing cached yet

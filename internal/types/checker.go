@@ -12,7 +12,6 @@ import (
 	. "github.com/lilybw/go-solid/shared/types"
 )
 
-// DiagnosticKind classifies one finding.
 type DiagnosticKind uint8
 
 const (
@@ -49,11 +48,6 @@ const (
 	SEVERITY_ERROR
 )
 
-// Severity of a finding.
-//
-// A component that declares no props type states no requirement, so nothing
-// can violate it — that is a gap in coverage, not a fault, and it must not stop
-// a boot or a render. Only a requirement the props fail to meet is an error.
 func (k DiagnosticKind) Severity() Severity {
 	switch k {
 	case DIAG_UNTYPED:
@@ -64,11 +58,6 @@ func (k DiagnosticKind) Severity() Severity {
 }
 
 // Diagnostic is one finding about a component's props.
-//
-// What a batch of them means is the Reporter's decision. Under the default
-// Reporter a fault fails the pass it was raised in — the boot pass fails New,
-// the runtime pass fails that render — while a finding that only reports absent
-// coverage is logged and passes.
 type Diagnostic struct {
 	Component meta.QualifiedName
 	Kind      DiagnosticKind
@@ -96,17 +85,9 @@ func (d Diagnostic) String() string {
 	return b.String()
 }
 
-// Reporter receives the diagnostics of one pass, which may be empty, and
-// decides what they mean. Returning an error fails the pass: the boot pass
-// fails New, the runtime pass fails the render it was called for.
 type Reporter = func([]Diagnostic) error
 
 // CoalesceDiagnostics is the default Reporter.
-//
-// Faults are gathered into a single error, so a caller is shown every one in
-// the batch rather than whichever came first. Findings that only report absent
-// coverage are logged and pass, because a component that states no contract
-// cannot have broken one.
 func CoalesceDiagnostics(diagnostics []Diagnostic) error {
 	var faults []Diagnostic
 	for _, d := range diagnostics {
@@ -130,14 +111,6 @@ func CoalesceDiagnostics(diagnostics []Diagnostic) error {
 
 // Checker holds the props passed to a template against the type the component
 // declares for them.
-//
-// The component file is the contract. Whatever it says its props are is what
-// the Go side has to satisfy, and the correlation is covariant: props may carry
-// more than the component reads, in any order, but every field the component
-// requires has to be there at a compatible type.
-//
-// Extracted shapes are cached under CACHE_DIR_NAME whatever CheckMode holds;
-// the mode governs only whether findings are reported.
 type Checker struct {
 	mode      CheckMode
 	cache     *Cache
@@ -160,13 +133,8 @@ func NewChecker(workspace meta.AbsoluteDirectoryPath, mode CheckMode, report Rep
 	}
 }
 
-// Cache exposes the underlying cache, for tests and for callers that need to
-// know where an entry landed.
 func (c *Checker) Cache() *Cache { return c.cache }
 
-// Invalidate drops what is remembered about a component. HMR calls it when a
-// component is rebuilt; the cache would notice the change on its own, but not
-// until the next render asks.
 func (c *Checker) Invalidate(component meta.QualifiedName) {
 	if c == nil {
 		return
@@ -197,9 +165,7 @@ func (c *Checker) OnPrepare(component *registry.Component, props any) error {
 	extraction, ok := c.extraction(component)
 	if !ok || !extraction.Found {
 		// No resolvable contract, either because the component takes no
-		// parameter or because its type could not be followed. Supplying more
-		// than is required is always allowed, and a component that requires
-		// nothing is the limiting case of that.
+		// parameter or because its type could not be followed.
 		return nil
 	}
 
@@ -216,15 +182,6 @@ func (c *Checker) OnPrepare(component *registry.Component, props any) error {
 
 // OnBoot extracts and caches every component's props type, and drops entries
 // for components that no longer exist.
-//
-// Extraction runs whatever CheckMode holds, so the cache is warm before the
-// first request. With the boot pass on, it also names the components whose
-// props type could not be resolved: those are the ones the runtime pass will
-// have nothing to hold props against, and saying so once at startup beats
-// silence.
-//
-// The pass reads and parses component sources; it neither bundles nor renders,
-// so it is independent of rasterization.
 func (c *Checker) OnBoot(components []*registry.Component) error {
 	if c == nil {
 		return nil
@@ -264,9 +221,6 @@ func (c *Checker) OnBoot(components []*registry.Component) error {
 
 // extraction resolves a component's props type, from cache when it is still
 // valid and by reading the component when it is not.
-// VerifyComponentExport reports whether a selector names something renderable.
-// It parses, but it does not type check: it runs whatever CheckMode holds,
-// because "is there a component here" is a question every render asks.
 func (c *Checker) VerifyComponentExport(component *registry.Component) error {
 	if c == nil || c.extractor == nil {
 		return nil

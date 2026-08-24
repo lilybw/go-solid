@@ -11,11 +11,6 @@ import (
 // of component names whose bundles include that source. It is maintained on
 // every render
 //
-// Note the granularity: this maps source -> componentName, deliberately coarser
-// than the disk cache's source -> entryKey mapping. HMR reloads a *template*,
-// and one component viewed with different props is several entry keys but a
-// single reloadable component.
-//
 // It is safe for concurrent use.
 type DependencyIndex struct {
 	mu sync.RWMutex
@@ -27,8 +22,7 @@ func NewDepIndex() *DependencyIndex {
 	return &DependencyIndex{bySource: map[meta.AbsoluteFilePath]map[string]struct{}{}}
 }
 
-// Record registers that component depends on the given source files. Sources are
-// normalized to the same form the disk cache uses so lookups from the watcher
+// Record registers that component depends on the given source files.
 func (d *DependencyIndex) Record(component string, sources []string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -44,7 +38,6 @@ func (d *DependencyIndex) Record(component string, sources []string) {
 }
 
 // DependentsOf returns the component names that depend on the given source file.
-// The source is normalized before lookup, so callers may pass a raw path.
 func (d *DependencyIndex) DependentsOf(source meta.AbsoluteFilePath) []string {
 	key := esbuild.NormalizeSourcePath(source)
 	d.mu.RLock()

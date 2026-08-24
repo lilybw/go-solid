@@ -3,10 +3,10 @@ package types
 import (
 	"slices"
 	"strings"
+
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
-// Field is one member of a props object as the browser sees it: Name is the
-// JSON name, TS is a TypeScript type expression.
 type Field struct {
 	Name     string `json:"name"`
 	TS       string `json:"ts"`
@@ -14,14 +14,6 @@ type Field struct {
 }
 
 // Shape is the structural description of a component's props.
-//
-// Members are held sorted by name and deduplicated, which is what lets Lookup
-// binary-search and two shapes describing the same object fingerprint
-// identically whatever order they were built in. That invariant is the type's
-// whole contract, so the slice is not exported: NewShape is the only way in.
-//
-//	shape := types.NewShape([]types.Field{{Name: "title", TS: "string"}})
-//	field, ok := shape.Lookup("title")
 type Shape struct {
 	fields []Field
 }
@@ -38,10 +30,8 @@ func NewShape(fields []Field) Shape {
 // cannot break the ordering the shape relies on.
 func (s Shape) Fields() []Field { return slices.Clone(s.fields) }
 
-// Len is the number of members.
 func (s Shape) Len() int { return len(s.fields) }
 
-// Empty reports whether the shape carries no members.
 func (s Shape) Empty() bool { return len(s.fields) == 0 }
 
 // Lookup returns the field named name.
@@ -58,11 +48,7 @@ func (s Shape) Lookup(name string) (Field, bool) {
 // Fingerprint is a canonical single-line encoding, stable across formatting
 // differences in the underlying type expressions. Two shapes with the same
 // fingerprint are identical, which is stricter than Satisfies.
-//
-// It reads as the body of a canonical object type — "count:number;name?:string"
-// — with ";" separating members rather than terminating them, matching
-// CanonicalTS. An empty shape encodes as the empty string.
-func (s Shape) Fingerprint() string {
+func (s Shape) Fingerprint() meta.Fingerprint {
 	var b strings.Builder
 	for i, f := range s.fields {
 		if i > 0 {
@@ -117,17 +103,7 @@ type Violation struct {
 
 // Violations lists every way source fails to stand in for target, ordered by
 // field name. It is empty exactly when Satisfies reports true.
-//
-// The relation is covariant, in the sense of Java's <? extends T>: source may
-// carry fields target never mentions, and field order is immaterial, because
-// neither can make a component read something that is not there. Only the
-// requirements target states are enforced —
-//
-//   - a required field of target that source omits, or may omit
-//   - a field of both whose source type cannot stand in for the target type
-//
-// A field of target that is optional and absent from source is not a
-// violation; that is what optional means.
+// Strictness: typeof Target === Class<? extends Source>
 func Violations(target, source Shape) []Violation {
 	var out []Violation
 	for _, want := range target.fields {
@@ -162,9 +138,6 @@ func Satisfies(target, source Shape) bool { return len(Violations(target, source
 // Type expressions are compared as text, canonicalized first, with one
 // widening rule: every top-level union member of source must appear among
 // target's, so string satisfies string | null but not the other way round.
-// Anything subtler than that — structural comparison of object literals,
-// Array<T> against T[] — is reported as a difference rather than guessed at,
-// which is why the finding is a warning.
 func assignableTS(target, source string) bool {
 	target, source = CanonicalTS(target), CanonicalTS(source)
 	if target == source {

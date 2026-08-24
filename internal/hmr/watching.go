@@ -34,8 +34,7 @@ type Watcher struct {
 
 // NewWatcher constructs the watcher, seeds the watch set from the tree, and
 // starts its goroutine before returning. There is no separate Start method: a
-// constructed Watcher is already running, so the caller can't forget to start
-// it. Stop halts it.
+// constructed Watcher is already running
 func NewWatcher(
 	root string,
 	index *internal.DependencyIndex,
@@ -164,8 +163,6 @@ func (w *Watcher) handleEvent(event fsnotify.Event, pending map[meta.QualifiedNa
 	}
 }
 
-// Stop halts the watcher and releases fsnotify resources. Idempotent, and safe
-// on a nil receiver; concurrent calls all return once the shutdown completes.
 func (w *Watcher) Stop() {
 	if w == nil {
 		return

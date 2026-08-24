@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/registry"
 )
 
 // writeTree creates a set of files (relative path -> contents) under a fresh
@@ -44,7 +45,7 @@ func TestRegistry_DerivesNamesFromPaths(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 
-	got := reg.Names()
+	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
 	want := []string{"Version", "auth/LoginForm", "auth/nested/Deep", "widgets/Chart"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %v, want %v", got, want)
@@ -101,7 +102,7 @@ func TestRegistry_SkipsNodeModulesAndDotDirs(t *testing.T) {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 
-	got := reg.Names()
+	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
 	want := []string{"Real"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %#v (len %d), want %#v (len %d)", got, len(got), want, len(want))
@@ -131,7 +132,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	if names := reg.Names(); !reflect.DeepEqual(strings.Join(names, ","), "A") {
+	if names := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name }); !reflect.DeepEqual(strings.Join(names, ","), "A") {
 		t.Fatalf("initial Names() = %v, want [A]", names)
 	}
 
@@ -143,7 +144,7 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 		t.Fatalf("Reload: %v", err)
 	}
 
-	got := reg.Names()
+	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
 	want := []string{"A", "B"}
 	sort.Strings(got)
 	if !reflect.DeepEqual(got, want) {

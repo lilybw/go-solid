@@ -21,11 +21,7 @@ type FailureEvent interface {
 }
 
 // DevelopmentFailureEvent narrows FailureEvent to faults in how the library was
-// used rather than faults in serving the request: a props type the component
-// does not accept, and in time anything else worth telling a developer about
-// and worth suppressing in production. It is a capability bucket like the
-// others, so a handler registered under it runs for every such event, ahead of
-// the broader FailureEvent handlers.
+// used rather than faults in serving the request
 type DevelopmentFailureEvent interface {
 	FailureEvent
 	isDevelopmentFailureEvent()

@@ -83,9 +83,9 @@ func (h *Hub) Reload(component meta.QualifiedName) {
 }
 
 // Handler returns the WebSocket handler go_solid mounts on the consumer's mux.
-// It is self-contained: upgrades, registers the connection under the component
-// named in ?c=, and blocks reading only to detect disconnect.
 func (h *Hub) Handler() http.Handler {
+	// It is self-contained: upgrades, registers the connection under the component
+	// named in ?c=, and blocks reading only to detect disconnect.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		component := r.URL.Query().Get("c")
 		if component == "" {
