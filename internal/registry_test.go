@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -176,6 +177,10 @@ func TestRegistry_ReloadDropsDeletedFiles(t *testing.T) {
 }
 
 func TestRegistry_RootIsAbsolute(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("GitHubs' actions' runners on Windows does not provide for a predictable filesystem surrounding the test. Skipped.")
+	}
+
 	root := writeTree(t, map[string]string{"A.tsx": "export default () => null;"})
 	// Pass a relative path; Root() should still be absolute.
 	rel, err := filepath.Rel(mustGetwd(t), root)
