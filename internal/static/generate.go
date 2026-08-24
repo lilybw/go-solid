@@ -77,7 +77,7 @@ var loaderSource string
 func GenerateDefinition(m *Manifest) string {
 	meta.PanicIfTrue(definitionPreamble == "", "[go-solid/internal/static/generate.go#GenerateDefinition] embed of types.ts failed")
 	var b strings.Builder
-	b.WriteString(definitionPreamble)
+	b.WriteString(definitionPreamble + "\n")
 	fmt.Fprintf(&b, "declare module %s {\n", strconv.Quote(MODULE_SPECIFIER))
 	b.WriteString(loaderDeclarations)
 	b.WriteString("\n  const assets: ")
