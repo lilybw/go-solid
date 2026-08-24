@@ -35,7 +35,7 @@ import (
 
 // settle is how long a filesystem event is given to reach a watcher and be
 // acted on. Generous: a flake here reads as a bug in invalidation routing.
-const settle = 3 * time.Second
+const settle = 5 * time.Second
 
 type project struct {
 	root       string
