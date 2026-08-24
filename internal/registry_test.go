@@ -47,6 +47,7 @@ func TestRegistry_DerivesNamesFromPaths(t *testing.T) {
 	}
 
 	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
+	sort.Strings(got)
 	want := []string{"Version", "auth/LoginForm", "auth/nested/Deep", "widgets/Chart"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %v, want %v", got, want)
@@ -104,6 +105,7 @@ func TestRegistry_SkipsNodeModulesAndDotDirs(t *testing.T) {
 	}
 
 	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
+	sort.Strings(got)
 	want := []string{"Real"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Names() = %#v (len %d), want %#v (len %d)", got, len(got), want, len(want))
@@ -133,7 +135,10 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	if names := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name }); !reflect.DeepEqual(strings.Join(names, ","), "A") {
+
+	names := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
+	sort.Strings(names)
+	if !reflect.DeepEqual(strings.Join(names, ","), "A") {
 		t.Fatalf("initial Names() = %v, want [A]", names)
 	}
 
@@ -146,8 +151,9 @@ func TestRegistry_ReloadPicksUpNewFiles(t *testing.T) {
 	}
 
 	got := reg.Map(func(name meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return name })
-	want := []string{"A", "B"}
 	sort.Strings(got)
+	want := []string{"A", "B"}
+
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("after Reload Names() = %v, want %v", got, want)
 	}

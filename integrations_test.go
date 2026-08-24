@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -76,6 +77,7 @@ func TestNew_RegistryDiscoversComponentsSkippingNodeModulesAndDotDirs(t *testing
 	defer b.Close()
 
 	names := b.Registry().Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k })
+	sort.Strings(names)
 	got := map[string]bool{}
 	for _, n := range names {
 		got[n] = true
