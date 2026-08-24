@@ -4,15 +4,6 @@ import "fmt"
 
 // CheckMode selects when go_solid holds the Go props handed to a template
 // against the TypeScript type the component declares for them.
-//
-// The component is the contract. Correlation is covariant, in the sense of
-// Java's <? extends T>: props satisfy a component when they carry every field
-// it requires, at a compatible type. Supplying extra fields, or declaring them
-// in another order, is not a finding.
-//
-// A mismatch fails the pass that found it: at boot it fails New, at runtime it
-// fails that render. Extracting and caching the component's props type is not
-// gated by this setting.
 type CheckMode uint8
 
 const (
@@ -41,13 +32,6 @@ const (
 // DEFAULT_CHECK is what CHECK_UNSET resolves to.
 const DEFAULT_CHECK = CHECK_RUNTIME_AND_BOOT
 
-// TYPES_DIR_NAME is the sub-directory of Config#Workspace holding the
-// definitions a component may import, for props go_solid synthesises rather
-// than the consumer writing them — routes, static assets, and so on.
-//
-// Nothing derived from a component is written here: a component already states
-// its own props type, and that statement is what go_solid checks against. The
-// shapes it extracts are an internal cache kept elsewhere in the workspace.
 const TYPES_DIR_NAME = "types"
 
 func (c CheckMode) String() string {
