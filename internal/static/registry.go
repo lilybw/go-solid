@@ -120,10 +120,10 @@ type disabledStaticRegistry struct {
 	module meta.AbsoluteFilePath
 }
 
-func (this *disabledStaticRegistry) Active() bool                     { return false }
-func (this *disabledStaticRegistry) Manifest() *Manifest              { return nil }
+func (this *disabledStaticRegistry) Active() bool                      { return false }
+func (this *disabledStaticRegistry) Manifest() *Manifest               { return nil }
 func (this *disabledStaticRegistry) ModulePath() meta.AbsoluteFilePath { return this.module }
-func (this *disabledStaticRegistry) Close()                           {}
+func (this *disabledStaticRegistry) Close()                            {}
 
 type enabledStaticRegistry struct {
 	cfg            *StaticConfig
@@ -139,6 +139,15 @@ type enabledStaticRegistry struct {
 
 	watcher   *watching_int.DirectoryWatcher[meta.Void]
 	closeOnce sync.Once
+
+	// The debounce outlives the event that armed it, so Close has to reach it
+	// as well as the watcher: a rebuild that fires afterwards reads a directory
+	// the caller may already have torn down, and calls onChange into caches
+	// that consider themselves shut.
+	debounceMu sync.Mutex
+	debounce   *time.Timer
+	closed     bool
+	rebuilds   sync.WaitGroup
 }
 
 func (this *enabledStaticRegistry) Active() bool { return true }
@@ -203,11 +212,14 @@ func writeIfChanged(path meta.AbsoluteFilePath, contents string) (bool, error) {
 // Debounced, because a copy of a directory arrives as a burst of events and
 // rebuilding per event would republish the module dozens of times, invalidating
 // every dependent bundle on each.
-func (this *enabledStaticRegistry) watch() error {
-	rebuild := this.debounced(120 * time.Millisecond)
+// rebuildWindow is how long events are collected before a rebuild. Copying a
+// directory in arrives as a burst, and rebuilding per event would republish the
+// module dozens of times, invalidating every dependent bundle on each.
+const rebuildWindow = 120 * time.Millisecond
 
+func (this *enabledStaticRegistry) watch() error {
 	touched := func(meta.AbsoluteFilePath, meta.Void) error {
-		rebuild()
+		this.scheduleRebuild(rebuildWindow)
 		return nil
 	}
 	watcher, err := watching_int.NewDirectoryWatcher(this.cfg.Location, &watching.DWVoidConfig{
@@ -223,23 +235,35 @@ func (this *enabledStaticRegistry) watch() error {
 	return nil
 }
 
-func (this *enabledStaticRegistry) debounced(window time.Duration) func() {
-	var (
-		mu    sync.Mutex
-		timer *time.Timer
-	)
-	return func() {
-		mu.Lock()
-		defer mu.Unlock()
-		if timer != nil {
-			timer.Stop()
-		}
-		timer = time.AfterFunc(window, func() {
-			if err := this.rebuild(); err != nil {
-				this.reportErr(err)
-			}
-		})
+// scheduleRebuild arms the debounce, replacing any pending one.
+//
+// The closed check and the WaitGroup increment happen under one lock, so a
+// rebuild is either refused because Close has begun or counted before Close can
+// wait — never slipping between the two.
+func (this *enabledStaticRegistry) scheduleRebuild(window time.Duration) {
+	this.debounceMu.Lock()
+	defer this.debounceMu.Unlock()
+
+	if this.closed {
+		return
 	}
+	if this.debounce != nil {
+		this.debounce.Stop()
+	}
+	this.debounce = time.AfterFunc(window, func() {
+		this.debounceMu.Lock()
+		if this.closed {
+			this.debounceMu.Unlock()
+			return
+		}
+		this.rebuilds.Add(1)
+		this.debounceMu.Unlock()
+		defer this.rebuilds.Done()
+
+		if err := this.rebuild(); err != nil {
+			this.reportErr(err)
+		}
+	})
 }
 
 func (this *enabledStaticRegistry) reportErr(err error) {
@@ -248,8 +272,21 @@ func (this *enabledStaticRegistry) reportErr(err error) {
 	}
 }
 
+// Close stops watching and waits for any rebuild already under way, so that
+// once it returns nothing is still reading the asset directory or writing the
+// generated module. Idempotent.
 func (this *enabledStaticRegistry) Close() {
-	this.closeOnce.Do(func() { this.watcher.Stop() }) // nil-safe
+	this.closeOnce.Do(func() {
+		this.debounceMu.Lock()
+		this.closed = true
+		if this.debounce != nil {
+			this.debounce.Stop()
+		}
+		this.debounceMu.Unlock()
+
+		this.rebuilds.Wait()
+		this.watcher.Stop() // nil-safe
+	})
 }
 
 // Handler serves the assets.
@@ -278,14 +315,14 @@ func (this *enabledStaticRegistry) Handler() http.Handler {
 
 		header := w.Header()
 		header.Set("Content-Type", asset.MIME)
-		header.Set("ETag", strconv.Quote(asset.Digest[:16]))
+		header.Set("ETag", strconv.Quote(asset.ContentHash[:16]))
 		// The URL carries the content hash, so this body can never change under
 		// this path. Nothing needs to revalidate, ever.
 		header.Set("Cache-Control", "public, max-age=31536000, immutable")
 		header.Set("X-Content-Type-Options", "nosniff")
 
-		if asset.Inline != nil {
-			http.ServeContent(w, r, asset.Rel, time.Time{}, strings.NewReader(string(asset.Inline)))
+		if asset.MemCached != nil {
+			http.ServeContent(w, r, asset.Rel, time.Time{}, strings.NewReader(string(asset.MemCached)))
 			return
 		}
 

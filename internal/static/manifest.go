@@ -26,25 +26,16 @@ import (
 // forever without revalidation, and it makes a changed asset a changed URL,
 // which is what lets the rest of the system notice.
 
-// Asset is one servable file.
 type Asset struct {
-	// Rel is the path within the asset directory, forward-slashed. The
-	// human-facing identity of the asset.
-	Rel string
-	// Path is where the bytes are on disk.
+	Rel  meta.RelativeFilePath
 	Path meta.AbsoluteFilePath
 	// URL is the content-hashed public path, e.g.
 	// "/__go_solid_static__/images/logo.9f2a1c4b.svg".
-	URL string
-	// MIME is the media type, from the extension.
-	MIME string
-	// Size in bytes.
-	Size int64
-	// Digest is the full content hash; URL carries a prefix of it.
-	Digest string
-	// Inline holds the bytes when the asset is small enough to be worth
-	// keeping in memory. Nil means serve it from Path.
-	Inline []byte
+	URL         string
+	MIME        string
+	Size        int64
+	ContentHash string
+	MemCached   []byte
 }
 
 // Manifest is the closed set of servable assets, indexed by URL.
@@ -272,15 +263,15 @@ func describe(abs meta.AbsoluteFilePath, rel, mount string, limit int64) (*Asset
 	ext := filepath.Ext(rel)
 
 	asset := &Asset{
-		Rel:    rel,
-		Path:   abs,
-		URL:    mount + strings.TrimSuffix(rel, ext) + "." + digest[:8] + ext,
-		MIME:   mediaType(ext),
-		Size:   int64(len(body)),
-		Digest: digest,
+		Rel:         rel,
+		Path:        abs,
+		URL:         mount + strings.TrimSuffix(rel, ext) + "." + digest[:8] + ext,
+		MIME:        mediaType(ext),
+		Size:        int64(len(body)),
+		ContentHash: digest,
 	}
 	if asset.Size <= limit {
-		asset.Inline = body
+		asset.MemCached = body
 	}
 	return asset, nil
 }

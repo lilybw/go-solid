@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	shared_static "github.com/lilybw/go-solid/shared/static"
 )
@@ -79,7 +81,7 @@ func TestManifest_URLsAreContentHashedAndKeepTheExtension(t *testing.T) {
 	if !strings.HasSuffix(asset.URL, ".svg") {
 		t.Errorf("URL %q lost the extension; the browser needs it and so does the loader", asset.URL)
 	}
-	if !strings.Contains(asset.URL, asset.Digest[:8]) {
+	if !strings.Contains(asset.URL, asset.ContentHash[:8]) {
 		t.Errorf("URL %q carries no content hash, so it cannot be cached immutably", asset.URL)
 	}
 	if asset.MIME != "image/svg+xml" {
@@ -167,10 +169,10 @@ func TestManifest_DirectoryAndFileCollisionIsAnError(t *testing.T) {
 
 func TestManifest_IgnoresTheUsualLeavings(t *testing.T) {
 	m := manifestOf(t, map[string]string{
-		"logo.svg":         "<svg/>",
-		".DS_Store":        "junk",
-		".gitkeep":         "",
-		"bundle.js.map":    "{}",
+		"logo.svg":          "<svg/>",
+		".DS_Store":         "junk",
+		".gitkeep":          "",
+		"bundle.js.map":     "{}",
 		".hidden/thing.png": "x",
 	})
 
@@ -330,4 +332,87 @@ func TestHandler_SupportsRangeRequests(t *testing.T) {
 	if rec.Body.String() != "0123456789" {
 		t.Errorf("body = %q, want the requested range", rec.Body.String())
 	}
+}
+
+// --- shutdown --------------------------------------------------------------
+
+// Close has to reach the debounce, not only the watcher. A rebuild armed just
+// before shutdown fires afterwards, reads a directory the caller may already
+// have torn down, and calls onChange into caches that consider themselves shut.
+func TestClose_CancelsAPendingRebuild(t *testing.T) {
+	assets := tree(t, map[string]string{"logo.svg": "<svg/>"})
+	workspace := t.TempDir()
+
+	var changes int64
+	reg, err := NewStaticRegistry(
+		&shared_static.StaticConfig{
+			Location: assets,
+			Mux:      http.NewServeMux(),
+			Reactive: true,
+			Ignore:   shared_static.DEFAULT_IGNORE,
+		},
+		workspace, workspace,
+		func(string) { atomic.AddInt64(&changes, 1) },
+		func(err error) { t.Errorf("a rebuild ran after Close: %v", err) },
+	)
+	if err != nil {
+		t.Fatalf("NewStaticRegistry: %v", err)
+	}
+
+	// Arm the debounce, then shut down inside its window.
+	if err := os.WriteFile(filepath.Join(assets, "added.svg"), []byte("<svg/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	reg.Close()
+
+	settled := atomic.LoadInt64(&changes)
+
+	// Removing the directory is what a t.TempDir cleanup does next. Nothing
+	// should be left to notice.
+	if err := os.RemoveAll(assets); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(400 * time.Millisecond) // well past the debounce window
+
+	if got := atomic.LoadInt64(&changes); got != settled {
+		t.Errorf("the module was republished %d times after Close", got-settled)
+	}
+}
+
+// Close is a teardown hook, reachable from more than one owner.
+func TestClose_IsIdempotent(t *testing.T) {
+	reg, err := NewStaticRegistry(
+		&shared_static.StaticConfig{
+			Location: tree(t, map[string]string{"logo.svg": "<svg/>"}),
+			Mux:      http.NewServeMux(),
+			Reactive: true,
+		},
+		t.TempDir(), t.TempDir(), nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("NewStaticRegistry: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		reg.Close()
+		reg.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close hung or panicked on a second call")
+	}
+}
+
+// A disabled registry has nothing to close, and is closed all the same.
+func TestClose_OnADisabledRegistry(t *testing.T) {
+	reg, err := NewStaticRegistry(&shared_static.StaticConfig{}, t.TempDir(), t.TempDir(), nil, nil)
+	if err != nil {
+		t.Fatalf("NewStaticRegistry: %v", err)
+	}
+	reg.Close()
+	reg.Close()
 }
