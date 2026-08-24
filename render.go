@@ -218,7 +218,7 @@ func (bundler *Bundler) bundleComponent(
 		return nil, nil, err
 	}
 
-	entryPath, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
+	entryPath, entryDir, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.Dispatch(events.NewTempEntryWriteFailure(err))
@@ -228,7 +228,7 @@ func (bundler *Bundler) bundleComponent(
 	defer cleanup()
 
 	bundle, err := esbuild.BundleEntry(
-		entryPath, bundler.cfg.Workspace, bundler.cfg.Generation)
+		entryPath, bundler.cfg.Workspace, entryDir, bundler.cfg.Generation)
 	if err != nil {
 		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
 			return req.Dispatch(events.NewCompBundlingFailure(err))

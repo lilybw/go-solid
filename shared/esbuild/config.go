@@ -112,6 +112,12 @@ func (s SolidConfig) Validate(dependencies meta.AbsoluteDirectoryPath) error {
 }
 
 type BundlerConfig struct {
+	// Alias maps a bare module specifier to the file that satisfies it. This is
+	// how a generated module reaches a component under a stable name —
+	// "go-solid/static" resolves here, so the workspace path never appears in
+	// user code. Set by go_solid; entries a consumer adds are kept.
+	Alias map[string]string
+
 	// Solid holds the settings that belong to Solid itself rather than to
 	// bundling. Its zero value is valid.
 	Solid SolidConfig

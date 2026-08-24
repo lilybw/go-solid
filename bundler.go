@@ -73,16 +73,22 @@ type Config struct {
 	// props are held against them.
 	Types *types.TypesConfig
 
-	// !! NOT IMPLEMENTED !! Enable component-integrated static content serving. If provided, any component's props (if any) will gain a "static" property of a type
-	// that is a 1 to 1 recreation of the structure of the Static.Location directory. This places some limitations upon names of files and sub-directories.
+	// Static enables asset serving. Provide Location and Mux to switch it on.
 	//
-	// In the resulting graph-like js object at props.static, each file becomes a function that returns a corresponding Promise. I.e. font at:
+	// go_solid walks Location, mounts a read-only endpoint on Mux, and
+	// generates a module mirroring the directory that a component imports:
 	//
-	// <StaticConfig.Location>/svg/homeIcon.svg
+	//	import S from "go-solid/static";
+	//	<img src={S.images.logo} />
+	//	const config = await S.load(S.data.config);
 	//
-	// becomes accessible in a component as:
+	// Leaves are content-hashed URLs, so they are immutable and cached
+	// forever, and a file name becomes a key by replacing whatever a
+	// JavaScript identifier cannot hold with "_". Two names colliding is an
+	// error at New naming both files.
 	//
-	// props.static.svg.homeIcon()
+	// The module exists whether or not the feature is on; left off, reaching
+	// into it is a TypeScript error naming the setting to change.
 	Static *static.StaticConfig
 
 	// HMR enables hot browser reload in development. When non-nil and not
@@ -213,7 +219,24 @@ func New(cfg *Config) (*Bundler, error) {
 		}
 	}
 
-	static, err := static_int.NewStaticRegistry(cfg.Static)
+	// Pass one: every switchable feature gets a resolvable placeholder, so a
+	// component may import one unconditionally and a build never fails on a
+	// module that was never generated.
+	publishedTypes := types_int.PublishedRoot(cfg.Workspace)
+	if err := static_int.EnsureDisabled(cfg.Workspace, publishedTypes); err != nil {
+		return nil, err
+	}
+
+	// Pass two: with the caches and the dependency graph in place, build the
+	// features that were configured. Regenerating the static module invalidates
+	// every bundle that imported it, which is why this needs invalidateForSource.
+	static, err := static_int.NewStaticRegistry(
+		cfg.Static, cfg.Workspace, publishedTypes,
+		invalidateForSource,
+		func(e error) {
+			log_int.Log(logging.LEVEL_ERROR, fmt.Sprintf("[go_solid/static] %v", e))
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -393,13 +416,53 @@ func configValidationAndNormalization(cfg *Config) error {
 	if cfg.Static == nil {
 		cfg.Static = meta.Copy(static.NIL_STATIC_CONFIG)
 	} else {
-		if cfg.Static.Ignore == nil {
-			cfg.Static.Ignore = static.NIL_STATIC_CONFIG.Ignore
+		// A supplied config means the feature was asked for, so an incomplete
+		// one is a mistake rather than a way of leaving it off. Disabled is how
+		// you leave it off while keeping the settings written down.
+		if !cfg.Static.Disabled {
+			if cfg.Static.Location == "" {
+				return fmt.Errorf("go_solid: Config.Static was provided but Location is unset; " +
+					"name the directory holding your assets, or set Static.Disabled")
+			}
+			if cfg.Static.Mux == nil {
+				return fmt.Errorf("go_solid: Config.Static.Mux is required when static assets are " +
+					"enabled (go_solid mounts the asset endpoint on your mux)")
+			}
+			abs, err := filepath.Abs(cfg.Static.Location)
+			if err != nil {
+				return fmt.Errorf("go_solid: Expected absolute path to Static.Location %q: %w",
+					cfg.Static.Location, err)
+			}
+			cfg.Static.Location = abs
+			if info, err := os.Stat(abs); err != nil || !info.IsDir() {
+				return fmt.Errorf("go_solid: Static.Location %q is not a readable directory", abs)
+			}
 		}
-		if cfg.Static.Location == "" {
-			return fmt.Errorf("Static config provided yet location unset. Kindly state.")
+		if cfg.Static.Ignore == nil {
+			cfg.Static.Ignore = static.DEFAULT_IGNORE
+		}
+		if cfg.Static.MountPath == "" {
+			cfg.Static.MountPath = static.DEFAULT_MOUNT_PATH
+		}
+		if !strings.HasPrefix(cfg.Static.MountPath, "/") {
+			cfg.Static.MountPath = "/" + cfg.Static.MountPath
+		}
+		if !strings.HasSuffix(cfg.Static.MountPath, "/") {
+			cfg.Static.MountPath += "/"
+		}
+		if cfg.Static.InlineLimit == 0 {
+			cfg.Static.InlineLimit = static.DEFAULT_INLINE_LIMIT
 		}
 	}
+	// The generated modules resolve under stable specifiers rather than
+	// workspace paths, so nothing in user code depends on where the workspace
+	// happens to be. Registered before the fingerprint is taken, since a change
+	// here changes what esbuild emits.
+	if cfg.Generation.Alias == nil {
+		cfg.Generation.Alias = map[string]string{}
+	}
+	cfg.Generation.Alias[static_int.MODULE_SPECIFIER] = static_int.ModulePathFor(cfg.Workspace)
+
 	rasterizationProvided := cfg.Rasterization != nil
 	if !rasterizationProvided {
 		cfg.Rasterization = meta.Copy(rasterization.NIL_RASTERIZATION_CONFIG)
@@ -468,6 +531,17 @@ func normalizeTypes(cfg *Config) error {
 
 func (b *Bundler) Registry() *internal.ComponentRegistry { return b.registry }
 
+// Static is the asset manifest, for the Go side of the same data the generated
+// module exposes to the browser. Nil when the feature is off.
+//
+//	url := bundler.Static().URL("images/hero.png")
+func (b *Bundler) Static() *static_int.Manifest {
+	if b == nil || b.static == nil {
+		return nil
+	}
+	return b.static.Manifest()
+}
+
 func (b *Bundler) Close() {
 	if b == nil {
 		return
@@ -478,6 +552,9 @@ func (b *Bundler) Close() {
 	}
 	if b.registry != nil {
 		b.registry.Close() // reactive registry watcher, if MakeReactive ran
+	}
+	if b.static != nil {
+		b.static.Close() // static asset watcher, if Static.Reactive was set
 	}
 }
 

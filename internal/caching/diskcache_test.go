@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/io"
 )
 
 // These tests exercise the disk cache in isolation. They construct *Rendered
@@ -256,10 +257,10 @@ func TestDiskCache_ValidWhenSourceUnchanged(t *testing.T) {
 func TestAtomicWrite_OverwritesCleanly(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "f")
-	if err := atomicWrite(p, []byte("first")); err != nil {
+	if err := io.WriteAtomic(p, []byte("first")); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWrite(p, []byte("second")); err != nil {
+	if err := io.WriteAtomic(p, []byte("second")); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(p)
@@ -305,6 +306,7 @@ func TestDiskCache_ConcurrentPutGet(t *testing.T) {
 
 func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
 	workspace := t.TempDir()
+	entryDir := filepath.Join(workspace, ".solidbundle-123")
 
 	// Minimal esbuild-metafile-shaped JSON. Input keys are relative, forward-slashed
 	// (as esbuild emits); ExtractSourcesFromMetafile joins them against workspace.
@@ -313,10 +315,10 @@ func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
         "components/A.tsx": {"bytes": 1},
         "components/sub/B.tsx": {"bytes": 1},
         "node_modules/solid-js/dist/solid.js": {"bytes": 1},
-        ".go_solid/.tmp123/entry.jsx": {"bytes": 1}
+        ".solidbundle-123/entry.jsx": {"bytes": 1}
       }
     }`
-	got := esbuild.ExtractSourcesFromMetafile(meta, workspace)
+	got := esbuild.ExtractSourcesFromMetafile(meta, workspace, entryDir)
 
 	// Only the two consumer sources survive; node_modules and temp entry dropped.
 	var hasA, hasB, hasNM, hasEntry bool
@@ -349,11 +351,87 @@ func TestExtractSources_FiltersNodeModulesAndTempEntry(t *testing.T) {
 	}
 }
 
+// Everything under the workspace that is not the throwaway entry is a real
+// dependency. Generated modules live there, and a bundle that imports one is
+// stale the moment it is rewritten — so it has to be recorded, or neither the
+// dependency index nor the disk cache can notice.
+func TestExtractSources_KeepsGeneratedModulesUnderTheWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	entryDir := filepath.Join(workspace, ".solidbundle-123")
+
+	meta := `{
+      "inputs": {
+        "components/A.tsx": {"bytes": 1},
+        "modules/static.js": {"bytes": 1},
+        ".solidbundle-123/entry.jsx": {"bytes": 1}
+      }
+    }`
+	got := esbuild.ExtractSourcesFromMetafile(meta, workspace, entryDir)
+
+	var hasModule bool
+	for _, s := range got {
+		if strings.HasSuffix(s, filepath.Join("modules", "static.js")) {
+			hasModule = true
+		}
+		if strings.Contains(s, "entry.jsx") {
+			t.Errorf("the throwaway entry was recorded: %q", s)
+		}
+	}
+	if !hasModule {
+		t.Errorf("a generated module under the workspace was dropped: %v", got)
+	}
+}
+
+// The exclusion is by identity, so it cannot depend on the workspace being
+// named .go_solid — that is only the default, and a consumer may point
+// Workspace anywhere.
+func TestExtractSources_ExclusionDoesNotDependOnTheWorkspaceName(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "custom-workspace")
+	entryDir := filepath.Join(workspace, ".solidbundle-abc")
+
+	meta := `{
+      "inputs": {
+        "components/A.tsx": {"bytes": 1},
+        "modules/static.js": {"bytes": 1},
+        ".solidbundle-abc/entry.jsx": {"bytes": 1}
+      }
+    }`
+	got := esbuild.ExtractSourcesFromMetafile(meta, workspace, entryDir)
+
+	if len(got) != 2 {
+		t.Fatalf("got %d sources, want 2 (the component and the generated module): %v", len(got), got)
+	}
+	for _, s := range got {
+		if strings.Contains(s, "entry.jsx") {
+			t.Errorf("the throwaway entry was recorded: %q", s)
+		}
+	}
+}
+
+// A sibling directory sharing a prefix with the entry directory is not inside
+// it, so segment-wise comparison matters.
+func TestExtractSources_PrefixSiblingOfTheEntryDirIsKept(t *testing.T) {
+	workspace := t.TempDir()
+	entryDir := filepath.Join(workspace, ".solidbundle-1")
+
+	meta := `{
+      "inputs": {
+        ".solidbundle-1/entry.jsx": {"bytes": 1},
+        ".solidbundle-12/leftover.js": {"bytes": 1}
+      }
+    }`
+	got := esbuild.ExtractSourcesFromMetafile(meta, workspace, entryDir)
+
+	if len(got) != 1 || !strings.HasSuffix(got[0], "leftover.js") {
+		t.Errorf("got %v, want only the sibling directory's file", got)
+	}
+}
+
 func TestExtractSources_EmptyMetafile(t *testing.T) {
-	if got := esbuild.ExtractSourcesFromMetafile("", "/work"); got != nil {
+	if got := esbuild.ExtractSourcesFromMetafile("", "/work", ""); got != nil {
 		t.Errorf("empty metafile should yield nil, got %v", got)
 	}
-	if got := esbuild.ExtractSourcesFromMetafile("not json", "/work"); got != nil {
+	if got := esbuild.ExtractSourcesFromMetafile("not json", "/work", ""); got != nil {
 		t.Errorf("bad metafile should yield nil, got %v", got)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lilybw/go-solid/internal/esbuild"
+	io_int "github.com/lilybw/go-solid/internal/io"
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
@@ -217,11 +218,11 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 	man.ServeNames.CSS = r.CSSName
 
 	base := filepath.Join(dc.directory, stem)
-	if err := atomicWrite(base+".js", []byte(r.JS)); err != nil {
+	if err := io_int.WriteAtomic(base+".js", []byte(r.JS)); err != nil {
 		return err
 	}
 	if r.CSS != "" {
-		if err := atomicWrite(base+".css", []byte(r.CSS)); err != nil {
+		if err := io_int.WriteAtomic(base+".css", []byte(r.CSS)); err != nil {
 			return err
 		}
 	}
@@ -230,7 +231,7 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 		return err
 	}
 	manifestPath := base + ".meta.json"
-	if err := atomicWrite(manifestPath, manBytes); err != nil {
+	if err := io_int.WriteAtomic(manifestPath, manBytes); err != nil {
 		return err
 	}
 
@@ -341,21 +342,3 @@ func ReadManifest(path string) (*ComponentDiskManifest, error) {
 	return &m, nil
 }
 
-// atomicWrite writes via temp file + rename so a reader never sees a partial file.
-func atomicWrite(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
-}

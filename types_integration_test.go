@@ -92,12 +92,21 @@ func TestTypes_PublishedSurfaceIsCreatedAndSeparate(t *testing.T) {
 	if err != nil || !info.IsDir() {
 		t.Fatalf("published surface not created: %v", err)
 	}
+	// The surface holds what go_solid synthesises — static assets today, more
+	// features later — and never anything derived from a component. A
+	// component states its own props type; restating it here would be a second
+	// copy to keep in step.
 	entries, err := os.ReadDir(published)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Errorf("nothing derived from a component belongs in the published surface, found %d entries", len(entries))
+	for _, entry := range entries {
+		for _, component := range b.Registry().Names() {
+			if strings.Contains(entry.Name(), filepath.Base(component)) {
+				t.Errorf("%q is derived from the component %q and does not belong in the published surface",
+					entry.Name(), component)
+			}
+		}
 	}
 }
 

@@ -35,6 +35,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -248,12 +249,23 @@ func TestPublishedSurfaceHoldsOnlySynthesisedDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("published surface missing: %v", err)
 	}
+	// Definitions go_solid synthesises are welcome here; the set grows as
+	// features are added, and static assets already contribute one. What must
+	// never appear is anything derived from a component, since a component
+	// already states its own props type.
+	synthesised := map[string]bool{
+		"navigation.d.ts": true,
+		"static.d.ts":     true,
+	}
 	var names []string
 	for _, e := range entries {
 		names = append(names, e.Name())
+		if !synthesised[e.Name()] {
+			t.Errorf("%q is in the published surface and is not a synthesised definition", e.Name())
+		}
 	}
-	if len(names) != 1 || names[0] != "navigation.d.ts" {
-		t.Fatalf("published surface = %v, want only the synthesised navigation.d.ts", names)
+	if !slices.Contains(names, "navigation.d.ts") {
+		t.Fatalf("published surface = %v, want the synthesised navigation.d.ts among them", names)
 	}
 }
 

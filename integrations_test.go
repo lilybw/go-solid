@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lilybw/go-solid/shared/compat"
 	shared_esbuild "github.com/lilybw/go-solid/shared/esbuild"
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
@@ -100,7 +101,7 @@ func TestNew_HMRMountsHandlerOnProvidedMux(t *testing.T) {
 	hmrCfg := &shared_hmr.HMRConfig{
 		Disabled: false,
 		Path:     "/__hmr__",
-		Mux:      shared_hmr.MuxLikeFromFunc(mux.Handle),
+		Mux:      compat.MuxLikeFromFunc(mux.Handle),
 	}
 	b, err := New(&Config{
 		LogLevel: logging.LEVEL_ERROR, Components: comps, Generation: disabledGeneration(), HMR: hmrCfg})
@@ -213,7 +214,7 @@ func TestNew_CloseStopsCleanly(t *testing.T) {
 		Generation:       disabledGeneration(),
 		ReactiveRegistry: true, // spins up the registry watcher goroutine
 		HMR: &shared_hmr.HMRConfig{
-			Disabled: false, Path: "/__hmr__", Mux: shared_hmr.MuxLikeFromFunc(mux.Handle),
+			Disabled: false, Path: "/__hmr__", Mux: compat.MuxLikeFromFunc(mux.Handle),
 		},
 	})
 	if err != nil {

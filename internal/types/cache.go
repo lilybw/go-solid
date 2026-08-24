@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	io_int "github.com/lilybw/go-solid/internal/io"
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
@@ -245,25 +246,8 @@ func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error
 		return fmt.Errorf("go_solid/types: create %q: %w", filepath.Dir(path), err)
 	}
 
-	// Rename onto the target so a reader never sees a half-written entry.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".go_solid-*.tmp")
-	if err != nil {
-		return fmt.Errorf("go_solid/types: stage %q: %w", path, err)
-	}
-	defer os.Remove(tmp.Name())
-
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
-		return fmt.Errorf("go_solid/types: write %q: %w", tmp.Name(), err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("go_solid/types: close %q: %w", tmp.Name(), err)
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		return fmt.Errorf("go_solid/types: chmod %q: %w", tmp.Name(), err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return fmt.Errorf("go_solid/types: replace %q: %w", path, err)
+	if err := io_int.WriteAtomicMode(path, raw, 0o644); err != nil {
+		return fmt.Errorf("go_solid/types: publish entry for %q: %w", component, err)
 	}
 	return nil
 }
