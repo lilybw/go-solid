@@ -2,6 +2,7 @@ package shim_d
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -164,8 +165,8 @@ func TestWithoutReactivityTheManifestIsFrozen(t *testing.T) {
 	}
 }
 
-// A directory added after boot is watched too, or a whole folder of assets
-// dropped in would be invisible until a restart.
+// A directory created after boot is watched too, and a file written into it
+// afterwards is an ordinary event.
 func TestANewSubdirectoryIsPickedUp(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, options{static: true, reactive: true})
@@ -182,5 +183,46 @@ func TestANewSubdirectoryIsPickedUp(t *testing.T) {
 	})
 	if b.Static().URL("fonts/body.woff2") == "" {
 		t.Error("an asset in a directory created after boot is not addressable")
+	}
+}
+
+// A folder of assets normally arrives whole — copied, checked out, renamed into
+// place — and its contents predate any watch on it. Nothing will report them,
+// so they have to be walked for.
+//
+// Staging outside the asset root and renaming in is what makes this
+// deterministic. The version above depends on a write losing a race with the
+// watch being added, which it does on inotify and does not on Windows; this one
+// puts the files there first on every platform.
+func TestADirectoryThatArrivesCompleteIsPickedUp(t *testing.T) {
+	p := newProject(t)
+	b := p.boot(t, options{static: true, reactive: true})
+
+	incoming := filepath.Join(t.TempDir(), "fonts")
+	if err := os.MkdirAll(filepath.Join(incoming, "display"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, body := range map[string]string{
+		"body.woff2":          "woff2-body",
+		"display/title.woff2": "woff2-title",
+	} {
+		if err := os.WriteFile(filepath.Join(incoming, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.Rename(incoming, p.assetFile("fonts")); err != nil {
+		t.Fatalf("move the directory into the asset root: %v", err)
+	}
+
+	awaitModule(t, p, "gained the directory that arrived complete", func(module string) bool {
+		return strings.Contains(module, "fonts:") &&
+			strings.Contains(module, "body:") &&
+			strings.Contains(module, "title:")
+	})
+	for _, rel := range []string{"fonts/body.woff2", "fonts/display/title.woff2"} {
+		if b.Static().URL(rel) == "" {
+			t.Errorf("%s arrived with its directory and is not addressable", rel)
+		}
 	}
 }

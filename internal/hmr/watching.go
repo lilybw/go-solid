@@ -59,7 +59,7 @@ func NewWatcher(
 		stopCh:     make(chan struct{}),
 		debounce:   80 * time.Millisecond,
 	}
-	if err := w.addTree(root); err != nil {
+	if err := w.addTree(root, nil); err != nil {
 		fsw.Close()
 		return nil, err
 	}
@@ -68,12 +68,17 @@ func NewWatcher(
 	return w, nil
 }
 
-func (w *Watcher) addTree(root string) error {
+// addTree registers watches for root and every directory beneath it, calling
+// found for each file it passes. Beware ubuntu vs windows differences in file creation events and constraints
+func (w *Watcher) addTree(root string, found func(path string)) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !d.IsDir() {
+			if found != nil {
+				found(path)
+			}
 			return nil
 		}
 		if shared.SkipDir(d.Name(), path, root) {
@@ -136,15 +141,25 @@ func (w *Watcher) loop() {
 
 func (w *Watcher) handleEvent(event fsnotify.Event, pending map[meta.QualifiedName]struct{}, arm func()) {
 	// A newly created directory must be added to the watch set (fsnotify is
-	// non-recursive). Do this before anything else so files created inside it
-	// immediately after are not missed.
+	// non-recursive), and whatever is already inside it has to be picked up by
+	// walking: those files predate the watch, so no event carries them.
 	if event.Op&fsnotify.Create != 0 {
 		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 			base := filepath.Base(event.Name)
-			if !shared.SkipDir(base, event.Name, w.root) {
-				if err := w.addTree(event.Name); err != nil && w.onErr != nil {
-					w.onErr(err)
+			if shared.SkipDir(base, event.Name, w.root) {
+				return
+			}
+			before := len(pending)
+			err := w.addTree(event.Name, func(path string) {
+				for _, name := range w.index.DependentsOf(path) {
+					pending[name] = struct{}{}
 				}
+			})
+			if err != nil && w.onErr != nil {
+				w.onErr(err)
+			}
+			if len(pending) > before {
+				arm()
 			}
 			return
 		}

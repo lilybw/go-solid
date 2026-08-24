@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -322,4 +323,92 @@ func TestRegistryWatcher_RenameMovesComponent(t *testing.T) {
 		t.Fatal("Old still registered after rename away")
 	}
 	_ = drops // drop for Old is platform-dependent; not asserted
+}
+
+// A directory usually arrives with its contents already in it — copied,
+// checked out, renamed into place. A watch can only be added to a directory
+// that exists, so everything inside at that moment predates the watch and no
+// event will carry it. Only walking the new directory finds those files.
+//
+// Staging the directory elsewhere and renaming it in makes that deterministic:
+// the contents definitively precede the watch on every platform, rather than
+// depending on whether a write lost a race with inotify.
+func TestRegistryWatcher_AdoptsFilesInsideADirectoryThatArrivesComplete(t *testing.T) {
+	root := t.TempDir()
+	staging := t.TempDir()
+
+	created := make(chan string, 8)
+	w, err := watching_int.NewDirectoryWatcher(root, &watching.DWVoidConfig{
+		OnCreation: func(file meta.AbsoluteFilePath, _ meta.Void) error {
+			select {
+			case created <- file:
+			default:
+			}
+			return nil
+		},
+		OnErr: func(e error) { t.Logf("watch error: %v", e) },
+	})
+	if err != nil {
+		t.Fatalf("NewDirectoryWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	// Build the directory complete, outside the watched tree.
+	incoming := filepath.Join(staging, "panels")
+	if err := os.MkdirAll(filepath.Join(incoming, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"Header.tsx", filepath.Join("nested", "Footer.tsx")} {
+		if err := os.WriteFile(filepath.Join(incoming, rel), []byte("export default () => null;"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.Rename(incoming, filepath.Join(root, "panels")); err != nil {
+		t.Fatalf("move the directory into the watched tree: %v", err)
+	}
+
+	seen := map[string]bool{}
+	deadline := time.After(5 * time.Second)
+	for len(seen) < 2 {
+		select {
+		case file := <-created:
+			seen[filepath.Base(file)] = true
+		case <-deadline:
+			t.Fatalf("only %v was reported; files already inside an arriving directory were never noticed", seen)
+		}
+	}
+	for _, want := range []string{"Header.tsx", "Footer.tsx"} {
+		if !seen[want] {
+			t.Errorf("%s was not reported, so it is invisible until something else touches the tree", want)
+		}
+	}
+}
+
+// The existing tree is watched silently: at construction nothing has happened,
+// and announcing every file would tell the consumer the whole project had just
+// appeared.
+func TestRegistryWatcher_DoesNotAnnounceTheTreeItStartsWith(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"A.tsx":       "export default () => null;",
+		"sub/B.tsx":   "export default () => null;",
+		"sub/c/D.tsx": "export default () => null;",
+	})
+
+	var announced int32
+	w, err := watching_int.NewDirectoryWatcher(root, &watching.DWVoidConfig{
+		OnCreation: func(meta.AbsoluteFilePath, meta.Void) error {
+			atomic.AddInt32(&announced, 1)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewDirectoryWatcher: %v", err)
+	}
+	defer w.Stop()
+
+	time.Sleep(300 * time.Millisecond)
+	if got := atomic.LoadInt32(&announced); got != 0 {
+		t.Errorf("%d existing files were reported as newly created", got)
+	}
 }
