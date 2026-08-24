@@ -66,7 +66,7 @@ func writeObject(b *strings.Builder, dir *Dir, depth int) {
 	b.WriteString("}")
 }
 
-// go:embed loader.js
+//go:embed loader.js
 var loaderSource string
 
 // GenerateDefinition renders the TypeScript describing the module.
@@ -81,6 +81,9 @@ func GenerateDefinition(m *Manifest) string {
 	return b.String()
 }
 
+//go:embed types.ts
+var definitionPreamble string
+
 func GenerateDisabledDefinition() string {
 	return definitionPreamble +
 		"declare module " + strconv.Quote(MODULE_SPECIFIER) + " {\n" +
@@ -90,9 +93,6 @@ func GenerateDisabledDefinition() string {
 		"  const assets: FeatureDisabled<" + strconv.Quote(DISABLED_REASON) + ">;\n" +
 		"  export default assets;\n}\n"
 }
-
-// go:embed types.ts
-var definitionPreamble string
 
 const loaderDeclarations = ` /** Fetch an asset, decoded by the media type the server reports. */
   export function load<M extends string>(url: AssetURL<M>, init?: RequestInit): Promise<DataFor<M>>;
