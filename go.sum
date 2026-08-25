@@ -16,6 +16,8 @@ github.com/lilybw/go-solid-compiler v0.1.0 h1:hD1JKu9mmzfVhOUxfYtBqxMpweod8AEpSV
 github.com/lilybw/go-solid-compiler v0.1.0/go.mod h1:aJdFFYkOQ1H8ZUoI3SFdCUb1fSIZ6rK+N6fr1WpcVzQ=
 github.com/lilybw/go-solid-compiler v0.2.0 h1:kaFmFQcJPGrTtiDlxi3OiqZYA+PR6BeLZIg2Wu/ZkMQ=
 github.com/lilybw/go-solid-compiler v0.2.0/go.mod h1:9i/VwCuIY6A/BIrDyAx7NgioiCmsgNgfbb+gRo1HAoY=
+github.com/lilybw/go-solid-compiler v0.2.1 h1:AEY436D/PTh84Kq30tymcT67HHSzvwV8KI7dRYeAl8Y=
+github.com/lilybw/go-solid-compiler v0.2.1/go.mod h1:wrmgrCBkD7x2Ybd7J8WgVtiMAMfw9s1Nih/K3d63P2k=
 github.com/lilybw/typescript-go v0.1.0 h1:sy9MPnL4FcDAQlhi9r1Ckc92TyLcfCnjKkuytCav5Hc=
 github.com/lilybw/typescript-go v0.1.0/go.mod h1:ASbw/ZkgUqYuyWVFqnFNZUczlYAN1cQYWpRFUWHhlc4=
 github.com/zeebo/assert v1.3.0 h1:g7C04CbJuIDKNPFHmsk4hwZDO5O+kntRxzaUoNXj+IQ=
