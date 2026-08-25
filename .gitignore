@@ -36,3 +36,4 @@ node_modules
 rasterize.ps1
 *.diff
 *.patch
+**/.go_solid
