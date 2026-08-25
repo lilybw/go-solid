@@ -144,9 +144,23 @@ Config{
 ## Modules
 go-solid generates various modules which can be turned on and off through the bundler's config. 
 
-All generated modules can be referenced from: ``` <go_solid.Config#Workspace>/modules```
+For ease of import of generated TypeScript modules, a `tsconfig.paths.json` is placed at the root of go_solid's workspace. Simply extend your `tsconfig.json` with this generated one, and you will gain access
+to the @go_solid namespace alongside modules like `@go_solid/static`
 
-All possible modules are initially declared and made visible, but not provided further functionality outside of their skeleton. 
+```json
+{
+  "extends": ["./.go_solid/tsconfig.paths.json"], // example, your import path may vary
+  "compilerOptions": {
+    ...
+  }
+}
+```
+A log message will also present you with the exact path. It will read something along the lines of:
+```
+... [go_solid] generated modules import as "@go_solid"/<name>. For editor resolution add "extends": [".../tsconfig.paths.json"] to your tsconfig.json
+```
+
+
 
 ### Static 
 Since 1.3.0 static asset management have been included as a togglable feature by provided the ```static.StaticConfig```. <br/>

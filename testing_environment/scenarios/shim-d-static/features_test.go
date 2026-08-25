@@ -43,7 +43,7 @@ func TestSwitchedOff_TheModuleStillResolvesAndExplainsItself(t *testing.T) {
 	}
 	// The reason has to name the fix. A message that only says "disabled" sends
 	// the reader looking.
-	if !strings.Contains(definition, static_int.DISABLED_REASON) {
+	if !strings.Contains(module, static_int.DISABLED_REASON) {
 		t.Error("the definition does not carry the reason the feature is off")
 	}
 }
@@ -88,10 +88,11 @@ func TestTwoBundlersKeepTheirOwnFeatures(t *testing.T) {
 	if b.Static() != nil {
 		t.Error("a Bundler with no static config picked up another's manifest")
 	}
-	if module := without.generated(t, "modules/static/assets.ts"); !strings.Contains(module, "export default {}") {
+	disabledStr := "FeatureDisabled<\"" + static_int.DISABLED_REASON + "\">"
+	if module := without.generated(t, "modules/static/assets.ts"); !strings.Contains(module, disabledStr) {
 		t.Errorf("the second Bundler's placeholder was overwritten:\n%s", module)
 	}
-	if module := withAssets.generated(t, "modules/static/assets.ts"); strings.Contains(module, "export default {}") {
+	if module := withAssets.generated(t, "modules/static/assets.ts"); strings.Contains(module, disabledStr) {
 		t.Errorf("the first Bundler's module was replaced by the second's placeholder:\n%s", module)
 	}
 }
