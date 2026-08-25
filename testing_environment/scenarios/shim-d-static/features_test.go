@@ -27,16 +27,19 @@ func TestSwitchedOff_TheModuleStillResolvesAndExplainsItself(t *testing.T) {
 	p := newProject(t)
 	p.boot(t, options{})
 
-	module := p.generated(t, "modules/static.js")
+	module := p.generated(t, "modules/static/assets.ts")
 	if !strings.Contains(module, "export default") {
 		t.Errorf("the placeholder exports nothing, so importing it fails to resolve:\n%s", module)
 	}
 
-	definition := p.generated(t, filepath.Join(shared_types.TYPES_DIR_NAME, "static.d.ts"))
-	for _, want := range []string{"FeatureDisabled<", "@deprecated", "Config.Static.Location"} {
-		if !strings.Contains(definition, want) {
-			t.Errorf("the placeholder definition is missing %q:\n%s", want, definition)
+	index := p.generated(t, "modules/static/index.ts")
+	for _, want := range []string{"@deprecated", "Config.Static.Location"} {
+		if !strings.Contains(index, want) {
+			t.Errorf("the placeholder index is missing %q:\n%s", want, index)
 		}
+	}
+	if !strings.Contains(module, "FeatureDisabled<") {
+		t.Errorf("the placeholder graph carries no reason:\n%s", module)
 	}
 	// The reason has to name the fix. A message that only says "disabled" sends
 	// the reader looking.
@@ -49,7 +52,7 @@ func TestSwitchedOn_TheModuleCarriesTheAssets(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, options{static: true})
 
-	module := p.generated(t, "modules/static.js")
+	module := p.generated(t, "modules/static/assets.ts")
 	for _, want := range []string{"images:", "icons:", "tick:", "styles:", "theme:", "data:", "config:"} {
 		if !strings.Contains(module, want) {
 			t.Errorf("the module is missing %q:\n%s", want, module)
@@ -59,10 +62,11 @@ func TestSwitchedOn_TheModuleCarriesTheAssets(t *testing.T) {
 		t.Error("the placeholder survived into an enabled build")
 	}
 
-	definition := p.generated(t, filepath.Join(shared_types.TYPES_DIR_NAME, "static.d.ts"))
+	// The module is TypeScript, so the media type travels on the value itself
+	// rather than in a separate declaration that has to be kept in step.
 	for _, want := range []string{`AssetURL<"image/svg+xml">`, `AssetURL<"application/json">`, `AssetURL<"text/css">`} {
-		if !strings.Contains(definition, want) {
-			t.Errorf("the definition is missing %q:\n%s", want, definition)
+		if !strings.Contains(module, want) {
+			t.Errorf("the graph is missing %q:\n%s", want, module)
 		}
 	}
 
@@ -84,10 +88,10 @@ func TestTwoBundlersKeepTheirOwnFeatures(t *testing.T) {
 	if b.Static() != nil {
 		t.Error("a Bundler with no static config picked up another's manifest")
 	}
-	if module := without.generated(t, "modules/static.js"); !strings.Contains(module, "export default {}") {
+	if module := without.generated(t, "modules/static/assets.ts"); !strings.Contains(module, "export default {}") {
 		t.Errorf("the second Bundler's placeholder was overwritten:\n%s", module)
 	}
-	if module := withAssets.generated(t, "modules/static.js"); strings.Contains(module, "export default {}") {
+	if module := withAssets.generated(t, "modules/static/assets.ts"); strings.Contains(module, "export default {}") {
 		t.Errorf("the first Bundler's module was replaced by the second's placeholder:\n%s", module)
 	}
 }
@@ -102,7 +106,7 @@ func TestSharedStemBecomesSubfields(t *testing.T) {
 	p := newProject(t)
 	p.boot(t, options{static: true})
 
-	module := p.generated(t, "modules/static.js")
+	module := p.generated(t, "modules/static/assets.ts")
 	if !strings.Contains(module, "logo: {") {
 		t.Errorf("logo.svg and logo.png did not become subfields:\n%s", module)
 	}
@@ -119,7 +123,7 @@ func TestFilenamesBecomePredictableKeys(t *testing.T) {
 	p := newProject(t)
 	b := p.boot(t, options{static: true})
 
-	if !strings.Contains(p.generated(t, "modules/static.js"), "hero_shot:") {
+	if !strings.Contains(p.generated(t, "modules/static/assets.ts"), "hero_shot:") {
 		t.Error("hero-shot.png did not become hero_shot")
 	}
 	// The manifest still addresses it by the name on disk, which is what a Go
@@ -138,7 +142,7 @@ func TestLeavingsAreNotAssets(t *testing.T) {
 			t.Errorf("%q was published as an asset", rel)
 		}
 	}
-	if strings.Contains(p.generated(t, "modules/static.js"), "DS_Store") {
+	if strings.Contains(p.generated(t, "modules/static/assets.ts"), "DS_Store") {
 		t.Error("editor leavings reached the generated module")
 	}
 }
@@ -168,8 +172,11 @@ func TestPublishedSurfaceHoldsOnlySynthesisedDefinitions(t *testing.T) {
 		}
 	}
 	sort.Strings(names)
-	if len(names) != 1 || names[0] != "static.d.ts" {
-		t.Errorf("published surface = %v, want only the synthesised static.d.ts", names)
+	// Generated modules are not published definitions: each is a self-contained
+	// library under .go_solid/modules, typed by its own source. Nothing static
+	// contributes here.
+	if len(names) != 0 {
+		t.Errorf("published surface = %v, want nothing", names)
 	}
 }
 

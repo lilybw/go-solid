@@ -1,6 +1,7 @@
 package static
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,7 +108,7 @@ func TestManifest_MirrorsTheDirectoryStructure(t *testing.T) {
 		"images/icons/tick.svg": "<svg/>",
 	})
 
-	module := GenerateModule(m)
+	module := GenerateAssets(m)
 	for _, want := range []string{"logo:", "images:", "icons:", "tick:", "hero:"} {
 		if !strings.Contains(module, want) {
 			t.Errorf("generated module is missing %q:\n%s", want, module)
@@ -192,29 +193,50 @@ func TestManifest_RecordsEverySourceItRead(t *testing.T) {
 
 // --- generation ------------------------------------------------------------
 
-// Leaves are string constants so esbuild can inline them and drop the assets a
-// component never names. An object literal per leaf would survive tree-shaking.
-func TestGenerateModule_LeavesAreStringConstants(t *testing.T) {
+// A leaf is a string, asserted to the branded type so its media type travels
+// with the value. It has to stay a string: that is what lets it drop into
+// anything expecting one, without a call or a property access.
+func TestGenerateAssets_LeavesAreBrandedStrings(t *testing.T) {
 	m := manifestOf(t, map[string]string{"logo.svg": "<svg/>"})
-	module := GenerateModule(m)
+	assets := GenerateAssets(m)
 
-	if !strings.Contains(module, `logo: "`+m.URL("logo.svg")+`"`) {
-		t.Errorf("the leaf is not a plain string:\n%s", module)
+	want := `logo: "` + m.URL("logo.svg") + `" as AssetURL<"image/svg+xml">`
+	if !strings.Contains(assets, want) {
+		t.Errorf("the leaf is not a branded string literal; wanted %q in:\n%s", want, assets)
 	}
 }
 
-func TestGenerateDefinition_TypesLeavesByMediaType(t *testing.T) {
+// The module is TypeScript, so the media type is carried by the value rather
+// than by a separate declaration that has to be pulled into the program and
+// kept in step with it.
+func TestGenerateAssets_TypesLeavesByMediaType(t *testing.T) {
 	m := manifestOf(t, map[string]string{"data/config.json": "{}", "logo.svg": "<svg/>"})
-	definition := GenerateDefinition(m)
+	assets := GenerateAssets(m)
 
 	for _, want := range []string{
 		`AssetURL<"application/json">`,
 		`AssetURL<"image/svg+xml">`,
-		`declare module "go-solid/static"`,
-		"export function load",
+		`import type { AssetURL } from "./runtime"`,
 	} {
-		if !strings.Contains(definition, want) {
-			t.Errorf("definition is missing %q:\n%s", want, definition)
+		if !strings.Contains(assets, want) {
+			t.Errorf("the graph is missing %q:\n%s", want, assets)
+		}
+	}
+}
+
+// The index is the module's entry, so it has to re-export the runtime and put
+// the graph and the loaders behind one default.
+func TestGenerateIndex_HoistsTheWholeSurface(t *testing.T) {
+	index := GenerateIndex()
+
+	for _, want := range []string{
+		`export * from "./runtime"`,
+		`import assets from "./assets"`,
+		"export default { ...assets, load, loadText, loadJSON }",
+		MODULE_SPECIFIER,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("the index is missing %q:\n%s", want, index)
 		}
 	}
 }
@@ -222,15 +244,38 @@ func TestGenerateDefinition_TypesLeavesByMediaType(t *testing.T) {
 // The disabled artifacts have two jobs: resolve, so the bundler never fails on
 // a missing module; and carry the reason, so the compiler names the fix.
 func TestDisabledArtifactsResolveAndExplain(t *testing.T) {
-	module := GenerateDisabledModule()
-	if !strings.Contains(module, "export default") {
-		t.Errorf("the disabled module exports nothing, so importing it fails to resolve:\n%s", module)
+	assets := GenerateDisabledAssets()
+	if !strings.Contains(assets, "export default") {
+		t.Errorf("the disabled graph exports nothing, so importing it fails to resolve:\n%s", assets)
+	}
+	if !strings.Contains(assets, "FeatureDisabled<") || !strings.Contains(assets, "Config.Static.Location") {
+		t.Errorf("the disabled graph carries no reason:\n%s", assets)
 	}
 
-	definition := GenerateDisabledDefinition()
-	for _, want := range []string{"FeatureDisabled<", "@deprecated", "Config.Static.Location"} {
-		if !strings.Contains(definition, want) {
-			t.Errorf("the disabled definition is missing %q:\n%s", want, definition)
+	index := GenerateDisabledIndex()
+	for _, want := range []string{"@deprecated", "Config.Static.Location", `export * from "./runtime"`} {
+		if !strings.Contains(index, want) {
+			t.Errorf("the disabled index is missing %q:\n%s", want, index)
+		}
+	}
+	// The loaders survive being switched off; only the graph is empty.
+	if strings.Contains(index, "FeatureDisabled<") == false && strings.Contains(index, "assets") == false {
+		t.Errorf("the disabled index does not reach the graph:\n%s", index)
+	}
+}
+
+// The runtime is the same bytes whatever is in the asset directory, which is
+// why an asset edit does not touch it.
+func TestGenerateRuntime_IsIndependentOfTheAssets(t *testing.T) {
+	first := GenerateRuntime()
+	second := GenerateRuntime()
+
+	if first != second {
+		t.Error("the runtime is not stable across renderings")
+	}
+	for _, want := range []string{"export type AssetURL", "export function load", "FeatureDisabled"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the runtime is missing %q", want)
 		}
 	}
 }
@@ -348,7 +393,7 @@ func TestUnsetSettingsResolveConsistently(t *testing.T) {
 	reg, err := NewStaticRegistry(
 		// Nothing but the two required settings; everything else unset.
 		&shared_static.StaticConfig{Location: assets, Mux: mux},
-		workspace, workspace, nil, nil,
+		workspace, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("NewStaticRegistry: %v", err)
@@ -398,7 +443,7 @@ func TestClose_CancelsAPendingRebuild(t *testing.T) {
 			Reactive: true,
 			Ignore:   shared_static.DEFAULT_IGNORE,
 		},
-		workspace, workspace,
+		workspace,
 		func(string) { atomic.AddInt64(&changes, 1) },
 		func(err error) { t.Errorf("a rebuild ran after Close: %v", err) },
 	)
@@ -435,7 +480,7 @@ func TestClose_IsIdempotent(t *testing.T) {
 			Mux:      http.NewServeMux(),
 			Reactive: true,
 		},
-		t.TempDir(), t.TempDir(), nil, nil,
+		t.TempDir(), nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("NewStaticRegistry: %v", err)
@@ -456,10 +501,157 @@ func TestClose_IsIdempotent(t *testing.T) {
 
 // A disabled registry has nothing to close, and is closed all the same.
 func TestClose_OnADisabledRegistry(t *testing.T) {
-	reg, err := NewStaticRegistry(&shared_static.StaticConfig{}, t.TempDir(), t.TempDir(), nil, nil)
+	reg, err := NewStaticRegistry(&shared_static.StaticConfig{}, t.TempDir(), nil, nil)
 	if err != nil {
 		t.Fatalf("NewStaticRegistry: %v", err)
 	}
 	reg.Close()
 	reg.Close()
+}
+
+// --- the module as a directory ---------------------------------------------
+
+// Everything belonging to the module lives in one directory, so it can be read,
+// deleted or ignored as a unit — and so a second generated module drops in
+// beside it without either knowing about the other.
+func TestModuleIsSelfContained(t *testing.T) {
+	workspace := t.TempDir()
+	if err := EnsureDisabled(workspace); err != nil {
+		t.Fatalf("EnsureDisabled: %v", err)
+	}
+
+	root := ModuleRoot(workspace)
+	for _, name := range []string{INDEX_FILENAME, RUNTIME_FILENAME, ASSETS_FILENAME, README_FILENAME} {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Errorf("%s is missing from the module directory: %v", name, err)
+		}
+	}
+	if ModulePathFor(workspace) != filepath.Join(root, INDEX_FILENAME) {
+		t.Errorf("the entry point is %q, want the index", ModulePathFor(workspace))
+	}
+}
+
+// An asset edit rewrites the graph and nothing else. The index is what bundles
+// name, so leaving it alone is what keeps an unrelated rebuild from
+// invalidating them.
+func TestOnlyTheGraphIsRewrittenByAnAssetChange(t *testing.T) {
+	assets := tree(t, map[string]string{"logo.svg": "<svg/>"})
+	workspace := t.TempDir()
+
+	reg, err := NewStaticRegistry(
+		&shared_static.StaticConfig{Location: assets, Mux: http.NewServeMux()},
+		workspace, nil, nil,
+	)
+	if err != nil {
+		t.Fatalf("NewStaticRegistry: %v", err)
+	}
+	t.Cleanup(reg.Close)
+
+	root := ModuleRoot(workspace)
+	stamps := map[string]time.Time{}
+	for _, name := range []string{INDEX_FILENAME, RUNTIME_FILENAME} {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stamps[name] = info.ModTime()
+	}
+
+	if err := os.WriteFile(filepath.Join(assets, "logo.svg"), []byte("<svg id='x'/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.(*enabledStaticRegistry).rebuild(); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	for name, before := range stamps {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(before) {
+			t.Errorf("%s was rewritten by an asset change; only the graph should be", name)
+		}
+	}
+	graph, err := os.ReadFile(filepath.Join(root, ASSETS_FILENAME))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(graph), reg.Manifest().URL("logo.svg")) {
+		t.Error("the graph does not carry the new URL")
+	}
+}
+
+// --- the tsconfig fragment --------------------------------------------------
+
+// The fragment maps the namespace at the modules directory rather than listing
+// what is in it, so a consumer extends it once and never touches it again as
+// modules are added.
+func TestTSConfigFragmentMapsTheNamespaceByWildcard(t *testing.T) {
+	workspace := t.TempDir()
+	path, err := EnsureTSConfigFragment(workspace)
+	if err != nil {
+		t.Fatalf("EnsureTSConfigFragment: %v", err)
+	}
+	if path != TSConfigFragmentPath(workspace) {
+		t.Errorf("wrote to %q, want %q", path, TSConfigFragmentPath(workspace))
+	}
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		CompilerOptions struct {
+			BaseURL string              `json:"baseUrl"`
+			Paths   map[string][]string `json:"paths"`
+		} `json:"compilerOptions"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("the fragment is not valid JSON: %v\n%s", err, body)
+	}
+
+	targets, mapped := parsed.CompilerOptions.Paths[MODULE_NAMESPACE+"/*"]
+	if !mapped {
+		t.Fatalf("no wildcard mapping for %q:\n%s", MODULE_NAMESPACE+"/*", body)
+	}
+	if len(targets) != 1 || targets[0] != "./"+MODULES_DIR_NAME+"/*" {
+		t.Errorf("mapping = %v, want a single relative entry at the modules directory", targets)
+	}
+	// A baseUrl here would change how the consumer's own non-relative imports
+	// resolve. Since TypeScript 4.1 paths needs none, so it must not set one.
+	if parsed.CompilerOptions.BaseURL != "" {
+		t.Errorf("the fragment sets baseUrl to %q, which alters resolution beyond its own mapping",
+			parsed.CompilerOptions.BaseURL)
+	}
+}
+
+// The specifier the fragment resolves has to be the one the module says to
+// import, and the one the bundler is told to alias.
+func TestSpecifierIsConsistentEverywhere(t *testing.T) {
+	if MODULE_SPECIFIER != MODULE_NAMESPACE+"/"+MODULE_NAME {
+		t.Errorf("the specifier %q is not the namespace plus the module name", MODULE_SPECIFIER)
+	}
+	if !strings.Contains(GenerateIndex(), MODULE_SPECIFIER) {
+		t.Error("the index does not name the specifier it is reached by")
+	}
+	if !strings.Contains(GenerateReadme("/ws/.go_solid/tsconfig.paths.json", true), MODULE_SPECIFIER) {
+		t.Error("the README does not name the specifier")
+	}
+}
+
+// The README exists because neither the specifier nor the tsconfig line is
+// discoverable from the outside.
+func TestReadmeSaysHowToReachTheModule(t *testing.T) {
+	readme := GenerateReadme("/ws/.go_solid/tsconfig.paths.json", true)
+	for _, want := range []string{MODULE_SPECIFIER, "extends", ".go_solid/tsconfig.paths.json"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("the README does not mention %q:\n%s", want, readme)
+		}
+	}
+
+	off := GenerateReadme("/ws/.go_solid/tsconfig.paths.json", false)
+	if !strings.Contains(off, DISABLED_REASON) {
+		t.Errorf("a README for a disabled feature does not say so:\n%s", off)
+	}
 }

@@ -249,13 +249,15 @@ func TestPublishedSurfaceHoldsOnlySynthesisedDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("published surface missing: %v", err)
 	}
-	// Definitions go_solid synthesises are welcome here; the set grows as
-	// features are added, and static assets already contribute one. What must
-	// never appear is anything derived from a component, since a component
-	// already states its own props type.
+	// Definitions go_solid synthesises are welcome here. What must never appear
+	// is anything derived from a component, since a component already states
+	// its own props type.
+	//
+	// Generated modules are not here: each is a self-contained TypeScript
+	// library under .go_solid/modules, typed by its own source rather than by
+	// an ambient declaration that has to be pulled into the program first.
 	synthesised := map[string]bool{
 		"navigation.d.ts": true,
-		"static.d.ts":     true,
 	}
 	var names []string
 	for _, e := range entries {

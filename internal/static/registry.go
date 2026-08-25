@@ -30,32 +30,71 @@ type StaticRegistry interface {
 }
 
 // Paths the registry writes to.
-const (
-	MODULES_DIR_NAME = "modules"
-	TYPES_DIR_NAME   = "types"
-)
+const MODULES_DIR_NAME = "modules"
 
 // ModulesRoot is where generated modules live, <workspace>/modules.
 func ModulesRoot(workspace meta.AbsoluteDirectoryPath) meta.AbsoluteDirectoryPath {
 	return filepath.Join(workspace, MODULES_DIR_NAME)
 }
 
-// ModulePathFor is the generated static module, <workspace>/modules/static.js.
-func ModulePathFor(workspace meta.AbsoluteDirectoryPath) meta.AbsoluteFilePath {
-	return filepath.Join(ModulesRoot(workspace), MODULE_FILENAME)
+// ModuleRoot is the static module's own directory. Everything belonging to it
+// lives here and nowhere else, so it can be read, deleted or ignored as a unit.
+func ModuleRoot(workspace meta.AbsoluteDirectoryPath) meta.AbsoluteDirectoryPath {
+	return filepath.Join(ModulesRoot(workspace), MODULE_NAME)
 }
 
-// EnsureDisabled writes the placeholder module and definition.
-func EnsureDisabled(workspace meta.AbsoluteDirectoryPath, publishedTypes meta.AbsoluteDirectoryPath) error {
-	if err := os.MkdirAll(ModulesRoot(workspace), 0o755); err != nil {
-		return fmt.Errorf("go_solid/static: create %q: %w", ModulesRoot(workspace), err)
+// ModulePathFor is the module's entry point, which is what the bundler aliases
+// the specifier to and what the dependency graph records as a source.
+func ModulePathFor(workspace meta.AbsoluteDirectoryPath) meta.AbsoluteFilePath {
+	return filepath.Join(ModuleRoot(workspace), INDEX_FILENAME)
+}
+
+// EnsureDisabled writes a module that resolves and carries nothing.
+//
+// This is the first of the two passes. Every switchable feature gets a
+// resolvable placeholder before anything is configured, so a component may
+// import one unconditionally and a build never fails on a module that was never
+// generated. It also writes the tsconfig fragment, which describes where
+// modules live rather than what is in them and is therefore the same either way.
+func EnsureDisabled(workspace meta.AbsoluteDirectoryPath) error {
+	fragment, err := EnsureTSConfigFragment(workspace)
+	if err != nil {
+		return err
 	}
-	if err := io_int.WriteAtomicMode(ModulePathFor(workspace), []byte(GenerateDisabledModule()), 0o644); err != nil {
-		return fmt.Errorf("go_solid/static: write disabled module: %w", err)
+	return writeModule(workspace, moduleSources{
+		index:  GenerateDisabledIndex(),
+		assets: GenerateDisabledAssets(),
+		readme: GenerateReadme(fragment, false),
+	})
+}
+
+// moduleSources is one complete rendering of the module.
+type moduleSources struct {
+	index  string
+	assets string
+	readme string
+}
+
+// writeModule publishes the module and reports whether anything changed.
+//
+// Only a real difference is written. The index is a bundle input, so touching
+// it invalidates every bundle that imported it — doing that for a rebuild that
+// produced identical bytes would rebuild the world every time an editor saved a
+// file it had not altered.
+func writeModule(workspace meta.AbsoluteDirectoryPath, sources moduleSources) error {
+	root := ModuleRoot(workspace)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return fmt.Errorf("go_solid/static: create %q: %w", root, err)
 	}
-	definition := filepath.Join(publishedTypes, DEFINITION_FILENAME)
-	if err := io_int.WriteAtomicMode(definition, []byte(GenerateDisabledDefinition()), 0o644); err != nil {
-		return fmt.Errorf("go_solid/static: write disabled definition: %w", err)
+	for name, contents := range map[string]string{
+		INDEX_FILENAME:   sources.index,
+		RUNTIME_FILENAME: GenerateRuntime(),
+		ASSETS_FILENAME:  sources.assets,
+		README_FILENAME:  sources.readme,
+	} {
+		if _, err := writeIfChanged(filepath.Join(root, name), contents); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -63,7 +102,6 @@ func EnsureDisabled(workspace meta.AbsoluteDirectoryPath, publishedTypes meta.Ab
 func NewStaticRegistry(
 	cfg *StaticConfig,
 	workspace meta.AbsoluteDirectoryPath,
-	publishedTypes meta.AbsoluteDirectoryPath,
 	onChange func(meta.AbsoluteFilePath),
 	onErr func(error),
 ) (StaticRegistry, error) {
@@ -72,13 +110,12 @@ func NewStaticRegistry(
 	}
 
 	reg := &enabledStaticRegistry{
-		cfg:            cfg,
-		module:         ModulePathFor(workspace),
-		definition:     filepath.Join(publishedTypes, DEFINITION_FILENAME),
-		onChange:       onChange,
-		onErr:          onErr,
-		inlineLimit:    cfg.EffectiveInlineLimit(),
-		publishedTypes: publishedTypes,
+		cfg:         cfg,
+		workspace:   workspace,
+		module:      ModulePathFor(workspace),
+		onChange:    onChange,
+		onErr:       onErr,
+		inlineLimit: cfg.EffectiveInlineLimit(),
 	}
 	if err := reg.rebuild(); err != nil {
 		return nil, err
@@ -106,13 +143,12 @@ func (this *disabledStaticRegistry) ModulePath() meta.AbsoluteFilePath { return 
 func (this *disabledStaticRegistry) Close()                            {}
 
 type enabledStaticRegistry struct {
-	cfg            *StaticConfig
-	module         meta.AbsoluteFilePath
-	definition     meta.AbsoluteFilePath
-	publishedTypes meta.AbsoluteDirectoryPath
-	inlineLimit    int64
-	onChange       func(meta.AbsoluteFilePath)
-	onErr          func(error)
+	cfg         *StaticConfig
+	workspace   meta.AbsoluteDirectoryPath
+	module      meta.AbsoluteFilePath
+	inlineLimit int64
+	onChange    func(meta.AbsoluteFilePath)
+	onErr       func(error)
 
 	mu       sync.RWMutex
 	manifest *Manifest
@@ -147,25 +183,33 @@ func (this *enabledStaticRegistry) rebuild() error {
 		return err
 	}
 
-	module := GenerateModule(manifest)
-	definition := GenerateDefinition(manifest)
+	fragment, err := EnsureTSConfigFragment(this.workspace)
+	if err != nil {
+		return err
+	}
 
 	this.mu.Lock()
 	this.manifest = manifest
 	this.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(this.module), 0o755); err != nil {
-		return fmt.Errorf("go_solid/static: create %q: %w", filepath.Dir(this.module), err)
-	}
-	changed, err := writeIfChanged(this.module, module)
-	if err != nil {
-		return err
-	}
-	if _, err := writeIfChanged(this.definition, definition); err != nil {
+	// The graph is what an asset edit changes; the index and runtime are the
+	// same bytes every time, so writeIfChanged leaves them alone. Only the
+	// index being touched can invalidate a bundle, and it is not.
+	assets := filepath.Join(ModuleRoot(this.workspace), ASSETS_FILENAME)
+	before, err := os.ReadFile(assets)
+	changedBefore := err != nil || string(before) != GenerateAssets(manifest)
+
+	if err := writeModule(this.workspace, moduleSources{
+		index:  GenerateIndex(),
+		assets: GenerateAssets(manifest),
+		readme: GenerateReadme(fragment, true),
+	}); err != nil {
 		return err
 	}
 
-	if changed && this.onChange != nil {
+	// The graph changed, so every bundle that imported the module is stale —
+	// the index is what they name, so that is what is reported.
+	if changedBefore && this.onChange != nil {
 		this.onChange(this.module)
 	}
 	return nil

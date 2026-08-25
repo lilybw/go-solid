@@ -198,14 +198,13 @@ func New(cfg *Config) (*Bundler, error) {
 	}
 
 	// Pass one: every switchable feature gets a resolvable placeholder
-	publishedTypes := types_int.PublishedRoot(cfg.Workspace)
-	if err := static_int.EnsureDisabled(cfg.Workspace, publishedTypes); err != nil {
+	if err := static_int.EnsureDisabled(cfg.Workspace); err != nil {
 		return nil, err
 	}
 
 	// Pass two
 	static, err := static_int.NewStaticRegistry(
-		cfg.Static, cfg.Workspace, publishedTypes,
+		cfg.Static, cfg.Workspace,
 		invalidateForSource,
 		func(e error) {
 			log_int.Log(logging.LEVEL_ERROR, fmt.Sprintf("[go_solid/static] %v", e))
@@ -214,6 +213,14 @@ func New(cfg *Config) (*Bundler, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// The specifier is not guessable and the tsconfig line is not
+	// discoverable, so both are said once at boot. The build resolves the
+	// specifier on its own; this is what the editor needs.
+	log_int.Log(logging.LEVEL_INFO, fmt.Sprintf(
+		"[go_solid] generated modules import as %q/<name>. For editor resolution add "+
+			`"extends": ["%s"] to your tsconfig.json`,
+		static_int.MODULE_NAMESPACE, filepath.ToSlash(static_int.TSConfigFragmentPath(cfg.Workspace))))
 
 	bundler := &Bundler{
 		cfg:      cfg,
@@ -452,6 +459,19 @@ func normalizeTypes(cfg *Config) error {
 }
 
 func (b *Bundler) Registry() *internal.ComponentRegistry { return b.registry }
+
+// TSConfigExtension is the fragment a consumer extends so their editor resolves
+// generated modules by name. Extending it is optional — the build does not
+// depend on it — and it stays correct as more modules appear, because it maps
+// the namespace at the modules directory rather than listing what is in it.
+//
+//	{"extends": [bundler.TSConfigExtension()]}
+func (b *Bundler) TSConfigExtension() meta.AbsoluteFilePath {
+	if b == nil {
+		return ""
+	}
+	return static_int.TSConfigFragmentPath(b.cfg.Workspace)
+}
 
 func (b *Bundler) Static() *static_int.Manifest {
 	if b == nil || b.static == nil {

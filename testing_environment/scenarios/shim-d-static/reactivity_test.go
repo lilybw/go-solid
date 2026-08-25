@@ -42,7 +42,7 @@ func awaitModule(t *testing.T, p *project, describe string, ok func(string) bool
 	deadline := time.Now().Add(settle)
 	var last string
 	for time.Now().Before(deadline) {
-		last = p.generated(t, "modules/static.js")
+		last = p.generated(t, "modules/static/assets.ts")
 		if ok(last) {
 			return
 		}
@@ -115,7 +115,7 @@ func TestAnUnchangedRebuildDoesNotDisturbTheModule(t *testing.T) {
 	p := newProject(t)
 	p.boot(t, options{static: true, reactive: true})
 
-	modulePath := p.componentFile(".go_solid/modules/static.js")
+	modulePath := p.componentFile(".go_solid/modules/static/assets.ts")
 	before, err := os.Stat(modulePath)
 	if err != nil {
 		t.Fatalf("stat module: %v", err)
@@ -160,7 +160,7 @@ func TestWithoutReactivityTheManifestIsFrozen(t *testing.T) {
 	if b.Static().URL("images/badge-new.svg") != "" {
 		t.Error("an asset added after boot appeared without reactivity")
 	}
-	if strings.Contains(p.generated(t, "modules/static.js"), "badge_new:") {
+	if strings.Contains(p.generated(t, "modules/static/assets.ts"), "badge_new:") {
 		t.Error("the module was regenerated without reactivity")
 	}
 }
