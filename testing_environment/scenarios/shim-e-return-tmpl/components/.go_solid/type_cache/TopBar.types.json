@@ -1,0 +1,10 @@
+{
+  "component": "TopBar",
+  "sources": {
+    "E:\\GitHub\\go-solid\\testing_environment\\scenarios\\shim-e-return-tmpl\\components\\TopBar.tsx": "sha256:978928f97b553a7535bf9656353cd9c7d4c0bdf1a2f3f0ebe30e9ddd0800fcef"
+  },
+  "fields": [],
+  "name": "TopBarProps",
+  "found": true,
+  "hasParameter": true
+}

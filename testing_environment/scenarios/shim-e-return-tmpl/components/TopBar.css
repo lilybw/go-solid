@@ -1,0 +1,10 @@
+.TopBar {
+    top: 0;
+    position: fixed;
+    width: 100%;
+    height: 10rem;
+}
+
+.horizontal-container {
+    background-color: purple;
+}
