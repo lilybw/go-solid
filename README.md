@@ -160,8 +160,6 @@ A log message will also present you with the exact path. It will read something 
 ... [go_solid] generated modules import as "@go_solid"/<name>. For editor resolution add "extends": [".../tsconfig.paths.json"] to your tsconfig.json
 ```
 
-
-
 ### Static 
 Since 1.3.0 static asset management have been included as a togglable feature by provided the ```static.StaticConfig```. <br/>
 Code generation is used to produce a custom integration from the contents and structure of your static assets folder, alongside a lot of inference.
@@ -186,7 +184,7 @@ type StaticConfig struct {
 To access each asset, Static creates an exported object that is a mirror of your Static asset folder with some name sanitization. <br/>
 Take file "logo.svg" in a sub-folder called "images". This graphic will become available as showcased below:
 ```tsx
-import S from "go-solid/static";
+import S from "@go_solid/static";
 
 export default function Logo() {
   return (
@@ -201,6 +199,7 @@ In case of multiple files with the same name, but different extensions, the obje
     <img src={S.images.logo.SVG} alt="svg version" />
 </>
 ```
+Do remember to extend your tsconfig.json for a more convenient import. 
 
 
 ## How

@@ -10,7 +10,10 @@ import (
 	caching "github.com/lilybw/go-solid/internal/caching"
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/fn"
+	log_int "github.com/lilybw/go-solid/internal/logging"
 	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/logging"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 	"github.com/lilybw/go-solid/shared/registry"
@@ -58,6 +61,18 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 	return fn(this.request)
 }
 
+func (this *renderData) emitEvent(err error, event events.NetworkingEvent) error {
+	if this.request == nil {
+		return err
+	}
+	dispatchErr := this.request.Dispatch(event)
+	if dispatchErr == nil {
+		return err
+	}
+	log_int.Log(logging.LEVEL_ERROR, "Error causing error during event dispatch: "+err.Error())
+	return dispatchErr
+}
+
 // TODO: Move to internal alongside renderData and ifRequest if possible
 // compiled is the props-independent, cacheable half: JS/CSS + asset names.
 // It is what lives in the caches. It is never mutated after construction.
@@ -69,18 +84,12 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	}
 
 	if data.typeError != nil { // type check error can not be resolved before now without cluttering the render call builder api
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewCompPropsInsufficientFailure(data.typeError))
-		})
-		return nil, data.typeError
+		return nil, data.emitEvent(data.typeError, events.NewCompPropsInsufficientFailure(data.typeError))
 	}
 
 	propsJSON, err := marshalProps(data)
 	if err != nil {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewPropsMarshalingFailure(err))
-		})
-		return nil, err
+		return nil, data.emitEvent(err, events.NewPropsMarshalingFailure(err))
 	}
 
 	artifact, err := bundler.compiledArtifact(data)
@@ -122,15 +131,12 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewRegistryLookupFailure(
-				fmt.Errorf("component %q not found in registry", data.component)))
-		})
-		return nil, fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
+		err := fmt.Errorf("go_solid#Render: no component registered as %q (have: %s)",
 			data.component, strings.Join(
 				// now just imagine the lambda equivalent: .Map((k, v) -> k), but nooooo. How does Java, THE boilerplate language, do this more concisely?
-				bundler.registry.Map(func(k meta.QualifiedName, _ *registry.Component) meta.QualifiedName { return k }),
+				bundler.registry.Map(fn.First[meta.QualifiedName, *registry.Component]()),
 				", "))
+		return nil, data.emitEvent(err, events.NewRegistryLookupFailure(err))
 	}
 	if data.root == "" {
 		data.root = comp.MountRootID
@@ -142,10 +148,7 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 	}
 
 	if err := bundler.types.VerifyComponentExport(comp); err != nil {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewRegistryLookupFailure(err))
-		})
-		return nil, err
+		return nil, data.emitEvent(err, events.NewRegistryLookupFailure(err))
 	}
 
 	artifact, sources, err := bundler.bundleComponent(data, comp)
@@ -170,36 +173,25 @@ func (bundler *Bundler) bundleComponent(
 
 	if bundler.cfg.Generation.Disabled {
 		err := fmt.Errorf("go_solid#Render: bundling is disabled and %q is not cached", data.component)
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewCompBundlingFailure(err))
-		})
-		return nil, nil, err
+		return nil, nil, data.emitEvent(err, events.NewCompBundlingFailure(err))
 	}
 
 	entrySource, err := code_gen.GenerateEntry(comp)
 	if err != nil {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewEntryGenerationFailure(err))
-		})
-		return nil, nil, err
+		return nil, nil, data.emitEvent(err, events.NewEntryGenerationFailure(err))
 	}
 
 	entryPath, entryDir, cleanup, err := esbuild.WriteTempEntry(bundler.cfg.Workspace, entrySource)
 	if err != nil {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewTempEntryWriteFailure(err))
-		})
-		return nil, nil, err
+		return nil, nil, data.emitEvent(err, events.NewTempEntryWriteFailure(err))
 	}
 	defer cleanup()
 
 	bundle, err := esbuild.BundleEntry(
 		entryPath, bundler.cfg.Workspace, entryDir, bundler.cfg.Generation)
 	if err != nil {
-		_ = data.ifRequest(func(req *networking.RequestBehaviour) error {
-			return req.Dispatch(events.NewCompBundlingFailure(err))
-		})
-		return nil, nil, fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
+		errExpanded := fmt.Errorf("go_solid#Render: bundle %q: %w", data.component, err)
+		return nil, nil, data.emitEvent(errExpanded, events.NewCompBundlingFailure(errExpanded))
 	}
 
 	// Keep the dependency graph current regardless of cache settings; the
