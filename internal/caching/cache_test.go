@@ -59,31 +59,6 @@ func Test_cacheKey_NoConcatenationCollision(t *testing.T) {
 	}
 }
 
-func TestShortHash_LengthAndStability(t *testing.T) {
-	h1 := ShortHash("hello world", 8)
-	h2 := ShortHash("hello world", 8)
-	if h1 != h2 {
-		t.Errorf("shortHash not stable: %q != %q", h1, h2)
-	}
-	if len(h1) != 8 {
-		t.Errorf("shortHash len = %d, want 8", len(h1))
-	}
-}
-
-func TestShortHash_DifferentInputsDiffer(t *testing.T) {
-	if ShortHash("a", 8) == ShortHash("b", 8) {
-		t.Error("shortHash produced same prefix for different inputs")
-	}
-}
-
-func TestShortHash_ClampsOverlongN(t *testing.T) {
-	// sha256 hex is 64 chars; asking for more must not panic and must clamp.
-	h := ShortHash("x", 999)
-	if len(h) != 64 {
-		t.Errorf("shortHash(x, 999) len = %d, want 64 (clamped)", len(h))
-	}
-}
-
 func TestCache_PutGetRoundTrip(t *testing.T) {
 	c := NewMemCache(true)
 	want := &Rendered{JS: "console.log(1)", JSName: "a.js"}

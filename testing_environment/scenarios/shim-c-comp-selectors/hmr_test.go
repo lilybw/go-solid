@@ -52,7 +52,7 @@ func newHMRFixture(t *testing.T) *hmrFixture {
 	if err != nil {
 		t.Fatalf("NormalizeHMRConfig: %v", err)
 	}
-	hub := hmr_int.NewHub(cfg)
+	hub := hmr_int.NewHub()
 	mux.Handle(cfg.Path, hub.Handler())
 
 	srv := httptest.NewServer(mux)

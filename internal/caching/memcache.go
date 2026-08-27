@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/lilybw/go-solid/internal/collections"
 	"github.com/lilybw/go-solid/internal/meta"
 )
 
@@ -14,12 +15,16 @@ import (
 type MemCache struct {
 	mu      sync.RWMutex
 	entries map[CacheKey]*Rendered
-	byName  map[meta.QualifiedName]map[CacheKey]struct{}
+	byName  collections.SetMap[meta.QualifiedName, CacheKey]
 	enabled bool
 }
 
 func NewMemCache(enabled bool) *MemCache {
-	return &MemCache{entries: make(map[CacheKey]*Rendered), byName: make(map[meta.QualifiedName]map[CacheKey]struct{}), enabled: enabled}
+	return &MemCache{
+		entries: make(map[CacheKey]*Rendered),
+		byName:  collections.SetMap[meta.QualifiedName, CacheKey]{},
+		enabled: enabled,
+	}
 }
 
 type CacheKey struct {
@@ -64,51 +69,31 @@ func (c *MemCache) Put(key *CacheKey, r *Rendered) {
 	}
 	c.mu.Lock()
 	c.entries[*key] = r
-	set := c.byName[key.Component]
-	if set == nil {
-		set = make(map[CacheKey]struct{})
-		c.byName[key.Component] = set
-	}
-	set[*key] = struct{}{}
+	c.byName.Add(key.Component, *key)
 	c.mu.Unlock()
 }
 
 func (c *MemCache) InvalidateComponent(component meta.QualifiedName) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for key := range c.byName[component] {
+	for key := range c.byName.Members(component) {
 		delete(c.entries, key)
 	}
-	delete(c.byName, component)
+	c.byName.Drop(component)
 }
 
 func (c *MemCache) ComponentsInFile(file meta.QualifiedName) []meta.QualifiedName {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	var out []meta.QualifiedName
-	for name := range c.byName {
-		if componentIsInFile(name, file) {
-			out = append(out, name)
-		}
-	}
-	return out
+	return c.byName.KeysWhere(func(name meta.QualifiedName) bool {
+		return componentIsInFile(name, file)
+	})
 }
 
 func (c *MemCache) Clear() {
 	c.mu.Lock()
 	c.entries = make(map[CacheKey]*Rendered)
-	c.byName = make(map[meta.QualifiedName]map[CacheKey]struct{})
+	c.byName = collections.SetMap[meta.QualifiedName, CacheKey]{}
 	c.mu.Unlock()
-}
-
-// ShortHash returns the first n hex chars of a sha256 of s — used for
-// predictable-but-unique asset filenames.
-func ShortHash(s string, n int) string {
-	sum := sha256.Sum256([]byte(s))
-	full := hex.EncodeToString(sum[:])
-	if n > len(full) {
-		n = len(full)
-	}
-	return full[:n]
 }

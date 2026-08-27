@@ -1,8 +1,6 @@
 package caching
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"fmt"
@@ -12,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lilybw/go-solid/internal/collections"
 	"github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/hashing"
 	io_int "github.com/lilybw/go-solid/internal/io"
 	"github.com/lilybw/go-solid/internal/meta"
 )
@@ -67,10 +67,10 @@ type DiskCache struct {
 
 	indexed bool
 	// byKey maps CacheKey.String to the manifest path holding that entry.
-	byKey map[string]string
+	byKey map[meta.CacheKeyString]meta.AbsoluteFilePath
 	// byComponent maps a component name to the key strings it has entries for,
 	// which is what invalidation needs.
-	byComponent map[meta.QualifiedName]map[string]struct{}
+	byComponent collections.SetMap[meta.QualifiedName, meta.CacheKeyString]
 }
 
 func NewDiskCache(root meta.AbsoluteDirectoryPath, enabled bool) (*DiskCache, error) {
@@ -78,8 +78,8 @@ func NewDiskCache(root meta.AbsoluteDirectoryPath, enabled bool) (*DiskCache, er
 	dc := &DiskCache{
 		directory:   dir,
 		enabled:     enabled,
-		byKey:       map[string]string{},
-		byComponent: map[meta.QualifiedName]map[string]struct{}{},
+		byKey:       map[meta.CacheKeyString]meta.AbsoluteFilePath{},
+		byComponent: collections.SetMap[meta.QualifiedName, meta.CacheKeyString]{},
 	}
 	if !enabled {
 		return dc, nil
@@ -91,15 +91,6 @@ func NewDiskCache(root meta.AbsoluteDirectoryPath, enabled bool) (*DiskCache, er
 }
 
 func (dc *DiskCache) Directory() meta.AbsoluteDirectoryPath { return dc.directory }
-
-func hashFile(file meta.AbsoluteFilePath) (string, bool) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return "", false
-	}
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:]), true
-}
 
 // entryStem is the human-readable base filename for an entry.
 func entryStem(key *CacheKey) string {
@@ -133,11 +124,8 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 		return nil, false
 	}
 	// Invalidation: every source must still match its recorded hash.
-	for src, want := range man.Sources {
-		got, ok := hashFile(src)
-		if !ok || got != want {
-			return nil, false // stale (edited or deleted source)
-		}
+	if !hashing.Holds(man.Sources) {
+		return nil, false // stale (edited or deleted source)
 	}
 
 	base := strings.TrimSuffix(manifestPath, MANIFEST_EXT)
@@ -172,11 +160,11 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 		Minify:      minify,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Key:         key.String(),
-		Sources:     map[string]string{},
+		Sources:     map[meta.AbsoluteFilePath]meta.ContentDigest{},
 	}
 	for _, src := range sources {
 		normalized := esbuild.NormalizeSourcePath(src)
-		if h, ok := hashFile(src); ok {
+		if h, ok := hashing.OfFile(src); ok {
 			man.Sources[normalized] = h
 		}
 	}
@@ -221,7 +209,7 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 	dc.lockedEnsureIndex()
 
 	removed := 0
-	for keyStr := range dc.byComponent[component] {
+	for keyStr := range dc.byComponent.Members(component) {
 		manifestPath, ok := dc.byKey[keyStr]
 		if !ok {
 			continue
@@ -235,7 +223,7 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 		delete(dc.byKey, keyStr)
 		removed++
 	}
-	delete(dc.byComponent, component)
+	dc.byComponent.Drop(component)
 	return removed
 }
 
@@ -249,17 +237,13 @@ func (dc *DiskCache) ComponentsInFile(file meta.QualifiedName) []meta.QualifiedN
 	defer dc.mu.Unlock()
 	dc.lockedEnsureIndex()
 
-	var out []meta.QualifiedName
-	for component := range dc.byComponent {
-		if componentIsInFile(component, file) {
-			out = append(out, component)
-		}
-	}
-	return out
+	return dc.byComponent.KeysWhere(func(component meta.QualifiedName) bool {
+		return componentIsInFile(component, file)
+	})
 }
 
 // lockedManifestPathForKey resolves a key to its manifest. Callers hold dc.mu.
-func (dc *DiskCache) lockedManifestPathForKey(key *CacheKey) (string, bool) {
+func (dc *DiskCache) lockedManifestPathForKey(key *CacheKey) (meta.AbsoluteFilePath, bool) {
 	dc.lockedEnsureIndex()
 	path, ok := dc.byKey[key.String()]
 	return path, ok
@@ -291,14 +275,9 @@ func (dc *DiskCache) lockedEnsureIndex() {
 	}
 }
 
-func (dc *DiskCache) lockedIndex(keyStr string, component meta.QualifiedName, manifestPath string) {
+func (dc *DiskCache) lockedIndex(keyStr meta.CacheKeyString, component meta.QualifiedName, manifestPath meta.AbsoluteFilePath) {
 	dc.byKey[keyStr] = manifestPath
-	keys := dc.byComponent[component]
-	if keys == nil {
-		keys = map[string]struct{}{}
-		dc.byComponent[component] = keys
-	}
-	keys[keyStr] = struct{}{}
+	dc.byComponent.Add(component, keyStr)
 }
 
 func ReadManifest(path string) (*ComponentDiskManifest, error) {

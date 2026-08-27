@@ -9,6 +9,7 @@ import (
 	"github.com/lilybw/go-solid/internal"
 	caching "github.com/lilybw/go-solid/internal/caching"
 	esbuild_int "github.com/lilybw/go-solid/internal/esbuild"
+	"github.com/lilybw/go-solid/internal/hashing"
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
 	log_int "github.com/lilybw/go-solid/internal/logging"
 	"github.com/lilybw/go-solid/internal/meta"
@@ -264,7 +265,7 @@ func New(cfg *Config) (*Bundler, error) {
 		}
 		bundler.cfg.HMR = normalized
 
-		bundler.hub = hmr_int.NewHub(normalized)
+		bundler.hub = hmr_int.NewHub()
 		normalized.Mux.Handle(normalized.Path, bundler.hub.Handler())
 
 		w, err := hmr_int.NewWatcher(
@@ -292,7 +293,7 @@ func buildFingerprint(cfg *esbuild.BundlerConfig) string {
 	if cfg == nil {
 		return ""
 	}
-	return caching.ShortHash(fmt.Sprintf("minify=%v;sourcemap=%d;solid=%+v",
+	return hashing.Short(fmt.Sprintf("minify=%v;sourcemap=%d;solid=%+v",
 		cfg.Minify, cfg.Sourcemap, cfg.Solid), 16)
 }
 

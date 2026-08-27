@@ -1,28 +1,58 @@
 package meta
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
 
-// Name of component with path from registry directory, however without extension.
-// I.e: folder/File#SubComponent
-type QualifiedName = string
+// The vocabulary is aliases rather than defined types: it documents what a
+// string means without forcing a conversion at every boundary.
+type (
+	// QualifiedName is a component's registry key: the path relative to the
+	// components root, without extension, optionally suffixed "#<Export>".
+	QualifiedName = string
+	// ExportName is the export selected out of a component file. Empty means
+	// the default export.
+	ExportName = string
 
-type AbsoluteFilePath = string
+	AbsoluteFilePath      = string
+	AbsoluteDirectoryPath = string
+	RelativeFilePath      = string
+	RelativeDirectoryPath = string
 
-type AbsoluteDirectoryPath = string
+	// FileExtension includes the leading dot, as filepath.Ext returns it.
+	FileExtension = string
+	// FileSelectorPattern is a glob matched against a base name, as
+	// filepath.Match takes it: "*.map", "Thumbs.db".
+	FileSelectorPattern = string
+	// ModuleSpecifier is an import specifier as written in source, relative
+	// ("./Button") or bare ("solid-js").
+	ModuleSpecifier = string
 
-type RelativeFilePath = string
+	// JSIdentifier is a name that may appear in generated JavaScript.
+	JSIdentifier = string
+	// TSTypeExpression is a TypeScript type as written, e.g. "string | null".
+	TSTypeExpression = string
 
-type RelativeDirectoryPath = string
+	// ContentDigest is a file's content hash, "sha256:<hex>".
+	ContentDigest = string
+	// Fingerprint abstractly represents the conditions of something's
+	// creation, such as the bundler settings an artifact was built under.
+	Fingerprint = string
+	// CacheKeyString is a CacheKey rendered as the stem its entry is filed under.
+	CacheKeyString = string
 
-// Fingerprints are an abstract repressentation of the conditions of somethings creation.
-// Might be a hashed version of the bundlers settings when bundling an artifact for instance.
-type Fingerprint = string
+	// URLPath is a path within the served origin, always leading with "/".
+	URLPath = string
+	// MIMEType is a media type without parameters, e.g. "image/svg+xml".
+	MIMEType = string
 
-// void
-type Void any
+	HTMLElementID = string
+	HTMLTagName   = string
+
+	Void any
+)
 
 // void
 var VOID Void = nil
@@ -30,6 +60,15 @@ var VOID Void = nil
 func Zero[T any]() T {
 	var t T
 	return t
+}
+
+type Names[E ~uint8 | ~uint | ~int] map[E]string
+
+func (n Names[E]) Of(typeName string, value E) string {
+	if name, ok := n[value]; ok {
+		return name
+	}
+	return fmt.Sprintf("%s(%d)", typeName, value)
 }
 
 // Copy returns a heap-allocated shallow copy of src.
@@ -96,3 +135,7 @@ type BuilderLike any
 
 // Encapsulated configuration call. Requires BuilderLike to have a fluid interface (i.e. return self on each method call)
 type Configurator[T BuilderLike] = func(T)
+
+func Or[T comparable](v, def T) T {
+	return Ternary(v == Zero[T](), def, v)
+}

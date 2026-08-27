@@ -59,7 +59,7 @@ func TestNormalizeHMRConfig_PreservesMux(t *testing.T) {
 // does not panic and does not block. This exercises the snapshot-under-lock path
 // with a zero-length target set.
 func TestHub_ReloadOnEmptyIsNoop(t *testing.T) {
-	h := NewHub(&HMRConfig{})
+	h := NewHub()
 	done := make(chan struct{})
 	go func() {
 		h.Reload("ui/NoOne")

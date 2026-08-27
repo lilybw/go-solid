@@ -6,10 +6,13 @@
 package io
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/lilybw/go-solid/internal/meta"
 )
 
 // WriteAtomic replaces the file at path with data, or leaves it untouched.
@@ -83,4 +86,14 @@ func renameOver(from, to string) error {
 		}
 	}
 	return err
+}
+
+func WriteIfChanged(path meta.AbsoluteFilePath, data []byte, mode os.FileMode) (bool, error) {
+	if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, data) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("create %q: %w", filepath.Dir(path), err)
+	}
+	return true, writeAtomic(path, data, mode)
 }

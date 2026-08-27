@@ -11,6 +11,7 @@ import (
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/fn"
+	"github.com/lilybw/go-solid/internal/hashing"
 	log_int "github.com/lilybw/go-solid/internal/logging"
 	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/logging"
@@ -202,10 +203,10 @@ func (bundler *Bundler) bundleComponent(
 	artifact := &caching.Rendered{
 		JS:     string(bundle.JS),
 		CSS:    string(bundle.CSS),
-		JSName: fmt.Sprintf("%s.%s.js", safeName, caching.ShortHash(string(bundle.JS), 8)),
+		JSName: fmt.Sprintf("%s.%s.js", safeName, hashing.Short(string(bundle.JS), 8)),
 	}
 	if len(bundle.CSS) > 0 {
-		artifact.CSSName = fmt.Sprintf("%s.%s.css", safeName, caching.ShortHash(string(bundle.CSS), 8))
+		artifact.CSSName = fmt.Sprintf("%s.%s.css", safeName, hashing.Short(string(bundle.CSS), 8))
 	}
 	return artifact, bundle.Sources, nil
 }

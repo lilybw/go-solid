@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/lilybw/go-solid/internal/collections"
 	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/hmr"
 )
@@ -15,12 +16,8 @@ import (
 // NormalizeHMRConfig fills defaults and validates. It errors if HMR is enabled
 // without a Mux
 func NormalizeHMRConfig(cfg *HMRConfig) (*HMRConfig, error) {
-	if cfg == nil {
-		cfg = NIL_HMR_CONFIG
-	}
-	if cfg.Path == "" {
-		cfg.Path = NIL_HMR_CONFIG.Path
-	}
+	cfg = meta.Or(cfg, NIL_HMR_CONFIG)
+	cfg.Path = meta.Or(cfg.Path, NIL_HMR_CONFIG.Path)
 	if cfg.Mux == nil {
 		return nil, fmt.Errorf("go_solid HMR: Config.HMR.Mux is required when HMR is enabled (go_solid mounts its handler on your mux)")
 	}
@@ -29,35 +26,23 @@ func NormalizeHMRConfig(cfg *HMRConfig) (*HMRConfig, error) {
 
 type Hub struct {
 	mu    sync.Mutex
-	conns map[meta.QualifiedName]map[*websocket.Conn]struct{} // componentName -> set of conns
+	conns collections.SetMap[meta.QualifiedName, *websocket.Conn]
 }
 
-func NewHub(cfg *HMRConfig) *Hub {
-	// cfg is accepted for symmetry and future per-hub settings; nothing on it is
-	// needed at construction currently.
-	return &Hub{conns: map[meta.QualifiedName]map[*websocket.Conn]struct{}{}}
+func NewHub() *Hub {
+	return &Hub{conns: collections.SetMap[meta.QualifiedName, *websocket.Conn]{}}
 }
 
 func (h *Hub) add(component meta.QualifiedName, c *websocket.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	set := h.conns[component]
-	if set == nil {
-		set = map[*websocket.Conn]struct{}{}
-		h.conns[component] = set
-	}
-	set[c] = struct{}{}
+	h.conns.Add(component, c)
 }
 
 func (h *Hub) remove(component meta.QualifiedName, c *websocket.Conn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if set := h.conns[component]; set != nil {
-		delete(set, c)
-		if len(set) == 0 {
-			delete(h.conns, component)
-		}
-	}
+	h.conns.Remove(component, c)
 }
 
 // reloadWriteTimeout bounds one reload write. Writes are sequential and run on
@@ -69,10 +54,7 @@ const reloadWriteTimeout = 5 * time.Second
 // failures are ignored: a dead connection is cleaned up by its own read loop.
 func (h *Hub) Reload(component meta.QualifiedName) {
 	h.mu.Lock()
-	targets := make([]*websocket.Conn, 0, len(h.conns[component]))
-	for c := range h.conns[component] {
-		targets = append(targets, c)
-	}
+	targets := h.conns.MembersOf(component)
 	h.mu.Unlock()
 
 	for _, c := range targets {

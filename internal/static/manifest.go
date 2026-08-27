@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	caching "github.com/lilybw/go-solid/internal/caching"
+	"github.com/lilybw/go-solid/internal/hashing"
 	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/static"
 )
@@ -229,7 +229,7 @@ func describe(abs meta.AbsoluteFilePath, rel meta.RelativeFilePath, mount string
 	if err != nil {
 		return nil, fmt.Errorf("go_solid/static: read %q: %w", abs, err)
 	}
-	digest := caching.ShortHash(string(body), 64)
+	digest := hashing.Short(string(body), 64)
 	ext := filepath.Ext(rel)
 
 	asset := &Asset{

@@ -29,7 +29,7 @@ func wsURL(serverURL, path, component string) string {
 // newHubServer wires a Hub's handler onto an httptest server at DEFAULT_HMR_PATH.
 func newHubServer(t *testing.T) (*Hub, *httptest.Server) {
 	t.Helper()
-	h := NewHub(NIL_HMR_CONFIG)
+	h := NewHub()
 	mux := http.NewServeMux()
 	mux.Handle(NIL_HMR_CONFIG.Path, h.Handler())
 	srv := httptest.NewServer(mux)

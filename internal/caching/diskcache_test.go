@@ -84,35 +84,6 @@ func TestDiskCache_DisabledIsNoop(t *testing.T) {
 	}
 }
 
-// --- hashing ----------------------------------------------------------------
-
-func TestHashFile_StableAndDetectsChange(t *testing.T) {
-	dir := t.TempDir()
-	p := writeSource(t, dir, "f.txt", "hello")
-	h1, ok := hashFile(p)
-	if !ok {
-		t.Fatal("hashFile ok=false on existing file")
-	}
-	h2, _ := hashFile(p)
-	if h1 != h2 {
-		t.Errorf("hash not stable: %q != %q", h1, h2)
-	}
-	if !strings.HasPrefix(h1, "sha256:") {
-		t.Errorf("hash missing algorithm prefix: %q", h1)
-	}
-	os.WriteFile(p, []byte("hello world"), 0o644)
-	h3, _ := hashFile(p)
-	if h3 == h1 {
-		t.Error("hash did not change after content change")
-	}
-}
-
-func TestHashFile_MissingFile(t *testing.T) {
-	if _, ok := hashFile(filepath.Join(t.TempDir(), "nope")); ok {
-		t.Error("hashFile should return ok=false for missing file")
-	}
-}
-
 // --- entry naming -----------------------------------------------------------
 
 func TestEntryStem_HumanReadableAndSafe(t *testing.T) {

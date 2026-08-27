@@ -47,7 +47,7 @@ func mkComponentsTree(t *testing.T, files map[string]string) string {
 // (or times out). Used to observe that the watcher actually drove a reload.
 func hubWithClient(t *testing.T, component string) (*Hub, func(within time.Duration) bool) {
 	t.Helper()
-	h := NewHub(NIL_HMR_CONFIG)
+	h := NewHub()
 	mux := http.NewServeMux()
 	mux.Handle(NIL_HMR_CONFIG.Path, h.Handler())
 	srv := httptest.NewServer(mux)
@@ -235,7 +235,7 @@ func TestWatcher_StopIsIdempotentlySafe(t *testing.T) {
 		filepath.Join("ui", "Button.tsx"): "x",
 	})
 	index := internal.NewDepIndex()
-	h := NewHub(NIL_HMR_CONFIG)
+	h := NewHub()
 
 	w, err := NewWatcher(root, index, h, nil, nil)
 	if err != nil {
