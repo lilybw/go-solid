@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 
@@ -96,32 +95,6 @@ func TestSetWriter_BindsASynchronizedWriter(t *testing.T) {
 	NewRequestBehaviourBuilder(data).SetWriter(httptest.NewRecorder())
 	if _, ok := data.W.(*shared.SynchronizedResponseWriter); !ok {
 		t.Errorf("SetWriter installed a bare %T", data.W)
-	}
-}
-
-// Parallel chains writing at once must produce whole writes, in some order,
-// rather than torn ones.
-func TestParallelChainsDoNotCorruptTheWriter(t *testing.T) {
-	data, rec := newBoundRequestData(t)
-
-	const writers = 8
-	const body = "0123456789abcdef"
-	for range writers {
-		data.Handlers.Add(func(events.FailureEvent) error {
-			_, err := data.W.Write([]byte(body))
-			return err
-		}, shared.HANDLER_MODE_PARALLEL)
-	}
-
-	if err := data.Dispatch(events.NewPropsMarshalingFailure(errors.New("x"))); err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-
-	// The default responder writes the error text; the parallel handlers each
-	// write body once. Every body must appear whole.
-	if got := strings.Count(rec.Body.String(), body); got != writers {
-		t.Errorf("found %d whole writes, want %d — output was interleaved mid-write:\n%q",
-			got, writers, rec.Body.String())
 	}
 }
 

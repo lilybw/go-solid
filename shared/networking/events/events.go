@@ -1,8 +1,10 @@
 package events
 
 import (
+	"cmp"
 	"net/http"
 	"reflect"
+	"slices"
 
 	"github.com/lilybw/go-solid/internal/caching"
 	"github.com/lilybw/go-solid/internal/meta"
@@ -134,6 +136,67 @@ type NetworkingEventHandler func(w http.ResponseWriter, r *http.Request, event N
 
 // --- registry -------------------------------------------------------------
 
+// one-layer ancestry graph
+var ancestry map[EventType][]EventType
+
+// building ancestry graph
+func init() {
+	EVENTS.Concrete = []EventType{
+		EVENTS.PropsMarshalingFailure,
+		EVENTS.RegistryLookupFailure,
+		EVENTS.EntryGenerationFailure,
+		EVENTS.TempEntryWriteFailure,
+		EVENTS.CompBundlingFailure,
+		EVENTS.CompPropsInsufficientFailure,
+		EVENTS.TransmitRenderedTemplate,
+	}
+	// Ordered narrowest first, which is the order Dispatch runs them in.
+	EVENTS.Categories = []EventType{
+		EVENTS.DevelopmentFailureEvent,
+		EVENTS.FailureEvent,
+		EVENTS.SuccessEvent,
+		EVENTS.BaseEvent,
+	}
+	EVENTS.Values = append(append(make([]EventType, 0, len(EVENTS.Concrete)+len(EVENTS.Categories)),
+		EVENTS.Concrete...), EVENTS.Categories...)
+
+	g := make(map[EventType][]EventType, len(EVENTS.Values))
+	for _, t := range EVENTS.Values {
+		g[t] = append(g[t], t) // include self
+		for _, c := range EVENTS.Categories {
+			if c != t && t.Implements(c) {
+				g[t] = append(g[t], c)
+			}
+		}
+	}
+	// A narrower category satisfies more categories than a wider one.
+	for _, parents := range g {
+		slices.SortStableFunc(parents, func(a, b EventType) int {
+			return cmp.Compare(len(g[b]), len(g[a]))
+		})
+	}
+	for t, parents := range g {
+		g[t] = slices.Clip(parents)
+	}
+	ancestry = g
+}
+
+// Return full inheritance ancestry including self at front
+func StaticAncestry[T NetworkingEvent]() []EventType {
+	return ancestry[deref(reflect.TypeFor[T]())]
+}
+
+func DynamicAncestry(event NetworkingEvent) []EventType {
+	return ancestry[deref(reflect.TypeOf(event))]
+}
+
+func deref(t EventType) EventType {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	return t
+}
+
 // EVENTS holds the reflect.Type of each event, for callers that need the type
 // token without instantiating a value.
 var EVENTS = struct {
@@ -145,9 +208,12 @@ var EVENTS = struct {
 	TransmitRenderedTemplate     EventType
 	CompPropsInsufficientFailure EventType
 
-	FailureEvent            EventType
 	DevelopmentFailureEvent EventType
-	SuccessEvent            EventType
+	FailureEvent            EventType
+
+	SuccessEvent EventType
+
+	BaseEvent EventType
 
 	// Concrete is every event the library can actually emit. Each one gets a
 	// built-in responder; ranging over this is how a new event type is picked
@@ -171,27 +237,10 @@ var EVENTS = struct {
 	TransmitRenderedTemplate:     reflect.TypeFor[TransmitRenderedTemplateEvent](),
 	CompPropsInsufficientFailure: reflect.TypeFor[CompPropsInsufficientFailureEvent](),
 
-	FailureEvent:            reflect.TypeFor[FailureEvent](),
 	DevelopmentFailureEvent: reflect.TypeFor[DevelopmentFailureEvent](),
-	SuccessEvent:            reflect.TypeFor[SuccessEvent](),
-}
+	FailureEvent:            reflect.TypeFor[FailureEvent](),
 
-func init() {
-	EVENTS.Concrete = []EventType{
-		EVENTS.PropsMarshalingFailure,
-		EVENTS.RegistryLookupFailure,
-		EVENTS.EntryGenerationFailure,
-		EVENTS.TempEntryWriteFailure,
-		EVENTS.CompBundlingFailure,
-		EVENTS.CompPropsInsufficientFailure,
-		EVENTS.TransmitRenderedTemplate,
-	}
-	// Ordered narrowest first, which is the order Dispatch runs them in.
-	EVENTS.Categories = []EventType{
-		EVENTS.DevelopmentFailureEvent,
-		EVENTS.FailureEvent,
-		EVENTS.SuccessEvent,
-	}
-	EVENTS.Values = append(append(make([]EventType, 0, len(EVENTS.Concrete)+len(EVENTS.Categories)),
-		EVENTS.Concrete...), EVENTS.Categories...)
+	SuccessEvent: reflect.TypeFor[SuccessEvent](),
+
+	BaseEvent: reflect.TypeFor[NetworkingEvent](),
 }

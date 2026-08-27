@@ -61,7 +61,7 @@ func TestCategoryBucketsGetNoDefaultResponder(t *testing.T) {
 func TestNewRequestDataRegistersNothingUnderABucket(t *testing.T) {
 	data, _ := newBoundRequestData(t)
 
-	empty := func(name string, chains shared.Chains, ok bool) {
+	empty := func(name string, chains shared.Chain, ok bool) {
 		t.Helper()
 		if ok && len(chains) > 0 {
 			t.Errorf("%s has %d handler chain(s) registered by default; the bucket is meant to stay empty",

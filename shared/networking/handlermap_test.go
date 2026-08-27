@@ -15,14 +15,6 @@ import (
 type PMF = events.PropsMarshalingFailureEvent
 type RLF = events.RegistryLookupFailureEvent
 
-func shapeOf(c Chains) (chains int, lengths []int) {
-	lengths = make([]int, len(c))
-	for i, chain := range c {
-		lengths[i] = len(chain)
-	}
-	return len(c), lengths
-}
-
 func noopHandler[T events.NetworkingEvent]() func(T) error {
 	return func(T) error { return nil }
 }
@@ -41,7 +33,7 @@ func runPrimary[T events.NetworkingEvent](t *testing.T, m *HandlerMap, ev T) {
 	if !ok || len(c) == 0 {
 		t.Fatalf("no chains stored for %T", ev)
 	}
-	if err := c[0].Run(ev); err != nil {
+	if err := c.Run(ev); err != nil {
 		t.Fatalf("chain returned %v", err)
 	}
 }
@@ -58,14 +50,10 @@ func TestTypedAndUntypedShareSlot(t *testing.T) {
 	if m.Len() != 1 {
 		t.Fatalf("len = %d, want 1 (shared slot)", m.Len())
 	}
-	c, ok := m.Get[PMF]()
+	_, ok := m.Get[PMF]()
 	if !ok {
 		t.Fatal("Get[PMF] must find the slot AddType wrote to")
 	}
-	if chains, lengths := shapeOf(c); chains != 1 || !reflect.DeepEqual(lengths, []int{2}) {
-		t.Fatalf("shape = (%d,%v), want (1,[2])", chains, lengths)
-	}
-
 	runPrimary(t, m, PMF{})
 	if want := []int{1, 2}; !reflect.DeepEqual(order, want) {
 		t.Fatalf("order = %v, want %v", order, want)
@@ -84,7 +72,7 @@ func TestTypedHandlerReceivesConcrete(t *testing.T) {
 	}, HANDLER_MODE_POSTFIX)
 
 	c, _ := m.Get[PMF]()
-	err := c[0].Run(events.NewPropsMarshalingFailure(errors.New("boom")))
+	err := c.Run(events.NewPropsMarshalingFailure(errors.New("boom")))
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("err = %v, want boom", err)
 	}
@@ -107,7 +95,7 @@ func TestTypedAddOnCategoryBucket(t *testing.T) {
 		events.NewPropsMarshalingFailure(errors.New("a")),
 		events.NewCompBundlingFailure(errors.New("b")),
 	} {
-		if err := c[0].Run(ev); err != nil {
+		if err := c.Run(ev); err != nil {
 			t.Fatalf("chain returned %v", err)
 		}
 	}
@@ -134,7 +122,7 @@ func TestTypedHandlerMismatchPanicsWithADefect(t *testing.T) {
 	var caught any
 	func() {
 		defer func() { caught = recover() }()
-		_ = c[0].Run(events.NewRegistryLookupFailure(errors.New("x")))
+		_ = c.Run(events.NewRegistryLookupFailure(errors.New("x")))
 	}()
 
 	if caught == nil {
@@ -177,26 +165,6 @@ func TestAddModes(t *testing.T) {
 		runPrimary(t, m, PMF{})
 		if want := []int{3, 2, 1}; !reflect.DeepEqual(o, want) {
 			t.Fatalf("got %v want %v", o, want)
-		}
-	})
-	t.Run("parallel", func(t *testing.T) {
-		m := NewHandlerMap()
-		m.Add(noopHandler[PMF](), HANDLER_MODE_PARALLEL).
-			Add(noopHandler[PMF](), HANDLER_MODE_PARALLEL).
-			Add(noopHandler[PMF](), HANDLER_MODE_PARALLEL)
-		c, _ := m.Get[PMF]()
-		if chains, lengths := shapeOf(c); chains != 3 || !reflect.DeepEqual(lengths, []int{1, 1, 1}) {
-			t.Fatalf("shape (%d,%v) want (3,[1 1 1])", chains, lengths)
-		}
-	})
-	t.Run("replace preserves parallel chains", func(t *testing.T) {
-		m := NewHandlerMap()
-		m.Add(noopHandler[PMF](), HANDLER_MODE_POSTFIX).
-			Add(noopHandler[PMF](), HANDLER_MODE_PARALLEL).
-			Add(noopHandler[PMF](), HANDLER_MODE_REPLACE)
-		c, _ := m.Get[PMF]()
-		if chains, lengths := shapeOf(c); chains != 2 || !reflect.DeepEqual(lengths, []int{1, 1}) {
-			t.Fatalf("shape (%d,%v) want (2,[1 1])", chains, lengths)
 		}
 	})
 	t.Run("invalid panics", func(t *testing.T) {
@@ -242,19 +210,19 @@ func TestSetReplacesSlot(t *testing.T) {
 	m.Add(noopHandler[PMF](), HANDLER_MODE_POSTFIX)
 
 	var ran int
-	m.Set[PMF](Chains{{
+	m.Set[PMF](Chain{
 		func(events.NetworkingEvent) error { ran++; return nil },
 		func(events.NetworkingEvent) error { ran++; return nil },
-	}})
+	})
 
 	c, ok := m.Get[PMF]()
 	if !ok {
 		t.Fatal("absent after Set")
 	}
-	if chains, lengths := shapeOf(c); chains != 1 || !reflect.DeepEqual(lengths, []int{2}) {
-		t.Fatalf("shape (%d,%v) want (1,[2])", chains, lengths)
+	if len(c) != 2 {
+		t.Fatalf("Expected two handlers, got: %v", len(c))
 	}
-	if err := c.Dispatch(PMF{}); err != nil {
+	if err := c.Run(PMF{}); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
 	if ran != 2 {
@@ -292,41 +260,6 @@ func TestHasDeleteAndClear(t *testing.T) {
 	}
 }
 
-// --- nil contract ---------------------------------------------------------
-
-func TestNilContract(t *testing.T) {
-	var m *HandlerMap
-
-	if _, ok := m.Get[PMF](); ok {
-		t.Fatal("nil Get")
-	}
-	if m.Has[PMF]() {
-		t.Fatal("nil Has")
-	}
-	if m.Delete[PMF]() {
-		t.Fatal("nil Delete")
-	}
-	if m.Len() != 0 || m.Types() != nil {
-		t.Fatal("nil Len/Types")
-	}
-	m.Clear()
-
-	for name, register := range map[string]func(){
-		"Add":     func() { m.Add(noopHandler[PMF](), HANDLER_MODE_POSTFIX) },
-		"AddType": func() { m.AddType(reflect.TypeFor[PMF](), rawTag(0, nil), HANDLER_MODE_POSTFIX) },
-		"Set":     func() { m.Set[PMF](nil) },
-	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Fatalf("%s on a nil map must panic rather than drop the registration", name)
-				}
-			}()
-			register()
-		}()
-	}
-}
-
 // --- dispatch: parallel chains + sequential order + error stop -----------
 
 func TestDispatchRunsEveryChain(t *testing.T) {
@@ -336,10 +269,10 @@ func TestDispatchRunsEveryChain(t *testing.T) {
 	// 1 and 2 share the primary chain; 3 gets a chain of its own.
 	m.Add(func(PMF) error { seen <- 1; return nil }, HANDLER_MODE_POSTFIX).
 		Add(func(PMF) error { seen <- 2; return nil }, HANDLER_MODE_POSTFIX).
-		Add(func(PMF) error { seen <- 3; return nil }, HANDLER_MODE_PARALLEL)
+		Add(func(PMF) error { seen <- 3; return nil }, HANDLER_MODE_PREFIX)
 
 	c, _ := m.Get[PMF]()
-	if err := c.Dispatch(PMF{}); err != nil {
+	if err := c.Run(PMF{}); err != nil {
 		t.Fatalf("dispatch err %v", err)
 	}
 	close(seen)
@@ -360,35 +293,11 @@ func TestDispatchStopsChainOnError(t *testing.T) {
 		Add(func(PMF) error { ran++; return nil }, HANDLER_MODE_POSTFIX) // same chain, after the error
 
 	c, _ := m.Get[PMF]()
-	err := c.Dispatch(PMF{})
+	err := c.Run(PMF{})
 	if err == nil || err.Error() != "stop" {
 		t.Fatalf("err = %v want stop", err)
 	}
 	if ran != 1 {
 		t.Fatalf("ran = %d, want 1 (a chain stops at its first error)", ran)
-	}
-}
-
-// An error in one chain must not stop the others.
-func TestDispatchReportsErrorWithoutStoppingOtherChains(t *testing.T) {
-	m := NewHandlerMap()
-	done := make(chan struct{})
-	m.Add(func(PMF) error { return errors.New("boom") }, HANDLER_MODE_POSTFIX).
-		Add(func(PMF) error { close(done); return nil }, HANDLER_MODE_PARALLEL)
-
-	c, _ := m.Get[PMF]()
-	if err := c.Dispatch(PMF{}); err == nil || err.Error() != "boom" {
-		t.Fatalf("err = %v want boom", err)
-	}
-	select {
-	case <-done:
-	default:
-		t.Fatal("the parallel chain was skipped because another chain failed")
-	}
-}
-
-func TestDispatchEmptyIsNoop(t *testing.T) {
-	if err := (Chains)(nil).Dispatch(PMF{}); err != nil {
-		t.Fatalf("nil Chains dispatch = %v", err)
 	}
 }

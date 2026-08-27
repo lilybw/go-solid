@@ -79,7 +79,7 @@ func TestDefaults_RequestTemplateIsPerBundler(t *testing.T) {
 	var firstRan, secondRan atomic.Int64
 	count := func(c *atomic.Int64) func(shared_net.RequestBehaviourBuilder) {
 		return func(rb shared_net.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, shared_net.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.RegistryLookupFailure,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					c.Add(1)
 					return nil

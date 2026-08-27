@@ -61,11 +61,11 @@ func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error)
 	return fn(this.request)
 }
 
-func (this *renderData) emitEvent(err error, event events.NetworkingEvent) error {
+func (this *renderData) emitEvent[T events.NetworkingEvent](err error, event T) error {
 	if this.request == nil {
 		return err
 	}
-	dispatchErr := this.request.Dispatch(event)
+	dispatchErr := this.request.Dispatch[T](event)
 	if dispatchErr == nil {
 		return err
 	}

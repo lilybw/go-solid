@@ -7,22 +7,14 @@ import (
 )
 
 type Handler func(event events.NetworkingEvent) error
-
-// Chain is a sequence of handlers run in order. The first error stops the rest
-// of the chain.
 type Chain []Handler
 
-// Chains are dispatched concurrently. Chain 0 is the primary chain (see
-// HandlerMode); the others exist only because a handler was added in
-// HANDLER_MODE_PARALLEL.
-type Chains []Chain
-
 type HandlerMap struct {
-	internal map[events.EventType]Chains
+	internal map[events.EventType]Chain
 }
 
 func NewHandlerMap() *HandlerMap {
-	return &HandlerMap{internal: make(map[events.EventType]Chains)}
+	return &HandlerMap{internal: make(map[events.EventType]Chain)}
 }
 
 // --- introspection --------------------------------------------------------
@@ -89,14 +81,12 @@ func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode Handler
 
 	existing := m.internal[key]
 	switch mode {
-	case HANDLER_MODE_PARALLEL:
-		m.internal[key] = append(existing, Chain{handler})
 	case HANDLER_MODE_REPLACE:
-		m.internal[key] = withPrimary(existing, Chain{handler})
+		m.internal[key] = []Handler{handler}
 	case HANDLER_MODE_PREFIX:
-		m.internal[key] = withPrimary(existing, append(Chain{handler}, primary(existing)...))
+		m.internal[key] = append([]Handler{handler}, existing...)
 	case HANDLER_MODE_POSTFIX:
-		m.internal[key] = withPrimary(existing, append(primary(existing), handler))
+		m.internal[key] = append(existing, handler)
 	default:
 		panic("networking: " + mode.String() + " is not a usable handler mode")
 	}
@@ -104,26 +94,30 @@ func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode Handler
 }
 
 // --- lookup and removal ---------------------------------------------------
-//
-// Keyed by type parameter only. Dispatch reaches the same storage through the
-// unexported accessors below, so a runtime-keyed read never has to be exported.
 
-func (m *HandlerMap) Get[T events.NetworkingEvent]() (Chains, bool) {
-	return m.chains(reflect.TypeFor[T]())
+func (m *HandlerMap) Get[T events.NetworkingEvent]() (Chain, bool) {
+	c, k := m.internal[reflect.TypeFor[T]()]
+	return c, k
 }
 
 // Set replaces everything stored for T.
-func (m *HandlerMap) Set[T events.NetworkingEvent](chains Chains) *HandlerMap {
-	return m.store(reflect.TypeFor[T](), chains)
+func (m *HandlerMap) Set[T events.NetworkingEvent](chain Chain) *HandlerMap {
+	m.internal[reflect.TypeFor[T]()] = chain
+	return m
 }
 
 func (m *HandlerMap) Has[T events.NetworkingEvent]() bool {
-	_, ok := m.chains(reflect.TypeFor[T]())
+	_, ok := m.internal[reflect.TypeFor[T]()]
 	return ok
 }
 
 func (m *HandlerMap) Delete[T events.NetworkingEvent]() bool {
-	return m.remove(reflect.TypeFor[T]())
+	key := reflect.TypeFor[T]()
+	if _, ok := m.internal[key]; !ok {
+		return false
+	}
+	delete(m.internal, key)
+	return true
 }
 
 // --- dispatch -------------------------------------------------------------
@@ -142,74 +136,16 @@ func (c Chain) Run(event events.NetworkingEvent) error {
 	return nil
 }
 
-// Dispatch runs every chain concurrently and returns the first error reported
-// by any of them. A single chain runs on the calling goroutine.
-func (c Chains) Dispatch(event events.NetworkingEvent) error {
-	switch len(c) {
-	case 0:
-		return nil
-	case 1:
-		return c[0].Run(event)
-	}
-
-	errs := make(chan error, len(c))
-	for _, chain := range c {
-		go func() { errs <- chain.Run(event) }()
-	}
-
-	var first error
-	for range c {
-		if err := <-errs; err != nil && first == nil {
-			first = err
+func (this *HandlerMap) Dispatch[T events.NetworkingEvent](event T) error {
+	for _, handlerType := range events.DynamicAncestry(event) {
+		var err error
+		if chain, ok := this.internal[handlerType]; ok {
+			err = chain.Run(event)
+		}
+		if err != nil {
+			return err
 		}
 	}
-	return first
-}
 
-// --- internals ------------------------------------------------------------
-
-// chains, store and remove are the runtime-keyed accessors. They stay
-// unexported: the only caller outside this package that needs a runtime key is
-// the fluent builder, and it only ever registers (see AddType).
-
-func (m *HandlerMap) chains(key events.EventType) (Chains, bool) {
-	if m == nil {
-		return nil, false
-	}
-	c, ok := m.internal[key]
-	return c, ok
-}
-
-func (m *HandlerMap) store(key events.EventType, chains Chains) *HandlerMap {
-	switch {
-	case m == nil:
-		panic("networking: Set on a nil *HandlerMap")
-	case key == nil:
-		panic("networking: Set with a nil event type")
-	}
-	m.internal[key] = chains
-	return m
-}
-
-func (m *HandlerMap) remove(key events.EventType) bool {
-	if _, ok := m.chains(key); !ok {
-		return false
-	}
-	delete(m.internal, key)
-	return true
-}
-
-func primary(c Chains) Chain {
-	if len(c) == 0 {
-		return nil
-	}
-	return c[0]
-}
-
-func withPrimary(c Chains, chain Chain) Chains {
-	if len(c) == 0 {
-		return Chains{chain}
-	}
-	c[0] = chain
-	return c
+	return nil
 }

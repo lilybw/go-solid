@@ -63,17 +63,17 @@ func TestAPropsMismatchReachesBothEventBuckets(t *testing.T) {
 
 	_, _ = b.Prepare("Dashboard", map[string]any{"wrong": true}).
 		SetHTTPBehaviour(func(rb shared_net.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.DevelopmentFailureEvent, shared_net.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.DevelopmentFailureEvent,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					development.Add(1)
 					return nil
 				})
-			rb.UponSpecialized(events.EVENTS.FailureEvent, shared_net.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.FailureEvent,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					failure.Add(1)
 					return nil
 				})
-			rb.UponSpecialized(events.EVENTS.SuccessEvent, shared_net.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.SuccessEvent,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					success.Add(1)
 					return nil
@@ -111,7 +111,7 @@ func TestConfiguredDefaultsAndPerCallHandlersBothRunOnce(t *testing.T) {
 		Generation: &shared_esbuild.BundlerConfig{Disabled: true},
 		Defaults: &go_solid.BehaviouralDefaults{
 			Requests: func(rb shared_net.RequestBehaviourBuilder) {
-				rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, shared_net.HANDLER_MODE_PARALLEL,
+				rb.Upon(events.EVENTS.RegistryLookupFailure,
 					func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 						fromDefaults.Add(1)
 						return nil
@@ -128,7 +128,7 @@ func TestConfiguredDefaultsAndPerCallHandlersBothRunOnce(t *testing.T) {
 	_, _ = b.Prepare("NoSuchComponent", nil).
 		ForRequest(rec, req).
 		SetHTTPBehaviour(func(rb shared_net.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, shared_net.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.RegistryLookupFailure,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					fromCall.Add(1)
 					return nil

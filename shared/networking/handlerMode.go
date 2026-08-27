@@ -20,11 +20,6 @@ const (
 	// HANDLER_MODE_POSTFIX appends to the primary chain. This is the default
 	// for RequestBehaviourBuilder.Upon.
 	HANDLER_MODE_POSTFIX
-
-	// HANDLER_MODE_PARALLEL gives this handler a chain of its own, dispatched
-	// concurrently with every other chain in the slot. Use it for observers
-	// that must not be able to abort anyone else's chain.
-	HANDLER_MODE_PARALLEL
 )
 
 func (m HandlerMode) String() string {
@@ -37,8 +32,6 @@ func (m HandlerMode) String() string {
 		return "HANDLER_MODE_PREFIX"
 	case HANDLER_MODE_POSTFIX:
 		return "HANDLER_MODE_POSTFIX"
-	case HANDLER_MODE_PARALLEL:
-		return "HANDLER_MODE_PARALLEL"
 	default:
 		return "HandlerMode(" + strconv.Itoa(int(m)) + ")"
 	}

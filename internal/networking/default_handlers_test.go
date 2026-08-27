@@ -41,25 +41,28 @@ func TestNewRequestData_InstallsDefaultHandlers(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		lookup func() (shared.Chains, bool)
+		lookup func() (shared.Chain, bool)
 	}{
-		{"TransmitRenderedTemplate", func() (shared.Chains, bool) {
+		{"TransmitRenderedTemplate", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.TransmitRenderedTemplateEvent]()
 		}},
-		{"PropsMarshalingFailure", func() (shared.Chains, bool) {
+		{"PropsMarshalingFailure", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.PropsMarshalingFailureEvent]()
 		}},
-		{"RegistryLookupFailure", func() (shared.Chains, bool) {
+		{"RegistryLookupFailure", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.RegistryLookupFailureEvent]()
 		}},
-		{"EntryGenerationFailure", func() (shared.Chains, bool) {
+		{"EntryGenerationFailure", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.EntryGenerationFailureEvent]()
 		}},
-		{"TempEntryWriteFailure", func() (shared.Chains, bool) {
+		{"TempEntryWriteFailure", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.TempEntryWriteFailureEvent]()
 		}},
-		{"CompBundlingFailure", func() (shared.Chains, bool) {
+		{"CompBundlingFailure", func() (shared.Chain, bool) {
 			return data.Handlers.Get[events.CompBundlingFailureEvent]()
+		}},
+		{"CompPropsInsufficientFailure", func() (shared.Chain, bool) {
+			return data.Handlers.Get[events.CompPropsInsufficientFailureEvent]()
 		}},
 	} {
 		chains, ok := tc.lookup()
@@ -71,14 +74,9 @@ func TestNewRequestData_InstallsDefaultHandlers(t *testing.T) {
 			t.Errorf("%s: handler slot present but empty", tc.name)
 			continue
 		}
-		for i, chain := range chains {
-			if len(chain) == 0 {
-				t.Errorf("%s: chain %d is empty", tc.name, i)
-			}
-			for j, h := range chain {
-				if h == nil {
-					t.Errorf("%s: handler [%d][%d] is nil", tc.name, i, j)
-				}
+		for i, h := range chains {
+			if h == nil {
+				t.Errorf("%s: handler [%d] is nil", tc.name, i)
 			}
 		}
 	}
@@ -133,6 +131,7 @@ func TestDefaultFailureHandler_WritesErrorAndStatus500(t *testing.T) {
 		{"EntryGenerationFailure", events.NewEntryGenerationFailure(errors.New("boom-entry"))},
 		{"TempEntryWriteFailure", events.NewTempEntryWriteFailure(errors.New("boom-temp"))},
 		{"CompBundlingFailure", events.NewCompBundlingFailure(errors.New("boom-bundle"))},
+		{"CompPropsInsufficientFailure", events.NewCompPropsInsufficientFailure(errors.New("boom-props-type"))},
 	}
 
 	for _, tc := range failures {

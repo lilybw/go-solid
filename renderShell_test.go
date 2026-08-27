@@ -151,7 +151,9 @@ func TestBuildFingerprint_TracksTheSettingsThatChangeTheOutput(t *testing.T) {
 		"runtime":     func(c *shared_esbuild.BundlerConfig) { c.Solid.Runtime = shared_esbuild.RuntimeExternal },
 		"delegation":  func(c *shared_esbuild.BundlerConfig) { c.Solid.DisableEventDelegation = true },
 		"module name": func(c *shared_esbuild.BundlerConfig) { c.Solid.ModuleName = "./wrapper" },
-		"override":    func(c *shared_esbuild.BundlerConfig) { c.Solid.RuntimeOverride = map[string]string{"solid-js/store": "x"} },
+		"override": func(c *shared_esbuild.BundlerConfig) {
+			c.Solid.RuntimeOverride = map[string]string{"solid-js/store": "x"}
+		},
 	} {
 		cfg := base()
 		mutate(cfg)
@@ -203,7 +205,7 @@ func TestSetHTTPBehaviour_WithoutForRequestRenders(t *testing.T) {
 	var dispatched bool
 	out, err := b.Prepare("Hello", nil).
 		SetHTTPBehaviour(func(rb networking.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.TransmitRenderedTemplate, networking.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.TransmitRenderedTemplate,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					dispatched = true
 					return nil
@@ -271,7 +273,7 @@ func TestDefaults_RequestsAreAppliedExactlyOncePerRenderCall(t *testing.T) {
 				Generation: disabledGeneration(),
 				Defaults: &BehaviouralDefaults{
 					Requests: func(rb networking.RequestBehaviourBuilder) {
-						rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, networking.HANDLER_MODE_PARALLEL,
+						rb.Upon(events.EVENTS.RegistryLookupFailure,
 							func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 								calls.Add(1)
 								return nil

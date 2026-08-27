@@ -48,7 +48,7 @@ func (er *eventRecorder) list() []events.EventType {
 func (er *eventRecorder) watch(b RenderCallBuilder) RenderCallBuilder {
 	return b.SetHTTPBehaviour(func(rb networking.RequestBehaviourBuilder) {
 		for _, evType := range events.EVENTS.Values {
-			rb.UponSpecialized(evType, networking.HANDLER_MODE_PARALLEL,
+			rb.Upon(evType,
 				func(_ http.ResponseWriter, _ *http.Request, e events.NetworkingEvent) error {
 					er.record(e)
 					return nil
@@ -222,7 +222,7 @@ func TestForRequest_PreservesHandlersRegisteredEarlier(t *testing.T) {
 	var called bool
 	_, _ = b.Prepare("NoSuchComponent", nil).
 		SetHTTPBehaviour(func(rb networking.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, networking.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.RegistryLookupFailure,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					called = true
 					return nil
@@ -249,7 +249,7 @@ func TestForRequest_AppliesConfiguredRequestDefaults(t *testing.T) {
 		Generation: disabledGeneration(),
 		Defaults: &BehaviouralDefaults{
 			Requests: func(rb networking.RequestBehaviourBuilder) {
-				rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, networking.HANDLER_MODE_PARALLEL,
+				rb.Upon(events.EVENTS.RegistryLookupFailure,
 					func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 						called = true
 						return nil
@@ -300,7 +300,7 @@ func TestRender_HandlerErrorIsReturnedNotPanicked(t *testing.T) {
 
 	_, err := b.Prepare("NoSuchComponent", nil).
 		SetHTTPBehaviour(func(rb networking.RequestBehaviourBuilder) {
-			rb.UponSpecialized(events.EVENTS.RegistryLookupFailure, networking.HANDLER_MODE_PARALLEL,
+			rb.Upon(events.EVENTS.RegistryLookupFailure,
 				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
 					return http.ErrHandlerTimeout
 				})

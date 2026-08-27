@@ -2,7 +2,6 @@ package networking
 
 import (
 	"net/http"
-	"reflect"
 	"sync"
 
 	"github.com/lilybw/go-solid/shared/networking/events"
@@ -58,34 +57,6 @@ func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler) Handler {
 
 // Dispatch runs the handlers for event: first those registered for its own
 // type, then those registered for the capability bucket it belongs to.
-func (this *RequestBehaviour) Dispatch(event events.NetworkingEvent) error {
-	if this == nil || this.Handlers == nil || event == nil {
-		return nil
-	}
-
-	var firstErr error
-	run := func(key events.EventType) {
-		if chains, ok := this.Handlers.chains(key); ok {
-			if err := chains.Dispatch(event); err != nil && firstErr == nil {
-				firstErr = err
-			}
-		}
-	}
-
-	run(reflect.TypeOf(event))
-
-	// Category buckets run after the event's own handlers, narrowest first. An
-	// event may sit in more than one — a development failure is also a failure
-	// — so these are independent tests, not a switch.
-	if _, ok := event.(events.DevelopmentFailureEvent); ok {
-		run(events.EVENTS.DevelopmentFailureEvent)
-	}
-	if _, ok := event.(events.FailureEvent); ok {
-		run(events.EVENTS.FailureEvent)
-	}
-	if _, ok := event.(events.SuccessEvent); ok {
-		run(events.EVENTS.SuccessEvent)
-	}
-
-	return firstErr
+func (this *RequestBehaviour) Dispatch[T events.NetworkingEvent](event T) error {
+	return this.Handlers.Dispatch(event)
 }

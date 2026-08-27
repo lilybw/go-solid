@@ -45,8 +45,8 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	}
 	// One chain: the default responder, then the two handlers appended above.
 	c, ok := data.Handlers.Get[PMF]()
-	if !ok || len(c) != 1 || len(c[0]) != 3 {
-		t.Fatalf("chains = %v, want one chain of 3 (default + 2 appended)", c)
+	if !ok || len(c) != 3 {
+		t.Fatalf("chain = %v, want one chain of 3 (default + 2 appended)", c)
 	}
 
 	if err := data.Dispatch(events.NewPropsMarshalingFailure(errors.New("x"))); err != nil {
@@ -71,25 +71,6 @@ func TestCodeUpon(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadGateway)
-	}
-}
-
-// UponSpecialized honors the mode: PARALLEL adds a chain rather than extending
-// the primary one.
-func TestUponSpecializedMode(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	data := NewRequestData(rec, req)
-
-	b := NewRequestBehaviourBuilder(data)
-	b.Upon(events.EVENTS.PropsMarshalingFailure,
-		func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error { return nil })
-	b.UponSpecialized(events.EVENTS.PropsMarshalingFailure, shared.HANDLER_MODE_PARALLEL,
-		func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error { return nil })
-
-	c, _ := data.Handlers.Get[PMF]()
-	if len(c) != 2 {
-		t.Fatalf("chains = %d, want 2 (PARALLEL added one)", len(c))
 	}
 }
 
