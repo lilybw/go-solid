@@ -260,14 +260,8 @@ func (r *resolver) shapeOfDeclaration(f *parsedFile, decl *ast.Node, depth int) 
 
 // importedFrom finds the module a named type was imported from, and the name it
 // is exported under there.
-func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFilePath, string, bool) {
-	if f.tree.Statements == nil {
-		return "", "", false
-	}
-	for _, stmt := range f.tree.Statements.Nodes {
-		if stmt.Kind != ast.KindImportDeclaration {
-			continue
-		}
+func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFilePath, meta.ExportName, bool) {
+	for stmt := range ofKind(topLevel(f.tree), ast.KindImportDeclaration) {
 		decl := stmt.AsImportDeclaration()
 		if decl.ImportClause == nil || decl.ModuleSpecifier == nil {
 			continue
@@ -367,7 +361,7 @@ func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteF
 
 // isRelativeSpecifier separates the imports the extractor follows from the bare
 // package specifiers it deliberately does not.
-func isRelativeSpecifier(specifier string) bool {
+func isRelativeSpecifier(specifier meta.ModuleSpecifier) bool {
 	return strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
 }
 
@@ -375,11 +369,8 @@ func isRelativeSpecifier(specifier string) bool {
 // is a function: an `export default function`, an `export default` of a
 // function expression, or an `export default` of a locally bound one.
 func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
-	if file.Statements == nil {
-		return nil
-	}
 	var assigned *ast.Node // `export default X` where X is an identifier
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
 		case ast.KindFunctionDeclaration:
 			// HasSyntacticModifier is any-of, so test the pair directly.
@@ -405,26 +396,21 @@ func defaultExportedFunction(file *ast.SourceFile) *ast.Node {
 	return nil
 }
 
-func isFunctionExpression(n *ast.Node) bool {
-	return n.Kind == ast.KindArrowFunction || n.Kind == ast.KindFunctionExpression
-}
-
 // boundFunction finds `const name = <function>` or `function name`.
 func boundFunction(file *ast.SourceFile, name string) *ast.Node {
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
 		case ast.KindFunctionDeclaration:
-			if n := stmt.Name(); n != nil && n.Text() == name {
+			if named(stmt, name) {
 				return stmt
 			}
 		case ast.KindVariableStatement:
-			for _, decl := range variableDeclarations(stmt) {
-				n := decl.Name()
-				if n == nil || n.Text() != name {
+			for decl := range boundNames(stmt) {
+				if !named(decl, name) {
 					continue
 				}
-				if init := decl.Initializer(); init != nil && isFunctionExpression(init) {
-					return init
+				if fn := initializedFunction(decl); fn != nil {
+					return fn
 				}
 			}
 		}
@@ -432,30 +418,12 @@ func boundFunction(file *ast.SourceFile, name string) *ast.Node {
 	return nil
 }
 
-// variableDeclarations returns the declarations of a `const`/`let`/`var`
-// statement, which may bind several names at once.
-func variableDeclarations(variableStatement *ast.Node) []*ast.Node {
-	list := variableStatement.AsVariableStatement().DeclarationList
-	if list == nil {
-		return nil
-	}
-	decls := list.AsVariableDeclarationList().Declarations
-	if decls == nil {
-		return nil
-	}
-	return decls.Nodes
-}
-
 func topLevelType(file *ast.SourceFile, name string) *ast.Node {
-	if file.Statements == nil {
-		return nil
-	}
-	for _, stmt := range file.Statements.Nodes {
-		switch stmt.Kind {
-		case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
-			if n := stmt.Name(); n != nil && n.Text() == name {
-				return stmt
-			}
+	types := ofKind(topLevel(file), ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration)
+	for stmt := range types {
+		if named(stmt, name) {
+			return stmt
+
 		}
 	}
 	return nil
@@ -475,7 +443,7 @@ func membersToFields(text string, members []*ast.Node) []Field {
 			continue
 		}
 		signature := member.AsPropertySignatureDeclaration()
-		ts := "unknown"
+		ts := meta.TSTypeExpression("unknown")
 		if signature.Type != nil {
 			ts = sourceText(text, signature.Type)
 		}
@@ -501,7 +469,7 @@ func propertyName(name *ast.Node) string {
 
 // sourceText slices a node out of the file. A node's position includes leading
 // trivia, which CanonicalTS removes before anything is compared.
-func sourceText(text string, node *ast.Node) string {
+func sourceText(text string, node *ast.Node) meta.TSTypeExpression {
 	start, end := node.Pos(), node.End()
 	if start < 0 || end > len(text) || start > end {
 		return "unknown"

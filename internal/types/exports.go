@@ -15,9 +15,9 @@ import (
 type NotAComponentError struct {
 	Component meta.QualifiedName
 	Path      meta.AbsoluteFilePath
-	Export    string // "" for the default export
+	Export    meta.ExportName // "" for the default export
 	Detail    string
-	Exported  []string
+	Exported  []meta.ExportName
 }
 
 func (e *NotAComponentError) Error() string {
@@ -83,20 +83,12 @@ func (e *Extractor) VerifyComponentExport(comp *registry.Component) error {
 
 // exportsName reports whether the file exports name at all, whatever the value
 // behind it.
-func exportsName(file *ast.SourceFile, name string) bool {
-	if file.Statements == nil || name == "" {
+func exportsName(file *ast.SourceFile, name meta.ExportName) bool {
+	if name == "" {
 		return false
 	}
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
-		case ast.KindFunctionDeclaration, ast.KindClassDeclaration,
-			ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
-			if !isExported(stmt) || isDefaultExported(stmt) {
-				continue
-			}
-			if declared := stmt.Name(); declared != nil && declared.Text() == name {
-				return true
-			}
 		case ast.KindVariableStatement:
 			if !isExported(stmt) {
 				continue
@@ -112,13 +104,19 @@ func exportsName(file *ast.SourceFile, name string) bool {
 					return true
 				}
 			}
+
+		default:
+			if slices.Contains(declarationKinds, stmt.Kind) &&
+				exportedNotDefault(stmt) && named(stmt, name) {
+				return true
+			}
 		}
 	}
 	return false
 }
 
 // ExportedComponents lists the named exports of a file that could be rendered.
-func (e *Extractor) ExportedComponents(path meta.AbsoluteFilePath) ([]string, error) {
+func (e *Extractor) ExportedComponents(path meta.AbsoluteFilePath) ([]meta.ExportName, error) {
 	file, err := e.file(path)
 	if err != nil {
 		return nil, err
@@ -130,20 +128,8 @@ func (e *Extractor) ExportedComponents(path meta.AbsoluteFilePath) ([]string, er
 // Syntax probes
 // -----------------------------------------------------------------------------
 
-func isExported(node *ast.Node) bool {
-	return node.ModifierFlags()&ast.ModifierFlagsExport != 0
-}
-
-func isDefaultExported(node *ast.Node) bool {
-	const both = ast.ModifierFlagsExportDefault
-	return node.ModifierFlags()&both == both
-}
-
 func hasDefaultExport(file *ast.SourceFile) bool {
-	if file.Statements == nil {
-		return false
-	}
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
 		case ast.KindExportAssignment:
 			if stmt.AsExportAssignment().Expression != nil {
@@ -165,20 +151,17 @@ func hasDefaultExport(file *ast.SourceFile) bool {
 // exportedComponentNames lists the named exports whose value is a function,
 // sorted, since that is the set a selector can pick from.
 func exportedComponentNames(file *ast.SourceFile) []string {
-	if file.Statements == nil {
-		return nil
-	}
-	var names []string
-	add := func(name string) {
+	var names []meta.ExportName
+	add := func(name meta.ExportName) {
 		if name != "" && name != meta.DEFAULT_EXPORT && !slices.Contains(names, name) {
 			names = append(names, name)
 		}
 	}
 
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
 		case ast.KindFunctionDeclaration:
-			if isExported(stmt) && !isDefaultExported(stmt) {
+			if exportedNotDefault(stmt) {
 				if name := stmt.Name(); name != nil {
 					add(name.Text())
 				}
@@ -209,8 +192,8 @@ func exportedComponentNames(file *ast.SourceFile) []string {
 }
 
 // exportClauseNames returns the outward-facing names of an `export { ... }`.
-func exportClauseNames(stmt *ast.Node) []string {
-	out := make([]string, 0, 4)
+func exportClauseNames(stmt *ast.Node) []meta.ExportName {
+	out := make([]meta.ExportName, 0, 4)
 	for _, spec := range exportSpecifiers(stmt) {
 		out = append(out, spec.public)
 	}
@@ -220,28 +203,25 @@ func exportClauseNames(stmt *ast.Node) []string {
 // namedExportedFunction finds the function a file exports under name, whether
 // declared with the export, bound to an exported variable, or re-exported from
 // an `export { ... }` clause.
-func namedExportedFunction(file *ast.SourceFile, name string) *ast.Node {
-	if file.Statements == nil || name == "" {
+func namedExportedFunction(file *ast.SourceFile, name meta.ExportName) *ast.Node {
+	if name == "" {
 		return nil
 	}
-	for _, stmt := range file.Statements.Nodes {
+	for stmt := range topLevel(file) {
 		switch stmt.Kind {
 		case ast.KindFunctionDeclaration:
-			if !isExported(stmt) || isDefaultExported(stmt) {
-				continue
-			}
-			if declared := stmt.Name(); declared != nil && declared.Text() == name {
+			if exportedNotDefault(stmt) && named(stmt, name) {
 				return stmt
 			}
 		case ast.KindVariableStatement:
 			if !isExported(stmt) {
 				continue
 			}
-			for _, decl := range variableDeclarations(stmt) {
-				bound := decl.Name()
-				init := decl.Initializer()
-				if bound != nil && bound.Text() == name && init != nil && isFunctionExpression(init) {
-					return init
+			for decl := range boundNames(stmt) {
+				if named(decl, name) {
+					if fn := initializedFunction(decl); fn != nil {
+						return fn
+					}
 				}
 			}
 		case ast.KindExportDeclaration:
@@ -258,7 +238,7 @@ func namedExportedFunction(file *ast.SourceFile, name string) *ast.Node {
 	return nil
 }
 
-type exportSpecifier struct{ local, public string }
+type exportSpecifier struct{ local, public meta.ExportName }
 
 // exportSpecifiers pairs each `export { Local as Public }` element with the
 // binding it points at. Without a property name the two are the same.
@@ -294,22 +274,17 @@ func exportSpecifiers(stmt *ast.Node) []exportSpecifier {
 // Reached only after exportsName has said no, so in practice it answers "is
 // this a missing export keyword rather than a typo".
 func declaresName(file *ast.SourceFile, name string) bool {
-	if file.Statements == nil {
-		return false
-	}
-	for _, stmt := range file.Statements.Nodes {
-		switch stmt.Kind {
-		case ast.KindFunctionDeclaration, ast.KindClassDeclaration,
-			ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
-			if declared := stmt.Name(); declared != nil && declared.Text() == name {
-				return true
-			}
-		case ast.KindVariableStatement:
-			for _, decl := range variableDeclarations(stmt) {
-				if bound := decl.Name(); bound != nil && bound.Text() == name {
+	for stmt := range topLevel(file) {
+		if stmt.Kind == ast.KindVariableStatement {
+			for decl := range boundNames(stmt) {
+				if named(decl, name) {
 					return true
 				}
 			}
+			continue
+		}
+		if slices.Contains(declarationKinds, stmt.Kind) && named(stmt, name) {
+			return true
 		}
 	}
 	return false
