@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/lilybw/go-solid/internal/hashing"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/static"
 )
 

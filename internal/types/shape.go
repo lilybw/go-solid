@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 type Field struct {

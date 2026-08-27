@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	static_int "github.com/lilybw/go-solid/internal/static"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 	shared_types "github.com/lilybw/go-solid/shared/types"
 )

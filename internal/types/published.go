@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/types"
 )
 

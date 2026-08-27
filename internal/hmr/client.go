@@ -5,7 +5,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 var hmrClientTemplate = template.Must(template.New("hmr").Parse(

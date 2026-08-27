@@ -14,7 +14,7 @@ import (
 	"github.com/lilybw/go-solid/internal/esbuild"
 	"github.com/lilybw/go-solid/internal/hashing"
 	io_int "github.com/lilybw/go-solid/internal/io"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // -----------------------------------------------------------------------------

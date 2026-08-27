@@ -12,11 +12,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/compat"
 	shared_esbuild "github.com/lilybw/go-solid/shared/esbuild"
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	shared_net "github.com/lilybw/go-solid/shared/networking"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
 	"github.com/lilybw/go-solid/shared/registry"

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/esbuild"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // PeerDepsForConfig returns the packages that must resolve from disk for a

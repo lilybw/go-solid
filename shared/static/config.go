@@ -3,8 +3,8 @@ package static
 import (
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/compat"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // "xxxx.*", "xxx/*", "xxx.*.yyy" etc

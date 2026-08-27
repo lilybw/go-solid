@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/lilybw/go-solid/internal/collections"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // MemCache is a simple in-memory artifact MemCache. Keyed by a hash of

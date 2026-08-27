@@ -1,6 +1,6 @@
 package rasterization
 
-import "github.com/lilybw/go-solid/internal/meta"
+import "github.com/lilybw/go-solid/shared/meta"
 
 type RasterizationConfig struct {
 	// Either where to place the rasterized components, or where to find them if they have already been rasterized.

@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 const PREFIX = "sha256:"

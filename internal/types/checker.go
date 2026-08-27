@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	log_int "github.com/lilybw/go-solid/internal/logging"
-	"github.com/lilybw/go-solid/internal/meta"
 	logging "github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 	. "github.com/lilybw/go-solid/shared/types"
 )

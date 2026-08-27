@@ -11,8 +11,8 @@ import (
 	"time"
 
 	io_int "github.com/lilybw/go-solid/internal/io"
-	"github.com/lilybw/go-solid/internal/meta"
 	watching_int "github.com/lilybw/go-solid/internal/watching"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/static"
 	"github.com/lilybw/go-solid/shared/watching"
 )
@@ -92,8 +92,8 @@ func writeModule(workspace meta.AbsoluteDirectoryPath, sources moduleSources) er
 		ASSETS_FILENAME:  sources.assets,
 		README_FILENAME:  sources.readme,
 	} {
-		if _, err := writeIfChanged(filepath.Join(root, name), contents); err != nil {
-			return err
+		if _, err := io_int.WriteIfChanged(filepath.Join(root, name), []byte(contents), 0o644); err != nil {
+			return fmt.Errorf("go_solid/static: publish %q: %w", name, err)
 		}
 	}
 	return nil
@@ -156,14 +156,7 @@ type enabledStaticRegistry struct {
 	watcher   *watching_int.DirectoryWatcher[meta.Void]
 	closeOnce sync.Once
 
-	// The debounce outlives the event that armed it, so Close has to reach it
-	// as well as the watcher: a rebuild that fires afterwards reads a directory
-	// the caller may already have torn down, and calls onChange into caches
-	// that consider themselves shut.
-	debounceMu sync.Mutex
-	debounce   *time.Timer
-	closed     bool
-	rebuilds   sync.WaitGroup
+	debounce *watching_int.Debouncer
 }
 
 func (this *enabledStaticRegistry) Active() bool { return true }
@@ -215,24 +208,17 @@ func (this *enabledStaticRegistry) rebuild() error {
 	return nil
 }
 
-// writeIfChanged republishes only on a real difference, so nothing downstream
-// is invalidated by a rebuild that produced the same bytes.
-func writeIfChanged(path meta.AbsoluteFilePath, contents string) (bool, error) {
-	if current, err := os.ReadFile(path); err == nil && string(current) == contents {
-		return false, nil
-	}
-	if err := io_int.WriteAtomicMode(path, []byte(contents), 0o644); err != nil {
-		return false, fmt.Errorf("go_solid/static: publish %q: %w", path, err)
-	}
-	return true, nil
-}
-
 // rebuildWindow is how long events are collected before a rebuild.
 const rebuildWindow = 120 * time.Millisecond
 
 func (this *enabledStaticRegistry) watch() error {
+	this.debounce = watching_int.NewDebouncer(rebuildWindow, func() {
+		if err := this.rebuild(); err != nil {
+			this.reportErr(err)
+		}
+	})
 	touched := func(meta.AbsoluteFilePath, meta.Void) error {
-		this.scheduleRebuild(rebuildWindow)
+		this.debounce.Arm()
 		return nil
 	}
 	watcher, err := watching_int.NewDirectoryWatcher(this.cfg.Location, &watching.DWVoidConfig{
@@ -248,32 +234,6 @@ func (this *enabledStaticRegistry) watch() error {
 	return nil
 }
 
-func (this *enabledStaticRegistry) scheduleRebuild(window time.Duration) {
-	this.debounceMu.Lock()
-	defer this.debounceMu.Unlock()
-
-	if this.closed {
-		return
-	}
-	if this.debounce != nil {
-		this.debounce.Stop()
-	}
-	this.debounce = time.AfterFunc(window, func() {
-		this.debounceMu.Lock()
-		if this.closed {
-			this.debounceMu.Unlock()
-			return
-		}
-		this.rebuilds.Add(1)
-		this.debounceMu.Unlock()
-		defer this.rebuilds.Done()
-
-		if err := this.rebuild(); err != nil {
-			this.reportErr(err)
-		}
-	})
-}
-
 func (this *enabledStaticRegistry) reportErr(err error) {
 	if this.onErr != nil {
 		this.onErr(err)
@@ -282,15 +242,8 @@ func (this *enabledStaticRegistry) reportErr(err error) {
 
 func (this *enabledStaticRegistry) Close() {
 	this.closeOnce.Do(func() {
-		this.debounceMu.Lock()
-		this.closed = true
-		if this.debounce != nil {
-			this.debounce.Stop()
-		}
-		this.debounceMu.Unlock()
-
-		this.rebuilds.Wait()
 		this.watcher.Stop() // nil-safe
+		this.debounce.Stop()
 	})
 }
 

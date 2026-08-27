@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // EventType identifies an event by its Go type.

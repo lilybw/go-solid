@@ -9,9 +9,9 @@ import (
 	"time"
 
 	solid "github.com/lilybw/go-solid"
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 )
 

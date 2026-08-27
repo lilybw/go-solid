@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	types_int "github.com/lilybw/go-solid/internal/types"
 	logging "github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	shared_raster "github.com/lilybw/go-solid/shared/rasterization"
 	"github.com/lilybw/go-solid/shared/registry"
 	shared_types "github.com/lilybw/go-solid/shared/types"

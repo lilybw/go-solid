@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/ast"
 )

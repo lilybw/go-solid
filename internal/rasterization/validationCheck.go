@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	caching_int "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/rasterization"
 )
 
@@ -68,4 +68,3 @@ func FindFirstFileByPattern(base meta.AbsoluteDirectoryPath, pattern string) (os
 
 	return nil, false, nil
 }
-

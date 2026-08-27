@@ -39,8 +39,8 @@ import (
 	"testing"
 
 	go_solid "github.com/lilybw/go-solid"
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/registry"
 )

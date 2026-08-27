@@ -3,7 +3,7 @@ package caching
 import (
 	"strings"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // Rendered is the cacheable artifact set for one component+props combination.

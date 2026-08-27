@@ -10,9 +10,9 @@ import (
 	"time"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // -----------------------------------------------------------------------------

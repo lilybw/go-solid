@@ -8,9 +8,9 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/internal/noop"
 	"github.com/lilybw/go-solid/shared"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/watching"
 )
 
@@ -53,13 +53,13 @@ func polyfillConfig[T any](cfg *DWConfig[T]) error {
 		return fmt.Errorf("go_solid: DWConfig is required for a DirectoryWatcher")
 	}
 	if cfg.OnCreation == nil {
-		cfg.OnCreation = noop.TR_o_Err[string, T]()
+		cfg.OnCreation = noop.TR_o_Err[meta.AbsoluteFilePath, T]()
 	}
 	if cfg.OnDeletion == nil {
-		cfg.OnDeletion = noop.TR_o_Err[string, T]()
+		cfg.OnDeletion = noop.TR_o_Err[meta.AbsoluteFilePath, T]()
 	}
 	if cfg.OnMutation == nil {
-		cfg.OnMutation = noop.TR_o_Err[string, T]()
+		cfg.OnMutation = noop.TR_o_Err[meta.AbsoluteFilePath, T]()
 	}
 	if cfg.OnErr == nil {
 		cfg.OnErr = func(err error) {
@@ -78,7 +78,7 @@ func polyfillConfig[T any](cfg *DWConfig[T]) error {
 // before the listing is read. A file appearing in between is reported twice
 // rather than not at all — the callbacks are idempotent, and a duplicate is the
 // cheaper mistake.
-func (this *DirectoryWatcher[T]) addTree(root string, announce bool) error {
+func (this *DirectoryWatcher[T]) addTree(root meta.AbsoluteFilePath, announce bool) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -98,7 +98,7 @@ func (this *DirectoryWatcher[T]) addTree(root string, announce bool) error {
 
 // announceCreation reports a file the watcher found rather than was told about,
 // in the same shape as the event that would have carried it.
-func (this *DirectoryWatcher[T]) announceCreation(path string) {
+func (this *DirectoryWatcher[T]) announceCreation(path meta.AbsoluteFilePath) {
 	synthetic := fsnotify.Event{Name: path, Op: fsnotify.Create}
 	if err := this.cfg.OnCreation(path, this.cfg.DeriveAndInclude(synthetic)); err != nil && this.cfg.OnErr != nil {
 		this.cfg.OnErr(err)

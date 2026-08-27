@@ -3,8 +3,8 @@ package networking
 import (
 	"sync"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/internal/noop"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/networking"
 )
 

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	esbuild "github.com/evanw/esbuild/pkg/api"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // RuntimeSource selects where the solid-js browser runtime comes from.

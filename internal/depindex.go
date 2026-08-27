@@ -5,7 +5,7 @@ import (
 
 	"github.com/lilybw/go-solid/internal/collections"
 	"github.com/lilybw/go-solid/internal/esbuild"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 type DependencyIndex struct {

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
+	"github.com/lilybw/go-solid/shared/meta"
 	networking "github.com/lilybw/go-solid/shared/networking"
 )
 

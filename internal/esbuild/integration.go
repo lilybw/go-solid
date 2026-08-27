@@ -13,8 +13,8 @@ import (
 	"github.com/lilybw/go-solid-compiler/esbuildsolid"
 	"github.com/lilybw/go-solid-compiler/runtime"
 	"github.com/lilybw/go-solid-compiler/solid"
-	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/esbuild"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 type bundleResult struct {

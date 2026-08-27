@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 )
 

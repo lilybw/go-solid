@@ -9,8 +9,8 @@ import (
 	"sync"
 
 	log_int "github.com/lilybw/go-solid/internal/logging"
-	"github.com/lilybw/go-solid/internal/meta"
 	logging "github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/ast"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/core"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/parser"

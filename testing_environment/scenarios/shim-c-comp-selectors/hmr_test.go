@@ -14,8 +14,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/lilybw/go-solid/internal"
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
-	"github.com/lilybw/go-solid/internal/meta"
 	shared_hmr "github.com/lilybw/go-solid/shared/hmr"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // Selectors and hot reload

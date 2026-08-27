@@ -9,8 +9,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/lilybw/go-solid/internal/collections"
-	"github.com/lilybw/go-solid/internal/meta"
 	. "github.com/lilybw/go-solid/shared/hmr"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // NormalizeHMRConfig fills defaults and validates. It errors if HMR is enabled

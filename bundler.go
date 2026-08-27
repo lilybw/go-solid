@@ -12,7 +12,6 @@ import (
 	"github.com/lilybw/go-solid/internal/hashing"
 	hmr_int "github.com/lilybw/go-solid/internal/hmr"
 	log_int "github.com/lilybw/go-solid/internal/logging"
-	"github.com/lilybw/go-solid/internal/meta"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/noop"
 	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
@@ -21,6 +20,7 @@ import (
 	"github.com/lilybw/go-solid/shared/esbuild"
 	"github.com/lilybw/go-solid/shared/hmr"
 	logging "github.com/lilybw/go-solid/shared/logging"
+	"github.com/lilybw/go-solid/shared/meta"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/rasterization"
 	reg_shr "github.com/lilybw/go-solid/shared/registry"
@@ -269,7 +269,7 @@ func New(cfg *Config) (*Bundler, error) {
 		normalized.Mux.Handle(normalized.Path, bundler.hub.Handler())
 
 		w, err := hmr_int.NewWatcher(
-			string(cfg.Components), bundler.index, bundler.hub,
+			cfg.Components, bundler.index, bundler.hub,
 			invalidateComponent,
 			func(e error) {
 				fmt.Fprintf(os.Stderr, "[go_solid] hmr watch error: %v\n", e)

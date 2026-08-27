@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/lilybw/go-solid/internal/meta"
 	watching_int "github.com/lilybw/go-solid/internal/watching"
+	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/registry"
 	watching "github.com/lilybw/go-solid/shared/watching"
 )

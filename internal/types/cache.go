@@ -15,7 +15,7 @@ import (
 	"time"
 
 	io_int "github.com/lilybw/go-solid/internal/io"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 const CACHE_DIR_NAME = "type_cache"

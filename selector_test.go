@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
-	"github.com/lilybw/go-solid/internal/meta"
+	"github.com/lilybw/go-solid/shared/meta"
 )
 
 // ---------------------------------------------------------------------------
@@ -18,9 +18,9 @@ import (
 
 func TestSelector_SplitsFileFromExport(t *testing.T) {
 	for name, want := range map[string]struct{ file, export string }{
-		"auth/LoginForm":        {"auth/LoginForm", ""},
-		"auth/LoginForm#Submit": {"auth/LoginForm", "Submit"},
-		"Panel#Sidebar":         {"Panel", "Sidebar"},
+		"auth/LoginForm":         {"auth/LoginForm", ""},
+		"auth/LoginForm#Submit":  {"auth/LoginForm", "Submit"},
+		"Panel#Sidebar":          {"Panel", "Sidebar"},
 		"auth/LoginForm#default": {"auth/LoginForm", ""},
 		"deep/nested/a/b/C#D":    {"deep/nested/a/b/C", "D"},
 	} {
