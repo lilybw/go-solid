@@ -36,7 +36,7 @@ type StaticConfig struct {
 	// endpoint on. Required.
 	//
 	// Adapters for other router shapes live in shared/compat.
-	Mux compat.MuxLike
+	Mux compat.MuxLike `json:"-"`
 	// MountPath is the URL prefix the endpoint answers under. Defaults to
 	// DEFAULT_MOUNT_PATH. Must begin and end with "/".
 	MountPath string

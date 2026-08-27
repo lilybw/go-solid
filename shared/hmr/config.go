@@ -15,7 +15,7 @@ type HMRConfig struct {
 	// Adapters are available for:
 	// 	github.com/gorilla/mux.Router use compat.MuxLikeFromRouterLike
 	// 	http.ServeMux use <self>
-	Mux compat.MuxLike
+	Mux compat.MuxLike `json:"-"`
 }
 
 var NIL_HMR_CONFIG = &HMRConfig{ // null object
