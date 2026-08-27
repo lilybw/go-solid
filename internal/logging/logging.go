@@ -1,7 +1,8 @@
 package logging
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"log"
 
 	. "github.com/lilybw/go-solid/shared/logging"
@@ -27,7 +28,7 @@ func LogJSON(l LogLevel, msg string, object any) {
 		return
 	}
 
-	mashalled, err := json.MarshalIndent(object, " ", "   ")
+	mashalled, err := json.Marshal(object, jsontext.WithIndentPrefix(" "), jsontext.WithIndent("   "))
 	if err != nil {
 		log.Println("Failed to marshal logged object with message: " + msg + "\n\t" + err.Error())
 		return

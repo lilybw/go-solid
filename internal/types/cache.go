@@ -271,7 +271,7 @@ func (c *Cache) removeEmptyDirs() {
 	})
 	// Deepest first, so a directory emptied by its children is caught too.
 	slices.Reverse(dirs)
-	for _, dir := range dirs {
+	for _, dir := range slices.Backward(dirs) {
 		_ = os.Remove(dir) // fails harmlessly when not empty
 	}
 }

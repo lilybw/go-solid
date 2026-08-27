@@ -1,7 +1,8 @@
 package esbuild
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,7 +112,7 @@ func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 		return nil
 	}
 	var mf struct {
-		Inputs map[string]json.RawMessage `json:"inputs"`
+		Inputs map[string]jsontext.Value `json:"inputs"`
 	}
 	if err := json.Unmarshal([]byte(metafile), &mf); err != nil {
 		return nil

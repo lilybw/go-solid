@@ -1,7 +1,7 @@
 package types
 
 import (
-	"encoding/json"
+	jsonv1 "encoding/json"
 	"encoding/json/jsontext"
 	"errors"
 	"fmt"
@@ -37,8 +37,8 @@ type Mapper struct {
 
 var (
 	timeType       = reflect.TypeFor[time.Time]()
-	rawMessageType = reflect.TypeFor[json.RawMessage]()
-	jsonNumberType = reflect.TypeFor[json.Number]()
+	rawMessageType = reflect.TypeFor[jsonv1.RawMessage]()
+	jsonNumberType = reflect.TypeFor[jsonv1.Number]()
 	rawValueType   = reflect.TypeFor[jsontext.Value]()
 )
 

@@ -3,7 +3,8 @@ package caching
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,8 @@ import (
 // in-process reverse graph lives in internal.DependencyIndex.
 
 type HTMLElementID = string
+
+const MANIFEST_EXT = ".meta.json"
 
 type ComponentDiskManifest struct {
 	Component   meta.QualifiedName `json:"component"`
@@ -137,7 +140,7 @@ func (dc *DiskCache) Get(key *CacheKey) (*Rendered, bool) {
 		}
 	}
 
-	base := strings.TrimSuffix(manifestPath, ".meta.json")
+	base := strings.TrimSuffix(manifestPath, MANIFEST_EXT)
 	js, err := os.ReadFile(base + ".js")
 	if err != nil {
 		return nil, false
@@ -194,11 +197,11 @@ func (dc *DiskCache) Put(key *CacheKey, minify bool, r *Rendered, sources []stri
 			return err
 		}
 	}
-	manBytes, err := json.MarshalIndent(man, "", "  ")
+	manBytes, err := json.Marshal(man, json.Deterministic(true), jsontext.WithIndent("  "))
 	if err != nil {
 		return err
 	}
-	manifestPath := base + ".meta.json"
+	manifestPath := base + MANIFEST_EXT
 	if err := io_int.WriteAtomic(manifestPath, manBytes); err != nil {
 		return err
 	}
@@ -223,10 +226,10 @@ func (dc *DiskCache) InvalidateComponent(component meta.QualifiedName) int {
 		if !ok {
 			continue
 		}
-		base := strings.TrimSuffix(manifestPath, ".meta.json")
+		base := strings.TrimSuffix(manifestPath, MANIFEST_EXT)
 		// Remove the whole entry set; ignore individual errors (best-effort,
 		// a missing sibling just means it was never written, e.g. no CSS).
-		for _, suffix := range []string{".js", ".css", ".meta.json"} {
+		for _, suffix := range []string{".js", ".css", MANIFEST_EXT} {
 			_ = os.Remove(base + suffix)
 		}
 		delete(dc.byKey, keyStr)
@@ -276,7 +279,7 @@ func (dc *DiskCache) lockedEnsureIndex() {
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".meta.json") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), MANIFEST_EXT) {
 			continue
 		}
 		path := filepath.Join(dc.directory, e.Name())
