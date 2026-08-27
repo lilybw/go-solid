@@ -92,7 +92,7 @@ func TestNewRequestData_BindsASynchronizedWriter(t *testing.T) {
 
 func TestSetWriter_BindsASynchronizedWriter(t *testing.T) {
 	data := NewRequestData(nil, nil)
-	NewRequestBehaviourBuilder(data).SetWriter(httptest.NewRecorder())
+	shared.NewRequestBehaviourBuilder(data).SetWriter(httptest.NewRecorder())
 	if _, ok := data.W.(*shared.SynchronizedResponseWriter); !ok {
 		t.Errorf("SetWriter installed a bare %T", data.W)
 	}

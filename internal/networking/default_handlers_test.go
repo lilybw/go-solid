@@ -7,13 +7,13 @@ import (
 	"testing"
 
 	"github.com/lilybw/go-solid/internal/caching"
-	shared "github.com/lilybw/go-solid/shared/networking"
+	. "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
 // newBoundRequestData is the shape every render path ends up using: a behaviour
 // bound to a real writer, carrying whatever defaults NewRequestData installs.
-func newBoundRequestData(t *testing.T) (*shared.RequestBehaviour, *httptest.ResponseRecorder) {
+func newBoundRequestData(t *testing.T) (*RequestBehaviour, *httptest.ResponseRecorder) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -41,27 +41,27 @@ func TestNewRequestData_InstallsDefaultHandlers(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		lookup func() (shared.Chain, bool)
+		lookup func() (Chain, bool)
 	}{
-		{"TransmitRenderedTemplate", func() (shared.Chain, bool) {
+		{"TransmitRenderedTemplate", func() (Chain, bool) {
 			return data.Handlers.Get[events.TransmitRenderedTemplateEvent]()
 		}},
-		{"PropsMarshalingFailure", func() (shared.Chain, bool) {
+		{"PropsMarshalingFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.PropsMarshalingFailureEvent]()
 		}},
-		{"RegistryLookupFailure", func() (shared.Chain, bool) {
+		{"RegistryLookupFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.RegistryLookupFailureEvent]()
 		}},
-		{"EntryGenerationFailure", func() (shared.Chain, bool) {
+		{"EntryGenerationFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.EntryGenerationFailureEvent]()
 		}},
-		{"TempEntryWriteFailure", func() (shared.Chain, bool) {
+		{"TempEntryWriteFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.TempEntryWriteFailureEvent]()
 		}},
-		{"CompBundlingFailure", func() (shared.Chain, bool) {
+		{"CompBundlingFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.CompBundlingFailureEvent]()
 		}},
-		{"CompPropsInsufficientFailure", func() (shared.Chain, bool) {
+		{"CompPropsInsufficientFailure", func() (Chain, bool) {
 			return data.Handlers.Get[events.CompPropsInsufficientFailureEvent]()
 		}},
 	} {
@@ -180,7 +180,7 @@ func TestUserHandlersDoNotDisplaceDefaults(t *testing.T) {
 
 	var called bool
 	NewRequestBehaviourBuilder(data).
-		Upon(events.EVENTS.PropsMarshalingFailure, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+		Upon(func(http.ResponseWriter, *http.Request, events.PropsMarshalingFailureEvent) error {
 			called = true
 			return nil
 		})
@@ -204,8 +204,8 @@ func TestUserHandlersDoNotDisplaceDefaults(t *testing.T) {
 func TestRequestBehaviourTemplate_AppliesWithoutLosingDefaults(t *testing.T) {
 	var templateRan bool
 	defaults := NewDefaults()
-	defaults.SetRequestBehaviour(func(b shared.RequestBehaviourBuilder) {
-		b.Upon(events.EVENTS.TransmitRenderedTemplate, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+	defaults.SetRequestBehaviour(func(b *RequestBehaviourBuilder) {
+		b.Upon(func(http.ResponseWriter, *http.Request, events.TransmitRenderedTemplateEvent) error {
 			templateRan = true
 			return nil
 		})

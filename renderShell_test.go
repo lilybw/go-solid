@@ -204,9 +204,9 @@ func TestSetHTTPBehaviour_WithoutForRequestRenders(t *testing.T) {
 
 	var dispatched bool
 	out, err := b.Prepare("Hello", nil).
-		SetHTTPBehaviour(func(rb networking.RequestBehaviourBuilder) {
-			rb.Upon(events.EVENTS.TransmitRenderedTemplate,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+		SetHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.TransmitRenderedTemplateEvent) error {
 					dispatched = true
 					return nil
 				})
@@ -236,7 +236,7 @@ func TestSetHTTPBehaviour_WithoutForRequestHonoursWithCtx(t *testing.T) {
 	cancel()
 
 	if _, err := b.Prepare("Hello", nil).
-		SetHTTPBehaviour(func(networking.RequestBehaviourBuilder) {}).
+		SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).
 		WithCtx(ctx).
 		Render(); err == nil {
 		t.Error("a cancelled context was ignored because a request-less behaviour shadowed it")
@@ -255,10 +255,10 @@ func TestDefaults_RequestsAreAppliedExactlyOncePerRenderCall(t *testing.T) {
 			return rc.ForRequest(w, r)
 		}},
 		{"SetHTTPBehaviour then ForRequest", func(rc RenderCallBuilder, w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-			return rc.SetHTTPBehaviour(func(networking.RequestBehaviourBuilder) {}).ForRequest(w, r)
+			return rc.SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).ForRequest(w, r)
 		}},
 		{"ForRequest then SetHTTPBehaviour", func(rc RenderCallBuilder, w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-			return rc.ForRequest(w, r).SetHTTPBehaviour(func(networking.RequestBehaviourBuilder) {})
+			return rc.ForRequest(w, r).SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {})
 		}},
 	} {
 		t.Run(order.name, func(t *testing.T) {
@@ -272,9 +272,9 @@ func TestDefaults_RequestsAreAppliedExactlyOncePerRenderCall(t *testing.T) {
 				Components: componentsDirWith(t, map[string]string{"Hello.tsx": "export default () => null;"}),
 				Generation: disabledGeneration(),
 				Defaults: &BehaviouralDefaults{
-					Requests: func(rb networking.RequestBehaviourBuilder) {
-						rb.Upon(events.EVENTS.RegistryLookupFailure,
-							func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+					Requests: func(rb *networking.RequestBehaviourBuilder) {
+						rb.Upon(
+							func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 								calls.Add(1)
 								return nil
 							})

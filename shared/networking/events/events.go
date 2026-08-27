@@ -132,7 +132,7 @@ func NewTransmitRenderedTemplate(r *caching.Rendered) TransmitRenderedTemplateEv
 // parameter, so it receives the event as the interface.
 //
 // For a handler that receives its concrete event type, use HandlerMap.Add.
-type NetworkingEventHandler func(w http.ResponseWriter, r *http.Request, event NetworkingEvent) error
+type NetworkingEventHandler[T NetworkingEvent] func(w http.ResponseWriter, r *http.Request, event T) error
 
 // --- registry -------------------------------------------------------------
 

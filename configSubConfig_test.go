@@ -47,7 +47,7 @@ func TestDefaults_PartialHeadSegmentFilled(t *testing.T) {
 	cfg := &Config{
 		Components: comps,
 		Defaults: &BehaviouralDefaults{
-			Requests: func(b shared_net.RequestBehaviourBuilder) { called = true },
+			Requests: func(b *shared_net.RequestBehaviourBuilder) { called = true },
 		},
 	}
 	if err := configValidationAndNormalization(cfg); err != nil {

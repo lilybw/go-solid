@@ -62,19 +62,19 @@ func TestAPropsMismatchReachesBothEventBuckets(t *testing.T) {
 	rec, req := httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil)
 
 	_, _ = b.Prepare("Dashboard", map[string]any{"wrong": true}).
-		SetHTTPBehaviour(func(rb shared_net.RequestBehaviourBuilder) {
-			rb.Upon(events.EVENTS.DevelopmentFailureEvent,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+		SetHTTPBehaviour(func(rb *shared_net.RequestBehaviourBuilder) {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.DevelopmentFailureEvent) error {
 					development.Add(1)
 					return nil
 				})
-			rb.Upon(events.EVENTS.FailureEvent,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.FailureEvent) error {
 					failure.Add(1)
 					return nil
 				})
-			rb.Upon(events.EVENTS.SuccessEvent,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.SuccessEvent) error {
 					success.Add(1)
 					return nil
 				})
@@ -110,9 +110,9 @@ func TestConfiguredDefaultsAndPerCallHandlersBothRunOnce(t *testing.T) {
 		LogLevel:   logging.LEVEL_ERROR,
 		Generation: &shared_esbuild.BundlerConfig{Disabled: true},
 		Defaults: &go_solid.BehaviouralDefaults{
-			Requests: func(rb shared_net.RequestBehaviourBuilder) {
-				rb.Upon(events.EVENTS.RegistryLookupFailure,
-					func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+			Requests: func(rb *shared_net.RequestBehaviourBuilder) {
+				rb.Upon(
+					func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 						fromDefaults.Add(1)
 						return nil
 					})
@@ -127,9 +127,9 @@ func TestConfiguredDefaultsAndPerCallHandlersBothRunOnce(t *testing.T) {
 	rec, req := httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil)
 	_, _ = b.Prepare("NoSuchComponent", nil).
 		ForRequest(rec, req).
-		SetHTTPBehaviour(func(rb shared_net.RequestBehaviourBuilder) {
-			rb.Upon(events.EVENTS.RegistryLookupFailure,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+		SetHTTPBehaviour(func(rb *shared_net.RequestBehaviourBuilder) {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 					fromCall.Add(1)
 					return nil
 				})

@@ -77,10 +77,10 @@ func TestDefaults_RequestTemplateIsPerBundler(t *testing.T) {
 	resetPackageState(t)
 
 	var firstRan, secondRan atomic.Int64
-	count := func(c *atomic.Int64) func(shared_net.RequestBehaviourBuilder) {
-		return func(rb shared_net.RequestBehaviourBuilder) {
-			rb.Upon(events.EVENTS.RegistryLookupFailure,
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+	count := func(c *atomic.Int64) func(*shared_net.RequestBehaviourBuilder) {
+		return func(rb *shared_net.RequestBehaviourBuilder) {
+			rb.Upon(
+				func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 					c.Add(1)
 					return nil
 				})

@@ -9,45 +9,6 @@ import (
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
-type requestBehaviourBuilder struct {
-	data *RequestBehaviour
-}
-
-// NewRequestBehaviourBuilder returns a builder carrying no consumer defaults.
-func NewRequestBehaviourBuilder(data *RequestBehaviour) RequestBehaviourBuilder {
-	return &requestBehaviourBuilder{data: data}
-}
-
-func (this *requestBehaviourBuilder) SetWriter(w http.ResponseWriter) RequestBehaviourBuilder {
-	meta.PanicIfTrue(w == nil, "SetWriter: writer cannot be nil")
-	this.data.BindWriter(w)
-	return this
-}
-
-func (this *requestBehaviourBuilder) SetRequest(r *http.Request) RequestBehaviourBuilder {
-	meta.PanicIfTrue(r == nil, "SetRequest: request cannot be nil")
-	this.data.R = r
-	return this
-}
-
-func (this *requestBehaviourBuilder) Upon(event events.EventType, fn events.NetworkingEventHandler) RequestBehaviourBuilder {
-	return this.UponSpecialized(event, HANDLER_MODE_POSTFIX, fn)
-}
-
-func (this *requestBehaviourBuilder) UponSpecialized(event events.EventType, mode HandlerMode, fn events.NetworkingEventHandler) RequestBehaviourBuilder {
-	this.data.Handlers.AddType(event, this.data.Bind(fn), mode)
-	return this
-}
-
-func (this *requestBehaviourBuilder) CodeUpon(event events.EventType, statusCode int) RequestBehaviourBuilder {
-	rb := this.data
-	rb.Handlers.AddType(event, func(events.NetworkingEvent) error {
-		rb.CommitStatus(statusCode)
-		return nil
-	}, HANDLER_MODE_PREFIX)
-	return this
-}
-
 func NewRequestData(w http.ResponseWriter, r *http.Request) *RequestBehaviour {
 	rb := &RequestBehaviour{R: r, Handlers: NewHandlerMap()}
 	rb.BindWriter(w)

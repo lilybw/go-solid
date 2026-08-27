@@ -69,7 +69,7 @@ func (m *HandlerMap) Add[T events.NetworkingEvent](handler func(T) error, mode H
 	}, mode)
 }
 
-func (m *HandlerMap) AddType(key events.EventType, handler Handler, mode HandlerMode) *HandlerMap {
+func (m *HandlerMap) AddType(key events.EventType, handler func(events.NetworkingEvent) error, mode HandlerMode) *HandlerMap {
 	switch {
 	case m == nil:
 		panic("networking: AddType on a nil *HandlerMap")

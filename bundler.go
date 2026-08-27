@@ -97,12 +97,12 @@ type BehaviouralDefaults struct {
 	// These defaults can be modified upon any Bundler#Prepare call by using the method: WithHTMLHeadTags
 	HeadSegment meta.Configurator[networking.HTMLHeadSegmentBuilder] `json:"-"`
 	// Define the default behaviour of the http request handling. These defaults can be modified upon any Bundler#Prepare call by using the method: SetHTTPBehaviour
-	Requests meta.Configurator[networking.RequestBehaviourBuilder] `json:"-"`
+	Requests meta.Configurator[*networking.RequestBehaviourBuilder] `json:"-"`
 }
 
 var NIL_BEHAVIOURAL_DEFAULTS = &BehaviouralDefaults{ // null object
 	HeadSegment: noop.T_o_Void[networking.HTMLHeadSegmentBuilder](),
-	Requests:    noop.T_o_Void[networking.RequestBehaviourBuilder](),
+	Requests:    noop.T_o_Void[*networking.RequestBehaviourBuilder](),
 }
 
 type Bundler struct {

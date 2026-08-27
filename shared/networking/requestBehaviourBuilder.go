@@ -4,23 +4,53 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/lilybw/go-solid/internal/meta"
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
 // RequestBehaviourBuilder configures the handlers for one request.
-type RequestBehaviourBuilder interface {
-	SetWriter(w http.ResponseWriter) RequestBehaviourBuilder
-	SetRequest(r *http.Request) RequestBehaviourBuilder
+type RequestBehaviourBuilder struct {
+	data *RequestBehaviour
+}
 
-	// Upon appends fn to the primary chain for event.
-	Upon(event events.EventType, fn events.NetworkingEventHandler) RequestBehaviourBuilder
+// NewRequestBehaviourBuilder returns a builder carrying no consumer defaults.
+func NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBehaviourBuilder {
+	return &RequestBehaviourBuilder{data: data}
+}
 
-	// UponSpecialized is Upon with an explicit HandlerMode.
-	UponSpecialized(event events.EventType, mode HandlerMode, fn events.NetworkingEventHandler) RequestBehaviourBuilder
+func (this *RequestBehaviourBuilder) Upon[T events.NetworkingEvent](fn events.NetworkingEventHandler[T]) *RequestBehaviourBuilder {
+	return this.UponSpecialized[T](HANDLER_MODE_POSTFIX, fn)
+}
 
-	// CodeUpon commits statusCode as the response status when event fires,
-	// before any other handler in the primary chain runs.
-	CodeUpon(event events.EventType, statusCode int) RequestBehaviourBuilder
+func (this *RequestBehaviourBuilder) UponSpecialized[T events.NetworkingEvent](mode HandlerMode, fn events.NetworkingEventHandler[T]) *RequestBehaviourBuilder {
+	this.data.Handlers.Add[T](this.data.Bind(fn), mode)
+	return this
+}
+
+func (this *RequestBehaviourBuilder) Testing_UponRaw(t events.EventType, mode HandlerMode, fn events.NetworkingEventHandler[events.NetworkingEvent]) *RequestBehaviourBuilder {
+	this.data.Handlers.AddType(t, this.data.Bind(fn), mode)
+	return this
+}
+
+func (this *RequestBehaviourBuilder) SetWriter(w http.ResponseWriter) *RequestBehaviourBuilder {
+	meta.PanicIfTrue(w == nil, "SetWriter: writer cannot be nil")
+	this.data.BindWriter(w)
+	return this
+}
+
+func (this *RequestBehaviourBuilder) SetRequest(r *http.Request) *RequestBehaviourBuilder {
+	meta.PanicIfTrue(r == nil, "SetRequest: request cannot be nil")
+	this.data.R = r
+	return this
+}
+
+func (this *RequestBehaviourBuilder) CodeUpon[T events.NetworkingEvent](statusCode int) *RequestBehaviourBuilder {
+	rb := this.data
+	rb.Handlers.Add[T](func(T) error {
+		rb.CommitStatus(statusCode)
+		return nil
+	}, HANDLER_MODE_PREFIX)
+	return this
 }
 
 type RequestBehaviour struct {
@@ -49,8 +79,8 @@ func (this *RequestBehaviour) BindWriter(w http.ResponseWriter) {
 	this.W = Synchronized(w)
 }
 
-func (this *RequestBehaviour) Bind(fn events.NetworkingEventHandler) Handler {
-	return func(event events.NetworkingEvent) error {
+func (this *RequestBehaviour) Bind[T events.NetworkingEvent](fn events.NetworkingEventHandler[T]) func(T) error {
+	return func(event T) error {
 		return fn(this.W, this.R, event)
 	}
 }

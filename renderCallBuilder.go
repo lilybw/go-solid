@@ -21,7 +21,7 @@ type RenderCallBuilder interface {
 	// Includes basic http request handling, status codes and error handling. To
 	// customize the behaviour, use SetHTTPBehaviour(configurator).
 	ForRequest(w http.ResponseWriter, r *http.Request) RenderCallBuilder
-	SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder
+	SetHTTPBehaviour(fn meta.Configurator[*networking.RequestBehaviourBuilder]) RenderCallBuilder
 
 	Render() (*caching.Rendered, error)
 }
@@ -42,10 +42,10 @@ func newRenderCallBuilder(bundler *Bundler, componentName meta.QualifiedName, pr
 type renderCallBuilderImpl struct {
 	bundler   *Bundler
 	data      *renderData
-	behaviour networking.RequestBehaviourBuilder
+	behaviour *networking.RequestBehaviourBuilder
 }
 
-func (this *renderCallBuilderImpl) behaviourBuilder() networking.RequestBehaviourBuilder {
+func (this *renderCallBuilderImpl) behaviourBuilder() *networking.RequestBehaviourBuilder {
 	if this.behaviour == nil {
 		if this.data.request == nil {
 			this.data.request = networking_int.NewRequestData(nil, nil)
@@ -55,7 +55,7 @@ func (this *renderCallBuilderImpl) behaviourBuilder() networking.RequestBehaviou
 	return this.behaviour
 }
 
-func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[networking.RequestBehaviourBuilder]) RenderCallBuilder {
+func (this *renderCallBuilderImpl) SetHTTPBehaviour(fn meta.Configurator[*networking.RequestBehaviourBuilder]) RenderCallBuilder {
 	fn(this.behaviourBuilder())
 	return this
 }

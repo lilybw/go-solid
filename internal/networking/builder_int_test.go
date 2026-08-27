@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	shared "github.com/lilybw/go-solid/shared/networking"
+	. "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/networking/events"
 )
 
@@ -26,7 +26,7 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	NewRequestBehaviourBuilder(data).
 		SetWriter(rec).
 		SetRequest(req).
-		Upon(events.EVENTS.PropsMarshalingFailure, func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+		Upon(func(http.ResponseWriter, *http.Request, events.PropsMarshalingFailureEvent) error {
 			order = append(order, 1)
 			return nil
 		})
@@ -35,7 +35,7 @@ func TestBuilderUponAndTypedAddDispatchTogether(t *testing.T) {
 	data.Handlers.Add(func(PMF) error {
 		order = append(order, 2)
 		return nil
-	}, shared.HANDLER_MODE_POSTFIX)
+	}, HANDLER_MODE_POSTFIX)
 
 	// One slot per concrete event type (the default responders); the handlers
 	// above land in the existing PropsMarshalingFailure slot, not a new one.
@@ -64,7 +64,7 @@ func TestCodeUpon(t *testing.T) {
 	data := NewRequestData(rec, req)
 
 	NewRequestBehaviourBuilder(data).
-		CodeUpon(events.EVENTS.RegistryLookupFailure, http.StatusBadGateway)
+		CodeUpon[events.RegistryLookupFailureEvent](http.StatusBadGateway)
 
 	if err := data.Dispatch(events.NewRegistryLookupFailure(errors.New("nope"))); err != nil {
 		t.Fatalf("dispatch err: %v", err)
@@ -85,7 +85,7 @@ func TestCategoryBucketHandlerRunsForEveryFailure(t *testing.T) {
 	data.Handlers.Add(func(events.FailureEvent) error {
 		seen++
 		return nil
-	}, shared.HANDLER_MODE_POSTFIX)
+	}, HANDLER_MODE_POSTFIX)
 
 	for _, ev := range []events.NetworkingEvent{
 		events.NewPropsMarshalingFailure(errors.New("a")),

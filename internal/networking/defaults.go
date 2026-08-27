@@ -11,13 +11,13 @@ import (
 type Defaults struct {
 	mu       sync.RWMutex
 	head     *htmlHeadSegmentBuilder
-	requests meta.Configurator[RequestBehaviourBuilder]
+	requests meta.Configurator[*RequestBehaviourBuilder]
 }
 
 func NewDefaults() *Defaults {
 	return &Defaults{
 		head:     newHeadSegmentBuilder(),
-		requests: noop.T_o_Void[RequestBehaviourBuilder](),
+		requests: noop.T_o_Void[*RequestBehaviourBuilder](),
 	}
 }
 
@@ -33,7 +33,7 @@ func (d *Defaults) SetHTMLHeadSegment(fn meta.Configurator[HTMLHeadSegmentBuilde
 	d.mu.Unlock()
 }
 
-func (d *Defaults) SetRequestBehaviour(fn meta.Configurator[RequestBehaviourBuilder]) {
+func (d *Defaults) SetRequestBehaviour(fn meta.Configurator[*RequestBehaviourBuilder]) {
 	if d == nil || fn == nil {
 		return
 	}
@@ -52,7 +52,7 @@ func (d *Defaults) NewHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
 	return d.head.clone()
 }
 
-func (d *Defaults) NewRequestBehaviourBuilder(data *RequestBehaviour) RequestBehaviourBuilder {
+func (d *Defaults) NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBehaviourBuilder {
 	instance := NewRequestBehaviourBuilder(data)
 	if d == nil {
 		return instance

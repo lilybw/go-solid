@@ -34,7 +34,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -440,10 +439,9 @@ func TestBrokenContractDispatchesADevelopmentFailureEvent(t *testing.T) {
 
 	_, err := b.Prepare("pages/Dashboard", incomplete{Title: "Inbox"}).
 		ForRequest(rec, req).
-		SetHTTPBehaviour(func(behaviour networking.RequestBehaviourBuilder) {
+		SetHTTPBehaviour(func(behaviour *networking.RequestBehaviourBuilder) {
 			behaviour.Upon(
-				reflect.TypeFor[events.CompPropsInsufficientFailureEvent](),
-				func(http.ResponseWriter, *http.Request, events.NetworkingEvent) error {
+				func(http.ResponseWriter, *http.Request, events.CompPropsInsufficientFailureEvent) error {
 					caught = events.CompPropsInsufficientFailureEvent{}
 					return nil
 				},
