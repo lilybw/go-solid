@@ -199,7 +199,7 @@ func (bundler *Bundler) bundleComponent(
 	// watcher inverts it to decide which tabs to reload.
 	bundler.index.Record(data.component, bundle.Sources)
 
-	safeName := strings.ReplaceAll(data.component, "/", "_")
+	safeName := caching.SafeStem(data.component)
 	artifact := &caching.Rendered{
 		JS:     string(bundle.JS),
 		CSS:    string(bundle.CSS),

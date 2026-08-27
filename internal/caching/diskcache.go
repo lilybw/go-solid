@@ -94,16 +94,8 @@ func (dc *DiskCache) Directory() meta.AbsoluteDirectoryPath { return dc.director
 
 // entryStem is the human-readable base filename for an entry.
 func entryStem(key *CacheKey) string {
-	safe := func(s string) string {
-		s = strings.ReplaceAll(s, "/", "_")
-		s = strings.ReplaceAll(s, string(filepath.Separator), "_")
-		return s
-	}
 	short := key.String()
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return fmt.Sprintf("%s__%s", safe(key.Component), short)
+	return fmt.Sprintf("%s__%s", SafeStem(key.Component), short[:min(12, len(short))])
 }
 
 // Get returns a cached Rendered if a valid entry exists for key. Validity means

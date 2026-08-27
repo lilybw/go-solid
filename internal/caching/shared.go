@@ -1,6 +1,7 @@
 package caching
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/lilybw/go-solid/shared/meta"
@@ -21,4 +22,8 @@ const CACHE_DIR_NAME = "component_cache"
 // component file: the file itself, or an export selected out of it.
 func componentIsInFile(component, file meta.QualifiedName) bool {
 	return component == file || strings.HasPrefix(component, file+meta.EXPORT_SELECTOR)
+}
+
+func SafeStem(component meta.QualifiedName) string {
+	return strings.NewReplacer("/", "_", string(filepath.Separator), "_").Replace(component)
 }

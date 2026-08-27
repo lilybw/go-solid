@@ -1,12 +1,11 @@
 package types
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lilybw/go-solid/internal/hashing"
 	io_int "github.com/lilybw/go-solid/internal/io"
 	"github.com/lilybw/go-solid/shared/meta"
 )
@@ -57,22 +57,7 @@ func stampOf(path meta.AbsoluteFilePath) (stamp, error) {
 	return stamp{modTime: info.ModTime(), size: info.Size()}, nil
 }
 
-func digestOf(path meta.AbsoluteFilePath) (string, bool) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	sum := sha256.Sum256(raw)
-	return "sha256:" + hex.EncodeToString(sum[:]), true
-}
-
 // Cache holds extracted props shapes in memory and on disk.
-//
-// The two layers validate differently, on purpose. The memory layer compares
-// each source's size and modification time: a stat is cheap enough to do on
-// every render and catches an edit without waiting for HMR to say so. The disk
-// layer compares content digests, which survive a restart, a fresh checkout, or
-// a filesystem whose timestamps lie.
 type Cache struct {
 	root meta.AbsoluteDirectoryPath
 	mu   sync.Mutex
@@ -171,15 +156,10 @@ func (c *Cache) read(component meta.QualifiedName) (Extraction, bool) {
 		return Extraction{}, false
 	}
 
-	sources := make([]meta.AbsoluteFilePath, 0, len(stored.Sources))
-	for path, recorded := range stored.Sources {
-		digest, ok := digestOf(path)
-		if !ok || digest != recorded {
-			return Extraction{}, false
-		}
-		sources = append(sources, path)
+	if !hashing.Holds(stored.Sources) {
+		return Extraction{}, false
 	}
-	slices.Sort(sources)
+	sources := slices.Sorted(maps.Keys(stored.Sources))
 
 	return Extraction{
 		Shape:        NewShape(stored.Fields),
@@ -192,13 +172,9 @@ func (c *Cache) read(component meta.QualifiedName) (Extraction, bool) {
 }
 
 func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error {
-	sources := make(map[string]string, len(extraction.Sources))
-	for _, source := range extraction.Sources {
-		digest, ok := digestOf(source)
-		if !ok {
-			return fmt.Errorf("go_solid/types: cannot digest %q", source)
-		}
-		sources[source] = digest
+	sources, undigestible, ok := hashing.Record(extraction.Sources)
+	if !ok {
+		return fmt.Errorf("go_solid/types: cannot digest %q", undigestible)
 	}
 
 	raw, err := encodeEntry(entry{
@@ -214,15 +190,7 @@ func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error
 		return fmt.Errorf("go_solid/types: encode entry for %q: %w", component, err)
 	}
 
-	path := c.Path(component)
-	if current, err := os.ReadFile(path); err == nil && slices.Equal(current, raw) {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("go_solid/types: create %q: %w", filepath.Dir(path), err)
-	}
-
-	if err := io_int.WriteAtomicMode(path, raw, 0o644); err != nil {
+	if _, err := io_int.WriteIfChanged(c.Path(component), raw, 0o644); err != nil {
 		return fmt.Errorf("go_solid/types: publish entry for %q: %w", component, err)
 	}
 	return nil
