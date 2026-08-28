@@ -3,6 +3,7 @@ package static
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	io_int "github.com/lilybw/go-solid/internal/io"
 	watching_int "github.com/lilybw/go-solid/internal/watching"
+	"github.com/lilybw/go-solid/shared/compat"
 	"github.com/lilybw/go-solid/shared/meta"
 	. "github.com/lilybw/go-solid/shared/static"
 	"github.com/lilybw/go-solid/shared/watching"
@@ -122,8 +124,15 @@ func NewStaticRegistry(
 	}
 
 	// The same accessor the manifest built its URLs from, so the pattern the
-	// endpoint is registered under is the prefix those URLs carry.
-	cfg.Mux.Handle(cfg.EffectiveMountPath(), reg.Handler())
+	// endpoint is registered under is the prefix those URLs carry. Normalize
+	// resolves how this particular router registers a subtree, which is not
+	// something every router spells the way ServeMux does.
+	mux := compat.Normalize(cfg.Mux)
+	mux.Handle(cfg.EffectiveMountPath(), reg.Handler())
+
+	if err := verifyMount(cfg, mux, reg.Manifest()); err != nil {
+		return nil, err
+	}
 
 	if cfg.Reactive {
 		if err := reg.watch(); err != nil {
@@ -131,6 +140,100 @@ func NewStaticRegistry(
 		}
 	}
 	return reg, nil
+}
+
+// verifyMount asks the consumer's router for an asset that was just published.
+//
+// The mount is a URL prefix — every asset is served from below it — but the
+// registration is one pattern, so a router that matches it exactly rather than
+// as a subtree accepts the registration and then 404s every asset. Asking once
+// at boot makes that an error here instead of a broken page later.
+func verifyMount(cfg *StaticConfig, mux compat.MuxLike, manifest *Manifest) error {
+	router, addressable := servable(mux)
+	if !addressable || manifest == nil || len(manifest.ByURL) == 0 {
+		return nil // nothing to ask for, or nobody to ask
+	}
+
+	canary := ""
+	for candidate := range manifest.ByURL {
+		if canary == "" || candidate < canary {
+			canary = candidate // lowest key, so the probe is deterministic
+		}
+	}
+
+	request := &http.Request{
+		Method:     http.MethodHead,
+		URL:        &url.URL{Path: canary},
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     http.Header{PROBE_HEADER: []string{"1"}},
+		Host:       "localhost",
+		RemoteAddr: "127.0.0.1:0",
+		RequestURI: canary,
+	}
+
+	probe := &statusProbe{status: http.StatusOK, header: http.Header{}}
+	if inconclusive := func() (panicked bool) {
+		// Consumer middleware sits on this path and may not tolerate a request
+		// that never came off a socket. That says nothing about the mount.
+		defer func() { panicked = recover() != nil }()
+		router.ServeHTTP(probe, request)
+		return false
+	}(); inconclusive || probe.status != http.StatusNotFound {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"go_solid/static: mounted the asset endpoint at %q with %s, but the supplied Mux "+
+			"answered 404 for %q.\n\tThe mount is a prefix and has to match as a subtree. If this "+
+			"router spells that some other way, register it yourself:\n"+
+			"\t\tcfg.Mux = compat.MuxLikeFromFunc(func(p string, h http.Handler) { ... })",
+		cfg.EffectiveMountPath(), strategyOf(mux), canary)
+}
+
+// servable resolves the thing that answers requests, whether the config holds
+// it directly or an adapter stands in front of it.
+func servable(mux compat.MuxLike) (http.Handler, bool) {
+	if handler, ok := mux.(http.Handler); ok {
+		return handler, true
+	}
+	if adapter, ok := mux.(compat.Servable); ok {
+		handler := adapter.Servable()
+		return handler, handler != nil
+	}
+	return nil, false
+}
+
+func strategyOf(mux compat.MuxLike) compat.Strategy {
+	if described, ok := mux.(compat.Described); ok {
+		return described.Strategy()
+	}
+	return compat.STRATEGY_HANDLE
+}
+
+// PROBE_HEADER marks the boot-time mount check, so middleware that must not run
+// for it can tell it apart from a real request.
+const PROBE_HEADER = "X-Go-Solid-Mount-Probe"
+
+// statusProbe is a ResponseWriter that keeps the status and drops the body.
+type statusProbe struct {
+	header  http.Header
+	status  int
+	written bool
+}
+
+func (this *statusProbe) Header() http.Header { return this.header }
+
+func (this *statusProbe) Write(body []byte) (int, error) {
+	this.WriteHeader(http.StatusOK)
+	return len(body), nil
+}
+
+func (this *statusProbe) WriteHeader(status int) {
+	if !this.written {
+		this.status, this.written = status, true
+	}
 }
 
 type disabledStaticRegistry struct {
@@ -259,7 +362,7 @@ func (this *enabledStaticRegistry) Handler() http.Handler {
 		manifest := this.manifest
 		this.mu.RUnlock()
 
-		asset, ok := manifest.ByURL[r.URL.Path]
+		asset, ok := manifest.Resolve(r.URL.Path)
 		if !ok {
 			http.NotFound(w, r)
 			return

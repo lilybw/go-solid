@@ -89,6 +89,26 @@ func BuildManifest(cfg *StaticConfig) (*Manifest, error) {
 	return m, nil
 }
 
+// Resolve finds the asset a request path names.
+//
+// Normally that is the path itself. A router that strips the mount before
+// calling the handler — which is what some Mount implementations do — leaves
+// only what is below it, so that is tried against the mount as well. Both are
+// exact lookups in the manifest, which stays the closed set either way.
+func (m *Manifest) Resolve(path string) (*Asset, bool) {
+	if m == nil {
+		return nil, false
+	}
+	if asset, ok := m.ByURL[path]; ok {
+		return asset, true
+	}
+	if strings.HasPrefix(path, m.MountPath) {
+		return nil, false
+	}
+	asset, ok := m.ByURL[m.MountPath+strings.TrimPrefix(path, "/")]
+	return asset, ok
+}
+
 func (m *Manifest) Lookup(file meta.RelativeFilePath) (*Asset, bool) {
 	if m == nil {
 		return nil, false
