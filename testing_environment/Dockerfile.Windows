@@ -2,10 +2,20 @@ FROM golang:1.27-windowsservercore-ltsc2025
 
 WORKDIR /go-solid
 
-# Make sure to update and maintain .dockerignore
-# Alsdo build ctx is set to go-solid dir in docker-compose
-COPY . . 
-# compile-check at build time
-RUN go build ./...          
-# tests run at container start
-CMD ["go", "test", "./..."] 
+# Build ctx is set to the go-solid dir in docker-compose
+COPY . .
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop';"]
+
+# Compile-check at build time, the library and every scenario module. See
+# Dockerfile.Unix on the tidy.
+RUN go build ./...; \
+	foreach ($manifest in Get-ChildItem "testing_environment/scenarios/*/go.mod") { \
+		Push-Location $manifest.Directory; \
+		go mod tidy; if ($LASTEXITCODE -ne 0) { exit 1 }; \
+		go build ./...; if ($LASTEXITCODE -ne 0) { exit 1 }; \
+		Pop-Location \
+	}
+
+# Tests run at container start; capture output, never fail the container
+CMD ["powershell", "-Command", "testing_environment/test-all.ps1 *> C:/logs/test-log.txt"]

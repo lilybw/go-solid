@@ -1,3 +1,17 @@
+// Package shim_f is a scenario about mounting the asset endpoint on a router
+// that is not *http.ServeMux.
+//
+// It is a report reduced to a test: a consumer whose gorilla/mux router
+// answered 404 for every asset, though the mirror was built, the URLs carried
+// the right prefix and the endpoint was registered without error. What follows
+// in this file is the consumer code the scenario was cut from, kept verbatim so
+// the fixture can be checked against the thing it stands for.
+//
+// # Its own module
+//
+// gorilla/mux is a dependency of this scenario and not of go-solid. A router
+// the library must work with is not a router the library may require, so the
+// scenario carries a go.mod and the library's graph never sees it.
 package shim_f
 
 /*

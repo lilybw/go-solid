@@ -2,13 +2,19 @@ FROM golang:1.27-alpine3.24
 
 WORKDIR /go-solid
 
-# Make sure to update and maintain .dockerignore
-# Alsdo build ctx is set to go-solid dir in docker-compose
+# Build ctx is set to the go-solid dir in docker-compose
 COPY . . 
 
-COPY package.json .
+# Compile-check at build time, the library and every scenario module.
+#
+# The tidy resolves each scenario's own dependencies, which the library's go.mod
+# deliberately does not carry. Swap it for `go mod download` once every scenario
+# ships a go.sum.
+RUN go build ./... && \
+	for manifest in testing_environment/scenarios/*/go.mod; do \
+		[ -f "$manifest" ] || continue; \
+		(cd "$(dirname "$manifest")" && go mod tidy && go build ./...) || exit 1; \
+	done
 
-# compile-check at build time
-RUN ["go", "build", "./..." ]         
-# tests run at container start# tests run at container start; capture output, never fail the container
-CMD go test ./... > /logs/test-log.txt 2>&1; echo "exit: $?" >> /logs/test-log.txt
+# Tests run at container start; capture output, never fail the container
+CMD sh testing_environment/test-all.sh > /logs/test-log.txt 2>&1

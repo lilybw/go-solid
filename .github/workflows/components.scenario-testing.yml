@@ -1,10 +1,15 @@
 name: Scenario Tests
 
 # End-to-end "scenario" tests live under testing_environment/scenarios/<name>/.
-# Each scenario is a package in the root module that drives go-solid through its
-# public API (New / Prepare / ForRequest / Render) against real SolidJS
-# components, exercising the full registry -> esbuild -> node transform ->
-# HTML pipeline.
+# Each scenario drives go-solid through its public API (New / Prepare /
+# ForRequest / Render) against real SolidJS components, exercising the full
+# registry -> esbuild -> node transform -> HTML pipeline.
+#
+# Each scenario is its own module, with a go.mod replacing the library with the
+# working tree. Nested modules are excluded from the root module's package
+# patterns, so a scenario's dependencies never enter the library's — and a
+# scenario is free to require a router, a framework or anything else it needs to
+# prove go-solid works with it.
 #
 # This workflow discovers every scenario dynamically and runs each one on both
 # Ubuntu and Windows. Every {scenario x os} pairing is its own matrix job, so
@@ -47,8 +52,8 @@ jobs:
           names=()
           if [ -d "$root" ]; then
             while IFS= read -r d; do
-              # a scenario is any immediate subdir containing *_test.go
-              if ls "$d"/*_test.go >/dev/null 2>&1; then
+              # a scenario is any immediate subdir that is a module with tests
+              if [ -f "$d/go.mod" ] && ls "$d"/*_test.go >/dev/null 2>&1; then
                 names+=("$(basename "$d")")
               fi
             done < <(find "$root" -mindepth 1 -maxdepth 1 -type d | sort)
@@ -92,7 +97,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go-version }}
-          cache-dependency-path: go.sum
+          cache-dependency-path: |
+            go.sum
+            testing_environment/scenarios/*/go.sum
 
       - uses: actions/setup-node@v4
         with:
@@ -118,6 +125,20 @@ jobs:
             echo "no testdata/frontend/package.json for scenario '${{ matrix.scenario }}'; the test will self-provision if needed"
           fi
 
+      # The scenario is its own module, so everything below runs inside it and
+      # nothing resolves against the root. The tidy is for a scenario that does
+      # not ship a go.sum yet; drop it once every module has one.
+      - name: Resolve scenario dependencies
+        shell: bash
+        working-directory: testing_environment/scenarios/${{ matrix.scenario }}
+        run: go mod tidy
+
+      - name: go vet
+        shell: bash
+        working-directory: testing_environment/scenarios/${{ matrix.scenario }}
+        run: go vet ./...
+
       - name: Run scenario
         shell: bash
-        run: go test -v ./testing_environment/scenarios/${{ matrix.scenario }}/...
+        working-directory: testing_environment/scenarios/${{ matrix.scenario }}
+        run: go test -v ./...
