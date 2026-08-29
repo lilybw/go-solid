@@ -37,3 +37,4 @@ rasterize.ps1
 *.diff
 *.patch
 **/.go_solid
+notes.md

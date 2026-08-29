@@ -34,6 +34,9 @@ const jsTemplateText = `
 
 	const root = document.getElementById({{.CompMountId}});
 	if (root) {
+		// Server markup is a first paint, not a hydration target: render
+		// appends, so anything already there has to go first.
+		root.replaceChildren();
 		render(() => Component(readProps()), root);
 	} else {
 		console.error("go_solid: Component " + {{.CompName}} + " could not mount: no element with id " + {{.CompMountId}} + " found in the HTML shell.");
@@ -50,7 +53,7 @@ const htmlTemplateText = `
 		{{- end}}
 	</head>
 	<body>
-		<div id="{{.MountRootID}}"></div>
+		<div id="{{.MountRootID}}">{{.SSR}}</div>
 		<script id="{{.PropsMountID}}" type="application/json">{{.PropsJSON}}</script>
 		<script type="module">{{.JS}}</script>
 		{{- if .HMRScript}}
@@ -79,6 +82,7 @@ type htmlTemplateData struct {
 	PropsJSON    string
 	JS           string
 	HMRScript    string // "" when HMR inactive; injected reload client otherwise
+	SSR          string // "" when server rendering is off or the component needs the client
 }
 
 // GenerateEntry emits the module that mounts one component.
@@ -114,8 +118,9 @@ func GenerateEntry(comp *registry.Component) (string, error) {
 }
 
 // AssembleHTML builds the self-contained document. hmrScript is the injected
-// hot-reload client
-func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID, hmrScript string) string {
+// hot-reload client; ssrHTML is the server-rendered first paint, empty when
+// there is none.
+func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON string, rendered *caching.Rendered, mountRootID, hmrScript, ssrHTML string) string {
 	styles := ""
 	if rendered.CSS != "" {
 		styles = "<style>" + rendered.CSS + "</style>"
@@ -129,6 +134,7 @@ func AssembleHTML(headSegment networking.HTMLHeadSegmentBuilder, propsJSON strin
 		PropsJSON:    inlineJSON(propsJSON),
 		JS:           inlineJS(rendered.JS),
 		HMRScript:    hmrScript,
+		SSR:          ssrHTML,
 	}
 
 	var b strings.Builder

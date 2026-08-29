@@ -15,6 +15,7 @@ import (
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/noop"
 	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
+	ssr_int "github.com/lilybw/go-solid/internal/ssr"
 	static_int "github.com/lilybw/go-solid/internal/static"
 	types_int "github.com/lilybw/go-solid/internal/types"
 	"github.com/lilybw/go-solid/shared/esbuild"
@@ -24,6 +25,7 @@ import (
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/rasterization"
 	reg_shr "github.com/lilybw/go-solid/shared/registry"
+	"github.com/lilybw/go-solid/shared/ssr"
 	"github.com/lilybw/go-solid/shared/static"
 	"github.com/lilybw/go-solid/shared/types"
 )
@@ -85,6 +87,14 @@ type Config struct {
 	//	const config = await S.load(S.data.config);
 	Static *static.StaticConfig
 
+	// SSR enables server-side rendering of the markup go_solid can derive
+	// from props alone. No JavaScript runs on the server: a component whose
+	// markup depends on signals or stores falls back to client rendering,
+	// or fails at Prepare when SSR.Strict is set.
+	//
+	// Enabled by default; set SSR.Disabled to opt out.
+	SSR *ssr.SSRConfig
+
 	// HMR enables hot browser reload in development. When non-nil and not
 	// Disabled, go_solid watches the components tree and pushes reloads to the
 	// tabs viewing an affected template. Requires HMR.Mux so go_solid can mount
@@ -120,6 +130,7 @@ type Bundler struct {
 	hub      *hmr_int.Hub
 	watcher  *hmr_int.Watcher
 	types    *types_int.Checker
+	ssr      *ssr_int.Renderer
 }
 
 func New(cfg *Config) (*Bundler, error) {
@@ -163,10 +174,13 @@ func New(cfg *Config) (*Bundler, error) {
 		return nil, err
 	}
 
+	renderer := ssr_int.NewRenderer(cfg.SSR)
+
 	invalidateComponent := func(name meta.QualifiedName) {
 		disk.InvalidateComponent(name)
 		mem.InvalidateComponent(name)
 		typeChecker.Invalidate(name)
+		renderer.Invalidate(name)
 	}
 
 	invalidateComponentFile := func(file meta.QualifiedName) {
@@ -233,6 +247,7 @@ func New(cfg *Config) (*Bundler, error) {
 		static:   static,
 		defaults: defaults,
 		types:    typeChecker,
+		ssr:      renderer,
 	}
 
 	if err := bundler.types.OnBoot(registry.Map(func(_ meta.QualifiedName, comp *reg_shr.Component) *reg_shr.Component { return comp })); err != nil {
@@ -371,6 +386,9 @@ func configValidationAndNormalization(cfg *Config) error {
 
 	if cfg.HMR == nil {
 		cfg.HMR = meta.Copy(hmr.NIL_HMR_CONFIG)
+	}
+	if cfg.SSR == nil {
+		cfg.SSR = meta.Copy(ssr.NIL_SSR_CONFIG)
 	}
 	if cfg.Static == nil {
 		cfg.Static = meta.Copy(static.NIL_STATIC_CONFIG)

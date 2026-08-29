@@ -312,7 +312,7 @@ func TestAssembleHTML_EscapesScriptCloseInAnyCase(t *testing.T) {
 
 	for _, literal := range []string{"</script>", "</SCRIPT>", "</Script>", "</ScRiPt >"} {
 		js := `const s = "` + literal + `";`
-		html := code_gen.AssembleHTML(head, "{}", &caching.Rendered{JS: js}, "root", "")
+		html := code_gen.AssembleHTML(head, "{}", &caching.Rendered{JS: js}, "root", "", "")
 
 		if got := strings.Count(strings.ToLower(html), "</script"); got != ownCloses {
 			t.Errorf("%q leaked a script close: found %d, want %d\n%s", literal, got, ownCloses, html)
@@ -328,7 +328,7 @@ func TestAssembleHTML_EscapesScriptCloseInAnyCase(t *testing.T) {
 func TestAssembleHTML_ScriptEscapePreservesCasing(t *testing.T) {
 	head := networking_int.NewHTMLHeadSegmentBuilder().DeterministicOutput()
 	html := code_gen.AssembleHTML(head, "{}",
-		&caching.Rendered{JS: `const s = "</SCRIPT>";`}, "root", "")
+		&caching.Rendered{JS: `const s = "</SCRIPT>";`}, "root", "", "")
 
 	if !strings.Contains(html, `<\/SCRIPT>`) {
 		t.Errorf("escaping changed the literal's casing:\n%s", html)
@@ -340,7 +340,7 @@ func TestAssembleHTML_ScriptEscapePreservesCasing(t *testing.T) {
 func TestAssembleHTML_PropsCannotEscapeTheDataIsland(t *testing.T) {
 	head := networking_int.NewHTMLHeadSegmentBuilder().DeterministicOutput()
 	props := `{"bio":"</script><img src=x onerror=alert(1)>"}`
-	html := code_gen.AssembleHTML(head, props, &caching.Rendered{JS: ""}, "root", "")
+	html := code_gen.AssembleHTML(head, props, &caching.Rendered{JS: ""}, "root", "", "")
 
 	if strings.Contains(html, "</script><img") {
 		t.Errorf("props escaped the data island:\n%s", html)

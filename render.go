@@ -27,11 +27,20 @@ func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCall
 }
 
 func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
-	if this == nil || this.types == nil || props == nil {
+	if this == nil {
 		return nil
 	}
 	comp, ok := this.registry.Lookup(component)
 	if !ok {
+		return nil
+	}
+	// Renderability is checked whether or not props were supplied: a component
+	// that cannot be server-rendered is worth reporting before the request is
+	// served, not after.
+	if err := this.ssr.OnPrepare(comp); err != nil {
+		return err
+	}
+	if this.types == nil || props == nil {
 		return nil
 	}
 	return this.types.OnPrepare(comp, props)
@@ -66,7 +75,7 @@ func (this *renderData) emitEvent[T events.NetworkingEvent](err error, event T) 
 	if this.request == nil {
 		return err
 	}
-	dispatchErr := this.request.Dispatch[T](event)
+	dispatchErr := this.request.Dispatch(event)
 	if dispatchErr == nil {
 		return err
 	}
@@ -100,7 +109,7 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 
 	// Assemble a request-local response. Never mutate the cached artifact:
 	// HTML carries props/root/HMR, which vary per call.
-	resp := assembleResponse(bundler, data, artifact, propsJSON)
+	resp := assembleResponse(bundler, data, artifact, propsJSON, bundler.serverMarkup(data, propsJSON))
 	if err := data.ifRequest(func(req *networking.RequestBehaviour) error {
 		return req.Dispatch(events.NewTransmitRenderedTemplate(resp))
 	}); err != nil {
@@ -213,7 +222,7 @@ func (bundler *Bundler) bundleComponent(
 
 func assembleResponse(
 	bundler *Bundler, data *renderData,
-	artifact *caching.Rendered, propsJSON string,
+	artifact *caching.Rendered, propsJSON, ssrHTML string,
 ) *caching.Rendered {
 	resp := *artifact // copy JS/CSS/JSName/CSSName by value
 	resp.HTML = code_gen.AssembleHTML(
@@ -222,6 +231,48 @@ func assembleResponse(
 		&resp,
 		data.root,
 		bundler.constructHMRScript(data.component),
+		ssrHTML,
 	)
 	return &resp
+}
+
+// serverMarkup renders the component's first paint, or returns empty when
+// server rendering is off or the component needs the client.
+//
+// A component that cannot be rendered is not an error here: Strict already
+// turned it into one at Prepare, and without Strict falling back to an empty
+// mount point is the intended behaviour.
+func (bundler *Bundler) serverMarkup(data *renderData, propsJSON string) string {
+	if !bundler.ssr.Active() {
+		return ""
+	}
+	comp, ok := bundler.registry.Lookup(data.component)
+	if !ok {
+		return ""
+	}
+	props, err := propsMap(propsJSON)
+	if err == nil {
+		var markup string
+		if markup, err = bundler.ssr.Markup(comp, props); err == nil {
+			return markup
+		}
+	}
+	log_int.Log(logging.LEVEL_DEBUG, fmt.Sprintf(
+		"[go_solid/ssr] %q served without server markup: %v", data.component, err))
+	return ""
+}
+
+// propsMap re-reads the props island so that slots can be filled from it.
+//
+// The marshalled form is the one the client receives, so rendering from it is
+// what keeps the two paints agreeing.
+func propsMap(propsJSON string) (map[string]any, error) {
+	out := map[string]any{}
+	if propsJSON == "" || propsJSON == "{}" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(propsJSON), &out); err != nil {
+		return nil, fmt.Errorf("go_solid: re-reading props for server rendering: %w", err)
+	}
+	return out, nil
 }
