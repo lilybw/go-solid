@@ -116,7 +116,7 @@ func TestRenderRefusesRedProgram(t *testing.T) {
 }
 
 func TestDisabledRendererIsInert(t *testing.T) {
-	r := NewRenderer(nil)
+	r := NewRenderer(nil, nil)
 	if r.Active() {
 		t.Error("a nil config should leave server rendering off")
 	}

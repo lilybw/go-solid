@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"fmt"
+	"reflect"
 	"strings"
 
 	caching "github.com/lilybw/go-solid/internal/caching"
@@ -22,8 +23,7 @@ import (
 
 // TODO: expand props to varparam, construct props js object from safe-made reflect.Type and let an interface be implemented to enable a props property key overwrite
 func (this *Bundler) Prepare(component meta.QualifiedName, props any) RenderCallBuilder {
-	typeError := this.checkTypes(component, props)
-	return newRenderCallBuilder(this, component, props, typeError)
+	return newRenderCallBuilder(this, component, props, renderFaults{types: this.checkTypes(component, props)})
 }
 
 func (this *Bundler) checkTypes(component meta.QualifiedName, props any) error {
@@ -54,6 +54,13 @@ func (this *Bundler) Render(component meta.QualifiedName, configurator meta.Conf
 	return builder.Render()
 }
 
+// renderFaults are the faults found before a render begins. Each is held until
+// Render, where it fails the call and dispatches the event that describes it.
+type renderFaults struct {
+	types  error // the props were not assignable to the component's declared type
+	source error // an inline component could not be turned into a module
+}
+
 type renderData struct {
 	ctx          context.Context
 	component    meta.QualifiedName
@@ -61,7 +68,7 @@ type renderData struct {
 	root         networking.HTMLElementID
 	htmlHeadTags networking.HTMLHeadSegmentBuilder
 	request      *networking.RequestBehaviour
-	typeError    error // if non-nil, the props were not assignable to the component's declared types
+	faults       renderFaults
 }
 
 func (this *renderData) ifRequest(fn func(r *networking.RequestBehaviour) error) error {
@@ -93,23 +100,36 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 		return nil, err // caller already cancelled / deadline exceeded
 	}
 
-	if data.typeError != nil { // type check error can not be resolved before now without cluttering the render call builder api
-		return nil, data.emitEvent(data.typeError, events.NewCompPropsInsufficientFailure(data.typeError))
+	// Neither fault can be reported before now without cluttering the render
+	// call builder api.
+	if err := data.faults.source; err != nil {
+		return nil, data.emitEvent(err, events.NewAnonymousSourceFailure(err))
+	}
+	if err := data.faults.types; err != nil {
+		return nil, data.emitEvent(err, events.NewCompPropsInsufficientFailure(err))
 	}
 
-	propsJSON, err := marshalProps(data)
+	propsJSON, err := marshalProps(&data.props)
 	if err != nil {
 		return nil, data.emitEvent(err, events.NewPropsMarshalingFailure(err))
 	}
 
-	artifact, err := bundler.compiledArtifact(data)
+	artifact, err := bundler.compiledArtifact(data, propsJSON)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[go-solid]: Error during artifact compilation: %s", err.Error())
+	}
+
+	if err := data.execMiddleware(artifact); err != nil {
+		return nil, fmt.Errorf("[go-solid]: Error during execution of middleware: %s", err.Error())
 	}
 
 	// Assemble a request-local response. Never mutate the cached artifact:
 	// HTML carries props/root/HMR, which vary per call.
-	resp := assembleResponse(bundler, data, artifact, propsJSON, bundler.serverMarkup(data, propsJSON))
+	resp, err := assembleResponse(bundler, data, artifact, "" /*SSR DISABLED*/)
+	if err != nil {
+		return nil, fmt.Errorf("[go-solid]: Error while assembling response: %s", err.Error())
+	}
+
 	if err := data.ifRequest(func(req *networking.RequestBehaviour) error {
 		return req.Dispatch(events.NewTransmitRenderedTemplate(resp))
 	}); err != nil {
@@ -118,12 +138,44 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	return resp, nil
 }
 
-func marshalProps(data *renderData) (string, error) {
-	if data.props == nil {
+type limitedAccessView struct {
+	artifact *caching.Rendered
+}
+
+func (this *limitedAccessView) PutDataIsland(key meta.HTMLElementID, data meta.JSONString) networking.LimitedAccessView {
+	this.artifact.DataIslands[key] = data
+	return this
+}
+
+func (this *renderData) execMiddleware(artifact *caching.Rendered) error {
+	return this.ifRequest(func(req *networking.RequestBehaviour) error {
+		limAcc := &limitedAccessView{artifact: artifact}
+		for _, fn := range req.Middleware {
+			if err := fn(limAcc, req); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func marshalProps[T any](props *T) (string, error) {
+	if props == nil {
 		return "{}", nil
 	}
 
-	raw, err := json.Marshal(data.props,
+	v := reflect.ValueOf(*props)
+	for v.IsValid() && (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) {
+		if v.IsNil() {
+			return "{}", nil
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() { // *props held an untyped nil
+		return "{}", nil
+	}
+
+	raw, err := json.Marshal(v.Interface(),
 		json.Deterministic(true),
 		jsontext.EscapeForHTML(true),
 		jsontext.EscapeForJS(true),
@@ -137,7 +189,7 @@ func marshalProps(data *renderData) (string, error) {
 // compiledArtifact returns the props-independent JS/CSS artifact for this
 // component, from cache if present, otherwise by bundling and caching it.
 // The returned *Rendered is shared and must be treated as read-only.
-func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, error) {
+func (bundler *Bundler) compiledArtifact(data *renderData, propsJSON meta.JSONString) (*caching.Rendered, error) {
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
@@ -152,8 +204,11 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 		data.root = comp.MountRootID
 	}
 
+	dataIslands := map[meta.HTMLElementID]meta.JSONString{code_gen.DerivePropsMountIdFromCompRootID(data.root): propsJSON}
+
 	key := caching.NewBuildCacheKey(data.component, data.root, bundler.buildID)
 	if cached, ok := bundler.searchCaches(key); ok {
+		cached.DataIslands = dataIslands
 		return cached, nil
 	}
 
@@ -165,6 +220,7 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 	if err != nil {
 		return nil, err
 	}
+	artifact.DataIslands = dataIslands
 
 	bundler.mem.Put(key, artifact)
 	if bundler.disk != nil {
@@ -172,6 +228,7 @@ func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, e
 			bundler.logDiskCacheError(err)
 		}
 	}
+
 	return artifact, nil
 }
 
@@ -186,7 +243,12 @@ func (bundler *Bundler) bundleComponent(
 		return nil, nil, data.emitEvent(err, events.NewCompBundlingFailure(err))
 	}
 
-	entrySource, err := code_gen.GenerateEntry(comp)
+	source, err := bundler.sources.Read(comp.Path)
+	if err != nil {
+		return nil, nil, data.emitEvent(err, events.NewEntryGenerationFailure(err))
+	}
+
+	entrySource, err := code_gen.GenerateEntry(comp, source)
 	if err != nil {
 		return nil, nil, data.emitEvent(err, events.NewEntryGenerationFailure(err))
 	}
@@ -222,18 +284,18 @@ func (bundler *Bundler) bundleComponent(
 
 func assembleResponse(
 	bundler *Bundler, data *renderData,
-	artifact *caching.Rendered, propsJSON, ssrHTML string,
-) *caching.Rendered {
+	artifact *caching.Rendered, ssrHTML string,
+) (*caching.Rendered, error) {
 	resp := *artifact // copy JS/CSS/JSName/CSSName by value
-	resp.HTML = code_gen.AssembleHTML(
+	var err error
+	resp.HTML, err = code_gen.AssembleHTML(
 		data.htmlHeadTags,
-		propsJSON,
 		&resp,
 		data.root,
 		bundler.constructHMRScript(data.component),
 		ssrHTML,
 	)
-	return &resp
+	return &resp, err
 }
 
 // serverMarkup renders the component's first paint, or returns empty when

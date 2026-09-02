@@ -78,9 +78,12 @@ func TestRender_ExplicitMountRootReachesTheShell(t *testing.T) {
 		&caching.Rendered{JS: "/* cached */", JSName: "Hello.cached.js"},
 	)
 
-	out, err := b.Prepare("Hello", nil).MountOnRootID(custom).Render()
+	out, err := b.Prepare("Hello", map[string]string{"a": "b"}).MountOnRootID(custom).Render()
 	if err != nil {
 		t.Fatalf("Render: %v", err)
+	}
+	if len(out.DataIslands) != 1 {
+		t.Fatalf("Expected exactly 1 data island present, got: %v", len(out.DataIslands))
 	}
 	if !strings.Contains(out.HTML, `<div id="my-app-root">`) {
 		t.Errorf("MountOnRootID did not reach the shell:\n%s", out.HTML)
@@ -204,7 +207,7 @@ func TestSetHTTPBehaviour_WithoutForRequestRenders(t *testing.T) {
 
 	var dispatched bool
 	out, err := b.Prepare("Hello", nil).
-		SetHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
+		AlterHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
 			rb.Upon(
 				func(http.ResponseWriter, *http.Request, events.TransmitRenderedTemplateEvent) error {
 					dispatched = true
@@ -236,7 +239,7 @@ func TestSetHTTPBehaviour_WithoutForRequestHonoursWithCtx(t *testing.T) {
 	cancel()
 
 	if _, err := b.Prepare("Hello", nil).
-		SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).
+		AlterHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).
 		WithCtx(ctx).
 		Render(); err == nil {
 		t.Error("a cancelled context was ignored because a request-less behaviour shadowed it")
@@ -255,10 +258,10 @@ func TestDefaults_RequestsAreAppliedExactlyOncePerRenderCall(t *testing.T) {
 			return rc.ForRequest(w, r)
 		}},
 		{"SetHTTPBehaviour then ForRequest", func(rc RenderCallBuilder, w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-			return rc.SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).ForRequest(w, r)
+			return rc.AlterHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {}).ForRequest(w, r)
 		}},
 		{"ForRequest then SetHTTPBehaviour", func(rc RenderCallBuilder, w http.ResponseWriter, r *http.Request) RenderCallBuilder {
-			return rc.ForRequest(w, r).SetHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {})
+			return rc.ForRequest(w, r).AlterHTTPBehaviour(func(*networking.RequestBehaviourBuilder) {})
 		}},
 	} {
 		t.Run(order.name, func(t *testing.T) {
@@ -312,8 +315,10 @@ func TestAssembleHTML_EscapesScriptCloseInAnyCase(t *testing.T) {
 
 	for _, literal := range []string{"</script>", "</SCRIPT>", "</Script>", "</ScRiPt >"} {
 		js := `const s = "` + literal + `";`
-		html := code_gen.AssembleHTML(head, "{}", &caching.Rendered{JS: js}, "root", "", "")
-
+		html, err := code_gen.AssembleHTML(head, &caching.Rendered{JS: js}, "root", "", "")
+		if err != nil {
+			t.Error(err)
+		}
 		if got := strings.Count(strings.ToLower(html), "</script"); got != ownCloses {
 			t.Errorf("%q leaked a script close: found %d, want %d\n%s", literal, got, ownCloses, html)
 		}
@@ -327,8 +332,11 @@ func TestAssembleHTML_EscapesScriptCloseInAnyCase(t *testing.T) {
 // escaped, and the casing of the tag name is left alone.
 func TestAssembleHTML_ScriptEscapePreservesCasing(t *testing.T) {
 	head := networking_int.NewHTMLHeadSegmentBuilder().DeterministicOutput()
-	html := code_gen.AssembleHTML(head, "{}",
+	html, err := code_gen.AssembleHTML(head,
 		&caching.Rendered{JS: `const s = "</SCRIPT>";`}, "root", "", "")
+	if err != nil {
+		t.Error(err)
+	}
 
 	if !strings.Contains(html, `<\/SCRIPT>`) {
 		t.Errorf("escaping changed the literal's casing:\n%s", html)
@@ -339,9 +347,10 @@ func TestAssembleHTML_ScriptEscapePreservesCasing(t *testing.T) {
 // "</", so props carrying markup must not be able to break out.
 func TestAssembleHTML_PropsCannotEscapeTheDataIsland(t *testing.T) {
 	head := networking_int.NewHTMLHeadSegmentBuilder().DeterministicOutput()
-	props := `{"bio":"</script><img src=x onerror=alert(1)>"}`
-	html := code_gen.AssembleHTML(head, props, &caching.Rendered{JS: ""}, "root", "", "")
-
+	html, err := code_gen.AssembleHTML(head, &caching.Rendered{JS: "", DataIslands: map[string]string{"some-name": `{"bio":"</script><img src=x onerror=alert(1)>"}`}}, "root", "", "")
+	if err != nil {
+		t.Error(err)
+	}
 	if strings.Contains(html, "</script><img") {
 		t.Errorf("props escaped the data island:\n%s", html)
 	}

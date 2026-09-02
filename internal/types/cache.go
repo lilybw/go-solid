@@ -11,10 +11,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/lilybw/go-solid/internal/hashing"
 	io_int "github.com/lilybw/go-solid/internal/io"
+	"github.com/lilybw/go-solid/internal/sources"
 	"github.com/lilybw/go-solid/shared/meta"
 )
 
@@ -43,38 +42,37 @@ func decodeEntry(raw []byte) (entry, error) {
 	return e, json.Unmarshal(raw, &e)
 }
 
-// stamp is a file's cheap identity, enough for the in-process layer.
-type stamp struct {
-	modTime time.Time
-	size    int64
-}
-
-func stampOf(path meta.AbsoluteFilePath) (stamp, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return stamp{}, err
-	}
-	return stamp{modTime: info.ModTime(), size: info.Size()}, nil
-}
-
-// Cache holds extracted props shapes in memory and on disk.
+// Cache holds extracted props shapes in memory and, when it is rooted anywhere,
+// on disk. An unrooted cache is the whole of what a bundler with no filesystem
+// keeps: the in-process layer, and nothing under it.
 type Cache struct {
-	root meta.AbsoluteDirectoryPath
-	mu   sync.Mutex
-	mem  map[meta.QualifiedName]memEntry
+	root    meta.AbsoluteDirectoryPath
+	mu      sync.Mutex
+	mem     map[meta.QualifiedName]memEntry
+	sources sources.Reader
 }
 
 type memEntry struct {
 	extraction Extraction
-	stamps     map[meta.AbsoluteFilePath]stamp
+	stamps     map[meta.AbsoluteFilePath]sources.Stamp
 }
 
-func NewCache(workspace meta.AbsoluteDirectoryPath) *Cache {
+// NewCache roots a cache on a workspace, reading sources through reader. An
+// empty workspace keeps the cache in memory; a nil reader reads from disk.
+func NewCache(workspace meta.AbsoluteDirectoryPath, reader sources.Reader) *Cache {
+	root := meta.AbsoluteDirectoryPath("")
+	if workspace != "" {
+		root = filepath.Join(workspace, CACHE_DIR_NAME)
+	}
 	return &Cache{
-		root: filepath.Join(workspace, CACHE_DIR_NAME),
-		mem:  make(map[meta.QualifiedName]memEntry),
+		root:    root,
+		mem:     make(map[meta.QualifiedName]memEntry),
+		sources: sources.OrDisk(reader),
 	}
 }
+
+// persists reports whether entries outlive the process.
+func (c *Cache) persists() bool { return c.root != "" }
 
 func (c *Cache) Root() meta.AbsoluteDirectoryPath { return c.root }
 
@@ -93,7 +91,7 @@ func (c *Cache) Get(component meta.QualifiedName) (Extraction, bool) {
 	c.mu.Lock()
 	hit, ok := c.mem[component]
 	c.mu.Unlock()
-	if ok && stampsHold(hit.stamps) {
+	if ok && c.stampsHold(hit.stamps) {
 		return hit.extraction, true
 	}
 
@@ -120,9 +118,9 @@ func (c *Cache) Invalidate(component meta.QualifiedName) {
 }
 
 func (c *Cache) remember(component meta.QualifiedName, extraction Extraction) {
-	stamps := make(map[meta.AbsoluteFilePath]stamp, len(extraction.Sources))
+	stamps := make(map[meta.AbsoluteFilePath]sources.Stamp, len(extraction.Sources))
 	for _, source := range extraction.Sources {
-		s, err := stampOf(source)
+		s, err := c.sources.Stamp(source)
 		if err != nil {
 			return // a source vanished; refuse to remember something stale
 		}
@@ -133,9 +131,9 @@ func (c *Cache) remember(component meta.QualifiedName, extraction Extraction) {
 	c.mu.Unlock()
 }
 
-func stampsHold(stamps map[meta.AbsoluteFilePath]stamp) bool {
+func (c *Cache) stampsHold(stamps map[meta.AbsoluteFilePath]sources.Stamp) bool {
 	for path, was := range stamps {
-		now, err := stampOf(path)
+		now, err := c.sources.Stamp(path)
 		if err != nil || now != was {
 			return false
 		}
@@ -143,7 +141,35 @@ func stampsHold(stamps map[meta.AbsoluteFilePath]stamp) bool {
 	return len(stamps) > 0
 }
 
+// digestsHold reports whether every recorded source still hashes to what was
+// recorded for it.
+func (c *Cache) digestsHold(recorded map[meta.AbsoluteFilePath]meta.ContentDigest) bool {
+	for path, want := range recorded {
+		got, ok := c.sources.Digest(path)
+		if !ok || got != want {
+			return false
+		}
+	}
+	return len(recorded) > 0
+}
+
+// digests records every source, failing on the first that cannot be hashed.
+func (c *Cache) digests(paths []meta.AbsoluteFilePath) (map[meta.AbsoluteFilePath]meta.ContentDigest, meta.AbsoluteFilePath, bool) {
+	out := make(map[meta.AbsoluteFilePath]meta.ContentDigest, len(paths))
+	for _, path := range paths {
+		digest, ok := c.sources.Digest(path)
+		if !ok {
+			return nil, path, false
+		}
+		out[path] = digest
+	}
+	return out, "", true
+}
+
 func (c *Cache) read(component meta.QualifiedName) (Extraction, bool) {
+	if !c.persists() {
+		return Extraction{}, false
+	}
 	raw, err := os.ReadFile(c.Path(component))
 	if err != nil {
 		return Extraction{}, false
@@ -156,30 +182,33 @@ func (c *Cache) read(component meta.QualifiedName) (Extraction, bool) {
 		return Extraction{}, false
 	}
 
-	if !hashing.Holds(stored.Sources) {
+	if !c.digestsHold(stored.Sources) {
 		return Extraction{}, false
 	}
-	sources := slices.Sorted(maps.Keys(stored.Sources))
+	paths := slices.Sorted(maps.Keys(stored.Sources))
 
 	return Extraction{
 		Shape:        NewShape(stored.Fields),
 		Name:         stored.Name,
 		Found:        stored.Found,
 		HasParameter: stored.HasParam,
-		Sources:      sources,
+		Sources:      paths,
 		Unresolved:   stored.Unresolved,
 	}, true
 }
 
 func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error {
-	sources, undigestible, ok := hashing.Record(extraction.Sources)
+	if !c.persists() {
+		return nil
+	}
+	recorded, undigestible, ok := c.digests(extraction.Sources)
 	if !ok {
 		return fmt.Errorf("go_solid/types: cannot digest %q", undigestible)
 	}
 
 	raw, err := encodeEntry(entry{
 		Component:  component,
-		Sources:    sources,
+		Sources:    recorded,
 		Fields:     extraction.Shape.fields,
 		Name:       extraction.Name,
 		Found:      extraction.Found,
@@ -197,6 +226,9 @@ func (c *Cache) write(component meta.QualifiedName, extraction Extraction) error
 }
 
 func (c *Cache) Prune(known []meta.QualifiedName) (int, error) {
+	if !c.persists() {
+		return 0, nil
+	}
 	if _, err := os.Stat(c.root); err != nil {
 		return 0, nil // nothing cached yet
 	}

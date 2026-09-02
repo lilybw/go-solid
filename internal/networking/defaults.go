@@ -9,9 +9,10 @@ import (
 )
 
 type Defaults struct {
-	mu       sync.RWMutex
-	head     *htmlHeadSegmentBuilder
-	requests meta.Configurator[*RequestBehaviourBuilder]
+	mu         sync.RWMutex
+	head       *htmlHeadSegmentBuilder
+	requests   meta.Configurator[*RequestBehaviourBuilder]
+	middleware []Middleware
 }
 
 func NewDefaults() *Defaults {
@@ -42,6 +43,12 @@ func (d *Defaults) SetRequestBehaviour(fn meta.Configurator[*RequestBehaviourBui
 	d.mu.Unlock()
 }
 
+func (d *Defaults) SetMiddleware(middleware ...Middleware) {
+	d.mu.Lock()
+	d.middleware = middleware
+	d.mu.Unlock()
+}
+
 // NewHTMLHeadSegmentBuilder returns a builder seeded from the head template.
 func (d *Defaults) NewHTMLHeadSegmentBuilder() HTMLHeadSegmentBuilder {
 	if d == nil {
@@ -58,6 +65,7 @@ func (d *Defaults) NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBe
 		return instance
 	}
 	d.mu.RLock()
+	data.Middleware = d.middleware
 	fn := d.requests
 	d.mu.RUnlock()
 

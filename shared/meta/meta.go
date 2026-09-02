@@ -32,6 +32,8 @@ type (
 
 	// JSIdentifier is a name that may appear in generated JavaScript.
 	JSIdentifier = string
+	// Parsed JSON string
+	JSONString = string
 	// TSTypeExpression is a TypeScript type as written, e.g. "string | null".
 	TSTypeExpression = string
 

@@ -15,6 +15,7 @@ import (
 	networking_int "github.com/lilybw/go-solid/internal/networking"
 	"github.com/lilybw/go-solid/internal/noop"
 	rasterization_int "github.com/lilybw/go-solid/internal/rasterization"
+	"github.com/lilybw/go-solid/internal/sources"
 	ssr_int "github.com/lilybw/go-solid/internal/ssr"
 	static_int "github.com/lilybw/go-solid/internal/static"
 	types_int "github.com/lilybw/go-solid/internal/types"
@@ -131,6 +132,11 @@ type Bundler struct {
 	watcher  *hmr_int.Watcher
 	types    *types_int.Checker
 	ssr      *ssr_int.Renderer
+	// sources is where a component's text is read from, and held is the layer
+	// of it that was never written down. Swapping these two is the whole of the
+	// difference between a bundler and an ephemeral one.
+	sources sources.Reader
+	held    *sources.Memory
 }
 
 func New(cfg *Config) (*Bundler, error) {
@@ -169,12 +175,16 @@ func New(cfg *Config) (*Bundler, error) {
 	mem := caching.NewMemCache(!cfg.DisableCaching)
 	index := internal.NewDepIndex()
 
-	typeChecker := types_int.NewChecker(cfg.Workspace, cfg.Types.Check, nil)
+	// Components live on disk, except the ones Anonymous makes, which never do.
+	held := sources.NewMemory()
+	reader := sources.Overlay{held, sources.Disk()}
+
+	typeChecker := types_int.NewChecker(cfg.Workspace, cfg.Types.Check, nil, reader)
 	if err := types_int.EnsurePublished(cfg.Workspace); err != nil {
 		return nil, err
 	}
 
-	renderer := ssr_int.NewRenderer(cfg.SSR)
+	renderer := ssr_int.NewRenderer(cfg.SSR, reader)
 
 	invalidateComponent := func(name meta.QualifiedName) {
 		disk.InvalidateComponent(name)
@@ -248,6 +258,8 @@ func New(cfg *Config) (*Bundler, error) {
 		defaults: defaults,
 		types:    typeChecker,
 		ssr:      renderer,
+		sources:  reader,
+		held:     held,
 	}
 
 	if err := bundler.types.OnBoot(registry.Map(func(_ meta.QualifiedName, comp *reg_shr.Component) *reg_shr.Component { return comp })); err != nil {
@@ -486,8 +498,8 @@ func (b *Bundler) Registry() *internal.ComponentRegistry { return b.registry }
 //
 //	{"extends": [bundler.TSConfigExtension()]}
 func (b *Bundler) TSConfigExtension() meta.AbsoluteFilePath {
-	if b == nil {
-		return ""
+	if b == nil || b.cfg.Workspace == "" {
+		return "" // nothing was written, so there is nothing to extend
 	}
 	return static_int.TSConfigFragmentPath(b.cfg.Workspace)
 }

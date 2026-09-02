@@ -2,12 +2,11 @@ package ssr
 
 import (
 	"fmt"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/lilybw/go-solid-compiler/solid"
 	"github.com/lilybw/go-solid-compiler/tsx"
+	"github.com/lilybw/go-solid/internal/sources"
 	types_int "github.com/lilybw/go-solid/internal/types"
 	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
@@ -19,22 +18,9 @@ import (
 // could not describe. Resolving one is parsing and analysis, so results are
 // held until the file behind them changes.
 
-type stamp struct {
-	modTime time.Time
-	size    int64
-}
-
-func stampOf(path meta.AbsoluteFilePath) (stamp, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return stamp{}, err
-	}
-	return stamp{modTime: info.ModTime(), size: info.Size()}, nil
-}
-
 type entry struct {
 	program *solid.Program
-	stamp   stamp
+	stamp   sources.Stamp
 	err     error
 }
 
@@ -42,10 +28,14 @@ type entry struct {
 type programs struct {
 	mu      sync.RWMutex
 	entries map[meta.QualifiedName]entry
+	sources sources.Reader
 }
 
-func newPrograms() *programs {
-	return &programs{entries: make(map[meta.QualifiedName]entry)}
+func newPrograms(reader sources.Reader) *programs {
+	return &programs{
+		entries: make(map[meta.QualifiedName]entry),
+		sources: sources.OrDisk(reader),
+	}
 }
 
 func (p *programs) forget(component meta.QualifiedName) {
@@ -57,7 +47,7 @@ func (p *programs) forget(component meta.QualifiedName) {
 // get returns the component's program, analyzing the file when the cached
 // result is absent or stale.
 func (p *programs) get(comp *registry.Component) (*solid.Program, error) {
-	current, err := stampOf(comp.Path)
+	current, err := p.sources.Stamp(comp.Path)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid/ssr: stat %q: %w", comp.Path, err)
 	}
@@ -69,7 +59,7 @@ func (p *programs) get(comp *registry.Component) (*solid.Program, error) {
 		return hit.program, hit.err
 	}
 
-	program, err := analyze(comp)
+	program, err := p.analyze(comp)
 	p.mu.Lock()
 	p.entries[comp.Name] = entry{program: program, stamp: current, err: err}
 	p.mu.Unlock()
@@ -78,12 +68,12 @@ func (p *programs) get(comp *registry.Component) (*solid.Program, error) {
 
 // analyze parses the component's file and asks the compiler to describe the
 // markup of the export this component selects.
-func analyze(comp *registry.Component) (*solid.Program, error) {
-	raw, err := os.ReadFile(comp.Path)
+func (p *programs) analyze(comp *registry.Component) (*solid.Program, error) {
+	source, err := p.sources.Read(comp.Path)
 	if err != nil {
 		return nil, fmt.Errorf("go_solid/ssr: read %q: %w", comp.Path, err)
 	}
-	tree := types_int.Parse(comp.Path, string(raw))
+	tree := types_int.Parse(comp.Path, source.Text)
 	if tree == nil {
 		return nil, fmt.Errorf("go_solid/ssr: %q could not be parsed", comp.Path)
 	}

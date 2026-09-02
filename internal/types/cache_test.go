@@ -33,7 +33,7 @@ func writeSource(t *testing.T, dir, name, body string) string {
 
 func TestCache_PathMirrorsTheComponentsTree(t *testing.T) {
 	workspace := t.TempDir()
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 
 	want := filepath.Join(workspace, CACHE_DIR_NAME, "auth", "LoginForm"+CACHE_ENTRY_EXT)
 	if got := c.Path("auth/LoginForm"); got != want {
@@ -45,13 +45,13 @@ func TestCache_RoundTripsThroughDisk(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello(props: { title: string }) {}")
 
-	first := NewCache(workspace)
+	first := NewCache(workspace, nil)
 	if err := first.Put("auth/LoginForm", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 
 	// A fresh process: memory is empty, so this can only come off disk.
-	second := NewCache(workspace)
+	second := NewCache(workspace, nil)
 	got, ok := second.Get("auth/LoginForm")
 	if !ok {
 		t.Fatal("entry should have been read back from disk")
@@ -68,7 +68,7 @@ func TestCache_EntryIsHumanReadable(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello() {}")
 
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 	if err := c.Put("Hello", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestCache_AChangedSourceInvalidatesTheEntry(t *testing.T) {
 	component := writeSource(t, sources, "Hello.tsx", "export default function Hello(props: Props) {}")
 	imported := writeSource(t, sources, "shared.d.ts", "export interface Props { title: string }\n")
 
-	first := NewCache(workspace)
+	first := NewCache(workspace, nil)
 	if err := first.Put("Hello", sampleExtraction(component, imported)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestCache_AChangedSourceInvalidatesTheEntry(t *testing.T) {
 	// Not the component — the file it imported.
 	writeSource(t, sources, "shared.d.ts", "export interface Props { title: number }\n")
 
-	if _, ok := NewCache(workspace).Get("Hello"); ok {
+	if _, ok := NewCache(workspace, nil).Get("Hello"); ok {
 		t.Fatal("an entry must not survive a change to any of its sources")
 	}
 }
@@ -109,7 +109,7 @@ func TestCache_MemoryLayerNoticesAnEditWithoutBeingTold(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello() {}")
 
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 	if err := c.Put("Hello", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestCache_InvalidateDropsTheMemoryLayer(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello() {}")
 
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 	if err := c.Put("Hello", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -146,13 +146,13 @@ func TestCache_InvalidateDropsTheMemoryLayer(t *testing.T) {
 }
 
 func TestCache_MissOnAnUnknownComponent(t *testing.T) {
-	if _, ok := NewCache(t.TempDir()).Get("Nope"); ok {
+	if _, ok := NewCache(t.TempDir(), nil).Get("Nope"); ok {
 		t.Fatal("an unwritten component should miss")
 	}
 }
 
 func TestCache_RejectsEscapingNames(t *testing.T) {
-	c := NewCache(t.TempDir())
+	c := NewCache(t.TempDir(), nil)
 	for _, name := range []string{"", "../escape", "a/../../b", "./x"} {
 		if err := c.Put(name, sampleExtraction()); err == nil {
 			t.Errorf("Put(%q) should have been rejected", name)
@@ -164,7 +164,7 @@ func TestCache_PruneRemovesOrphansAndEmptiedDirectories(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello() {}")
 
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 	for _, name := range []string{"Kept", "nested/Dropped"} {
 		if err := c.Put(name, sampleExtraction(source)); err != nil {
 			t.Fatalf("Put(%q): %v", name, err)
@@ -190,7 +190,7 @@ func TestCache_PruneRemovesOrphansAndEmptiedDirectories(t *testing.T) {
 }
 
 func TestCache_PruneOnAnEmptyTreeIsANoop(t *testing.T) {
-	if removed, err := NewCache(t.TempDir()).Prune(nil); err != nil || removed != 0 {
+	if removed, err := NewCache(t.TempDir(), nil).Prune(nil); err != nil || removed != 0 {
 		t.Fatalf("Prune = %d, %v; want 0, nil", removed, err)
 	}
 }
@@ -199,7 +199,7 @@ func TestCache_RewritingAnUnchangedEntryLeavesTheFileAlone(t *testing.T) {
 	workspace, sources := t.TempDir(), t.TempDir()
 	source := writeSource(t, sources, "Hello.tsx", "export default function Hello() {}")
 
-	c := NewCache(workspace)
+	c := NewCache(workspace, nil)
 	if err := c.Put("Hello", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestCache_RewritingAnUnchangedEntryLeavesTheFileAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := NewCache(workspace).Put("Hello", sampleExtraction(source)); err != nil {
+	if err := NewCache(workspace, nil).Put("Hello", sampleExtraction(source)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	info, err := os.Stat(c.Path("Hello"))
@@ -230,7 +230,7 @@ func TestEnsurePublished_CreatesTheImportableSurface(t *testing.T) {
 		t.Fatalf("published surface not created: %v", err)
 	}
 	// It must not be where the cache lives.
-	if PublishedRoot(workspace) == NewCache(workspace).Root() {
+	if PublishedRoot(workspace) == NewCache(workspace, nil).Root() {
 		t.Fatal("the published surface and the cache must be separate directories")
 	}
 }

@@ -46,7 +46,7 @@ func (er *eventRecorder) list() []events.EventType {
 
 // watch registers an observer for every declared event type on a render call.
 func (er *eventRecorder) watch(b RenderCallBuilder) RenderCallBuilder {
-	return b.SetHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
+	return b.AlterHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
 		for _, evType := range events.EVENTS.Values {
 			rb.Testing_UponRaw(evType, networking.HANDLER_MODE_POSTFIX,
 				func(_ http.ResponseWriter, _ *http.Request, e events.NetworkingEvent) error {
@@ -221,7 +221,7 @@ func TestForRequest_PreservesHandlersRegisteredEarlier(t *testing.T) {
 
 	var called bool
 	_, _ = b.Prepare("NoSuchComponent", nil).
-		SetHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
+		AlterHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
 			rb.Upon(
 				func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 					called = true
@@ -299,7 +299,7 @@ func TestRender_HandlerErrorIsReturnedNotPanicked(t *testing.T) {
 	}()
 
 	_, err := b.Prepare("NoSuchComponent", nil).
-		SetHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
+		AlterHTTPBehaviour(func(rb *networking.RequestBehaviourBuilder) {
 			rb.Upon(
 				func(http.ResponseWriter, *http.Request, events.RegistryLookupFailureEvent) error {
 					return http.ErrHandlerTimeout

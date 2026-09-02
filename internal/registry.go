@@ -63,10 +63,23 @@ func NewRegistry(root meta.AbsoluteDirectoryPath) (*ComponentRegistry, error) {
 	return r, nil
 }
 
+// NewRootlessRegistry returns a registry with no tree behind it. It holds what
+// Adopt hands it and nothing else, so it can neither reload nor watch.
+func NewRootlessRegistry() *ComponentRegistry {
+	return &ComponentRegistry{components: make(map[meta.QualifiedName]Component)}
+}
+
+// rooted reports whether a tree backs the registry.
+func (this *ComponentRegistry) rooted() bool { return this.root != "" }
+
 // MakeReactive starts watching the components tree. onDrop is called with the
 // qualified name of a component whose backing file was removed; onTouch is
 // called with the path of any watched file that was created or written.
 func (this *ComponentRegistry) MakeReactive(onDrop func(meta.QualifiedName), onTouch func(meta.AbsoluteFilePath), onErr func(error)) error {
+	if !this.rooted() {
+		return fmt.Errorf("registry: no tree to watch; a rootless registry only holds what it is given")
+	}
+
 	this.mu.Lock()
 	already := this.watcher != nil
 	this.mu.Unlock()
@@ -169,6 +182,24 @@ func (this *ComponentRegistry) AddFile(path meta.AbsoluteFilePath) (meta.Qualifi
 	return name, true, nil
 }
 
+// Adopt registers path under an explicit name instead of one derived from its
+// location, so a component may live outside the components root.
+//
+//	err := registry.Adopt("anonymous/Anon_0f2c1a", path, ".tsx")
+func (this *ComponentRegistry) Adopt(name meta.QualifiedName, path meta.AbsoluteFilePath, ext meta.FileExtension) error {
+	if err := nameIsAddressable(name, path); err != nil {
+		return err
+	}
+
+	this.mu.Lock()
+	defer this.mu.Unlock()
+	if existing, dup := this.components[name]; dup && existing.Path != path {
+		return fmt.Errorf("registry: duplicate component %q from %s and %s", name, existing.Path, path)
+	}
+	this.components[name] = *NewComponent(name, path, ext)
+	return nil
+}
+
 func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.QualifiedName, bool) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if !eligible(path) {
@@ -190,6 +221,9 @@ func (this *ComponentRegistry) RemoveFile(path meta.AbsoluteFilePath) (meta.Qual
 }
 
 func (this *ComponentRegistry) Reload() error {
+	if !this.rooted() {
+		return nil // nothing to walk; Adopt is the only way in
+	}
 	found := make(map[meta.QualifiedName]Component)
 
 	walkErr := filepath.WalkDir(this.root, func(path string, d fs.DirEntry, err error) error {

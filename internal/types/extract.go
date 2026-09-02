@@ -2,13 +2,13 @@ package types
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 
 	log_int "github.com/lilybw/go-solid/internal/logging"
+	"github.com/lilybw/go-solid/internal/sources"
 	logging "github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/typescript-go/use-at-your-own-risk/ast"
@@ -40,19 +40,24 @@ type Extraction struct {
 //
 // Resolution is syntactic — the parser only, no checker and no program
 type Extractor struct {
-	mu    sync.Mutex
-	files map[meta.AbsoluteFilePath]*parsedFile
+	mu      sync.Mutex
+	files   map[meta.AbsoluteFilePath]*parsedFile
+	sources sources.Reader
 }
 
 type parsedFile struct {
 	path  meta.AbsoluteFilePath
 	text  string
 	tree  *ast.SourceFile
-	stamp stamp
+	stamp sources.Stamp
 }
 
-func NewExtractor() *Extractor {
-	return &Extractor{files: make(map[meta.AbsoluteFilePath]*parsedFile)}
+// NewExtractor reads components through reader. A nil reader reads from disk.
+func NewExtractor(reader sources.Reader) *Extractor {
+	return &Extractor{
+		files:   make(map[meta.AbsoluteFilePath]*parsedFile),
+		sources: sources.OrDisk(reader),
+	}
 }
 
 // Component resolves the props type declared by the component at path.
@@ -99,7 +104,7 @@ func (e *Extractor) Forget(path meta.AbsoluteFilePath) {
 }
 
 func (e *Extractor) file(path meta.AbsoluteFilePath) (*parsedFile, error) {
-	current, err := stampOf(path)
+	current, err := e.sources.Stamp(path)
 	if err != nil {
 		return nil, err
 	}
@@ -111,12 +116,11 @@ func (e *Extractor) file(path meta.AbsoluteFilePath) (*parsedFile, error) {
 		return hit, nil
 	}
 
-	raw, err := os.ReadFile(path)
+	source, err := e.sources.Read(path)
 	if err != nil {
 		return nil, err
 	}
-	text := string(raw)
-	f := &parsedFile{path: path, text: text, tree: Parse(path, text), stamp: current}
+	f := &parsedFile{path: path, text: source.Text, tree: Parse(path, source.Text), stamp: source.Stamp}
 
 	e.mu.Lock()
 	e.files[path] = f
@@ -290,7 +294,7 @@ func (r *resolver) importedFrom(f *parsedFile, local string) (meta.AbsoluteFileP
 				exported = property.Text()
 			}
 			specifier := decl.ModuleSpecifier.Text()
-			target, ok := resolveModule(f.path, specifier)
+			target, ok := r.extractor.resolveModule(f.path, specifier)
 			if !ok {
 				// A bare specifier is skipped by design. A relative one that
 				// resolves to nothing is a real miss — a moved definition, a
@@ -344,15 +348,17 @@ func resolveCandidates(base string) []string {
 	return candidates
 }
 
-// resolveModule turns a relative module specifier into a file.
-func resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteFilePath, bool) {
+// resolveModule turns a relative module specifier into a file. It asks the
+// reader rather than the filesystem, so a source that was never written down
+// still resolves the imports beside it.
+func (e *Extractor) resolveModule(from meta.AbsoluteFilePath, specifier string) (meta.AbsoluteFilePath, bool) {
 	if !isRelativeSpecifier(specifier) {
 		return "", false
 	}
 	base := filepath.Join(filepath.Dir(from), filepath.FromSlash(specifier))
 
 	for _, candidate := range resolveCandidates(base) {
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+		if _, err := e.sources.Stamp(candidate); err == nil {
 			return candidate, true
 		}
 	}

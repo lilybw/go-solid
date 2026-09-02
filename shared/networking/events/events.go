@@ -79,6 +79,7 @@ type EntryGenerationFailureEvent struct{ failureBase }
 type TempEntryWriteFailureEvent struct{ failureBase }
 type CompBundlingFailureEvent struct{ failureBase }
 type CompPropsInsufficientFailureEvent struct{ developmentFailureEventBase }
+type AnonymousSourceFailureEvent struct{ developmentFailureEventBase }
 
 // Constructors keep the embedded Error ergonomic to set.
 
@@ -99,6 +100,18 @@ func NewCompBundlingFailure(err error) CompBundlingFailureEvent {
 }
 func NewCompPropsInsufficientFailure(err error) CompPropsInsufficientFailureEvent {
 	return CompPropsInsufficientFailureEvent{
+		developmentFailureEventBase{
+			failureBase{
+				Error: err,
+				networkingEventBase: networkingEventBase{
+					httpCode: http.StatusInternalServerError,
+				},
+			},
+		},
+	}
+}
+func NewAnonymousSourceFailure(err error) AnonymousSourceFailureEvent {
+	return AnonymousSourceFailureEvent{
 		developmentFailureEventBase{
 			failureBase{
 				Error: err,

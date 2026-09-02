@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/lilybw/go-solid-compiler/solid"
+	"github.com/lilybw/go-solid/internal/sources"
 	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
 	. "github.com/lilybw/go-solid/shared/ssr"
@@ -28,10 +29,11 @@ type Renderer struct {
 	programs *programs
 }
 
-// NewRenderer returns a renderer for cfg. A nil or disabled config yields a
-// renderer whose methods are all no-ops, so callers need not branch.
-func NewRenderer(cfg *SSRConfig) *Renderer {
-	return &Renderer{cfg: cfg, programs: newPrograms()}
+// NewRenderer returns a renderer for cfg, reading components through reader. A
+// nil or disabled config yields a renderer whose methods are all no-ops, so
+// callers need not branch.
+func NewRenderer(cfg *SSRConfig, reader sources.Reader) *Renderer {
+	return &Renderer{cfg: cfg, programs: newPrograms(reader)}
 }
 
 // Active reports whether server rendering is on.

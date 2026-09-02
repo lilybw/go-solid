@@ -39,8 +39,10 @@ func solidPlugins(cfg *BundlerConfig) []esbuild.Plugin {
 	)
 }
 
-// BundleEntry bundles one entry module.
+// BundleEntry bundles one entry module. A bundler with no workspace resolves
+// from the entry's own directory, which is the only place it has.
 func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, generated meta.AbsoluteDirectoryPath, cfg *BundlerConfig) (*bundleResult, error) {
+	workingDir := meta.Or(workspace, generated)
 	opts := esbuild.BuildOptions{
 		EntryPoints:       []string{entryPath},
 		Bundle:            true,
@@ -50,7 +52,7 @@ func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, generat
 		Format:            esbuild.FormatESModule,
 		Platform:          esbuild.PlatformBrowser,
 		Target:            esbuild.ES2020,
-		AbsWorkingDir:     workspace,
+		AbsWorkingDir:     workingDir,
 		Alias:             cfg.Alias,
 		MinifyWhitespace:  cfg.Minify,
 		MinifyIdentifiers: cfg.Minify,
@@ -91,7 +93,7 @@ func BundleEntry(entryPath string, workspace meta.AbsoluteDirectoryPath, generat
 	if out.JS == nil {
 		return nil, fmt.Errorf("esbuild produced no JS output")
 	}
-	out.Sources = ExtractSourcesFromMetafile(result.Metafile, workspace, generated)
+	out.Sources = ExtractSourcesFromMetafile(result.Metafile, workingDir, generated)
 	return out, nil
 }
 
@@ -144,7 +146,12 @@ func ExtractSourcesFromMetafile(metafile string, workspace meta.AbsoluteDirector
 }
 
 // WriteTempEntry stages the generated entry module and returns its path, the
-// directory it lives in, and a cleanup.
+// directory it lives in, and a cleanup. An empty workspace stages under the
+// operating system's temporary directory.
+//
+// The entry is the one thing that cannot stay in memory: esbuild resolves and
+// transforms through the filesystem, so the module it starts from has to be
+// somewhere it can open. Nothing else about a render is written down.
 func WriteTempEntry(workspace meta.AbsoluteDirectoryPath, transformed string) (entry string, dir string, cleanup func(), err error) {
 	dir, err = os.MkdirTemp(workspace, ".solidbundle-*")
 	if err != nil {

@@ -7,19 +7,20 @@ import (
 	caching "github.com/lilybw/go-solid/internal/caching"
 	code_gen "github.com/lilybw/go-solid/internal/code-gen"
 	networking_int "github.com/lilybw/go-solid/internal/networking"
+	"github.com/lilybw/go-solid/internal/sources"
 	networking "github.com/lilybw/go-solid/shared/networking"
 	"github.com/lilybw/go-solid/shared/registry"
 )
 
 func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
 	comp := registry.NewComponent("auth/LoginForm", "/srv/frontend/components/auth/LoginForm.tsx", ".tsx")
-	src, err := code_gen.GenerateEntry(comp)
+	src, err := code_gen.GenerateEntry(comp, sources.Source{})
 	if err != nil {
 		t.Fatalf("generateEntry: %v", err)
 	}
 
 	// Import path must drop the extension (esbuild resolves it) and be absolute.
-	if !strings.Contains(src, `import Component from "/srv/frontend/components/auth/LoginForm"`) {
+	if !strings.Contains(src, `import __gs_component from "/srv/frontend/components/auth/LoginForm"`) {
 		t.Errorf("entry missing expected import; got:\n%s", src)
 	}
 	if strings.Contains(src, ".tsx") {
@@ -33,11 +34,46 @@ func TestGenerateEntry_AssignsCorrectIdValues(t *testing.T) {
 		`"auth-LoginForm-go-solid-root"`,
 		`document.getElementById("auth-LoginForm-go-solid-root")`,
 		`document.getElementById("auth-LoginForm-go-solid-root")`,
-		`render(() => Component(readProps()), root)`,
+		`__gs_render(() => __gs_component(__gs_readProps()), __gs_root)`,
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("entry missing %q; got:\n%s", want, src)
 		}
+	}
+}
+
+// A component with no file behind it cannot be imported, so the entry carries
+// it. Everything the entry declares is prefixed, since the two now share a
+// scope and a fragment is free to name its own `render` or `root`.
+func TestGenerateEntry_InlinesASourceWithNoFile(t *testing.T) {
+	comp := registry.NewComponent("anonymous/Anon_0f2c1a", "/__go_solid_memory__/anonymous/Anon_0f2c1a.tsx", ".tsx").
+		WithExport("Anon_0f2c1a")
+	module := "const root = 1;\nexport const Anon_0f2c1a = (props) => <p>{props.msg}</p>;\n"
+
+	src, err := code_gen.GenerateEntry(comp, sources.Source{Text: module, Inline: true})
+	if err != nil {
+		t.Fatalf("generateEntry: %v", err)
+	}
+
+	if strings.Contains(src, "import __gs_component from") {
+		t.Errorf("entry imported a source that has no file; got:\n%s", src)
+	}
+	for _, want := range []string{
+		module,
+		`const __gs_component = Anon_0f2c1a;`,
+		`document.getElementById("anonymous-Anon_0f2c1a-Anon_0f2c1a-go-solid-root")`,
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("entry missing %q; got:\n%s", want, src)
+		}
+	}
+}
+
+// An inline source with no export names nothing to mount.
+func TestGenerateEntry_RejectsAnInlineSourceWithoutAnExport(t *testing.T) {
+	comp := registry.NewComponent("anonymous/Anon_0f2c1a", "/__go_solid_memory__/anonymous/Anon_0f2c1a.tsx", ".tsx")
+	if _, err := code_gen.GenerateEntry(comp, sources.Source{Text: "<p/>", Inline: true}); err == nil {
+		t.Fatal("an inline source without an export should have been rejected")
 	}
 }
 
@@ -49,12 +85,16 @@ func getTestHeadSegment() networking.HTMLHeadSegmentBuilder {
 
 func TestAssembleHTML_WithCSS(t *testing.T) {
 	rendered := &caching.Rendered{
-		JSName:  "auth_LoginForm.abc.js",
-		CSSName: "auth_LoginForm.def.css",
-		CSS:     "/* css to be included */",
+		JSName:      "auth_LoginForm.abc.js",
+		CSSName:     "auth_LoginForm.def.css",
+		CSS:         "/* css to be included */",
+		DataIslands: map[string]string{"props-go-solid-root": `{"title":"Hi"}`},
 	}
-	html := code_gen.AssembleHTML(getTestHeadSegment(), `{"title":"Hi"}`, rendered, "go-solid-root", "", "")
+	html, err := code_gen.AssembleHTML(getTestHeadSegment(), rendered, "go-solid-root", "", "")
 
+	if err != nil {
+		t.Error(err)
+	}
 	for _, want := range []string{
 		`<title>test/test</title>`,
 		`<style>/* css to be included */</style>`,
@@ -73,7 +113,10 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 		JSName:  "Version.abc.js",
 		CSSName: "",
 	}
-	html := code_gen.AssembleHTML(getTestHeadSegment(), `{}`, rendered, "go-solid-root", "", "")
+	html, err := code_gen.AssembleHTML(getTestHeadSegment(), rendered, "go-solid-root", "", "")
+	if err != nil {
+		t.Error(err)
+	}
 	if strings.Contains(html, "<link") {
 		t.Errorf("HTML should omit <link> when cssName empty; got:\n%s", html)
 	}
@@ -84,10 +127,14 @@ func TestAssembleHTML_WithoutCSSOmitsLink(t *testing.T) {
 // context (the data island), which is what makes raw embedding acceptable.
 func TestAssembleHTML_PropsGoInDataIsland(t *testing.T) {
 	rendered := &caching.Rendered{
-		JSName:  "c.js",
-		CSSName: "",
+		JSName:      "c.js",
+		CSSName:     "",
+		DataIslands: map[string]string{"props-go-solid-root": `{"x":1}`},
 	}
-	html := code_gen.AssembleHTML(getTestHeadSegment(), `{"x":1}`, rendered, "go-solid-root", "", "")
+	html, err := code_gen.AssembleHTML(getTestHeadSegment(), rendered, "go-solid-root", "", "")
+	if err != nil {
+		t.Error(err)
+	}
 	island := `<script id="props-go-solid-root" type="application/json">{"x":1}</script>`
 	if !strings.Contains(html, island) {
 		t.Errorf("props not placed in application/json data island; got:\n%s", html)

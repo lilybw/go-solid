@@ -59,7 +59,7 @@ func newHarness(t *testing.T, mode shared_types.CheckMode) *harness {
 	if err := os.MkdirAll(h.components, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h.checker = NewChecker(h.workspace, mode, h.collected.coalesce)
+	h.checker = NewChecker(h.workspace, mode, h.collected.coalesce, nil)
 	return h
 }
 

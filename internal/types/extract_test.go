@@ -23,7 +23,7 @@ func extractionIn(t *testing.T, dir, filename, source string) Extraction {
 	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	extraction, err := NewExtractor().Component(path, "")
+	extraction, err := NewExtractor(nil).Component(path, "")
 	if err != nil {
 		t.Fatalf("Component(%q): %v", path, err)
 	}
@@ -444,7 +444,7 @@ export { Hidden as Aside };
 		"Footer": "b:number",
 		"Aside":  "c:boolean",
 	} {
-		extraction, err := NewExtractor().Component(path, export)
+		extraction, err := NewExtractor(nil).Component(path, export)
 		if err != nil {
 			t.Fatalf("Component(%q): %v", export, err)
 		}

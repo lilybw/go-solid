@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	log_int "github.com/lilybw/go-solid/internal/logging"
+	"github.com/lilybw/go-solid/internal/sources"
 	logging "github.com/lilybw/go-solid/shared/logging"
 	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
@@ -119,16 +120,17 @@ type Checker struct {
 	coalesce  Reporter
 }
 
-// NewChecker roots a checker on a workspace. A nil report defaults to
-// CoalesceDiagnostics.
-func NewChecker(workspace meta.AbsoluteDirectoryPath, mode CheckMode, report Reporter) *Checker {
+// NewChecker roots a checker on a workspace, reading components through reader.
+// A nil report defaults to CoalesceDiagnostics; an empty workspace keeps the
+// extraction cache in memory.
+func NewChecker(workspace meta.AbsoluteDirectoryPath, mode CheckMode, report Reporter, reader sources.Reader) *Checker {
 	if report == nil {
 		report = CoalesceDiagnostics
 	}
 	return &Checker{
 		mode:      mode,
-		cache:     NewCache(workspace),
-		extractor: NewExtractor(),
+		cache:     NewCache(workspace, reader),
+		extractor: NewExtractor(reader),
 		coalesce:  report,
 	}
 }

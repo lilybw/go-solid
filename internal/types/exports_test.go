@@ -21,7 +21,7 @@ func componentIn(t *testing.T, source string) *registry.Component {
 
 func verify(t *testing.T, comp *registry.Component) error {
 	t.Helper()
-	return NewExtractor().VerifyComponentExport(comp)
+	return NewExtractor(nil).VerifyComponentExport(comp)
 }
 
 // A file whose default export is a component resolves, whatever the function is
@@ -176,7 +176,7 @@ export const TITLE = "text";
 export interface Props { a: string }
 function Hidden(props: {}) { return <div/>; }
 `)
-	got, err := NewExtractor().ExportedComponents(comp.Path)
+	got, err := NewExtractor(nil).ExportedComponents(comp.Path)
 	if err != nil {
 		t.Fatalf("ExportedComponents: %v", err)
 	}

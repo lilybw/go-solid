@@ -18,6 +18,11 @@ func NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBehaviourBuilder
 	return &RequestBehaviourBuilder{data: data}
 }
 
+func (this *RequestBehaviourBuilder) With(middleware ...Middleware) *RequestBehaviourBuilder {
+	this.data.Middleware = middleware
+	return this
+}
+
 func (this *RequestBehaviourBuilder) Upon[T events.NetworkingEvent](fn events.NetworkingEventHandler[T]) *RequestBehaviourBuilder {
 	return this.UponSpecialized[T](HANDLER_MODE_POSTFIX, fn)
 }
@@ -54,9 +59,10 @@ func (this *RequestBehaviourBuilder) CodeUpon[T events.NetworkingEvent](statusCo
 }
 
 type RequestBehaviour struct {
-	W        http.ResponseWriter
-	R        *http.Request
-	Handlers *HandlerMap
+	W          http.ResponseWriter
+	R          *http.Request
+	Handlers   *HandlerMap
+	Middleware []Middleware
 
 	statusMu      sync.Mutex
 	statusWritten bool
