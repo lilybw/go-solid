@@ -8,7 +8,7 @@ require (
 	github.com/coder/websocket v1.8.15
 	github.com/evanw/esbuild v0.28.2
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/lilybw/go-solid-compiler v0.2.2
+	github.com/lilybw/go-solid-compiler v0.2.3
 	github.com/lilybw/typescript-go v0.1.0
 )
 

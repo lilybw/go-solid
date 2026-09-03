@@ -10,7 +10,6 @@ import (
 	types_int "github.com/lilybw/go-solid/internal/types"
 	"github.com/lilybw/go-solid/shared/meta"
 	"github.com/lilybw/go-solid/shared/registry"
-	"github.com/lilybw/typescript-go/use-at-your-own-risk/ast"
 )
 
 // A program is the compiler's description of one component's markup: static
@@ -83,49 +82,28 @@ func (p *programs) analyze(comp *registry.Component) (*solid.Program, error) {
 		return nil, fmt.Errorf("go_solid/ssr: no component returning JSX found in %q", comp.Path)
 	}
 
-	want := comp.Export
-	if want == "" {
-		want = defaultExportName(tree)
+	// A selector names one export and nothing else will do.
+	if want := comp.Export; want != "" {
+		for _, c := range found {
+			if c.Name == want {
+				return c.Program, nil
+			}
+		}
+		return nil, fmt.Errorf("go_solid/ssr: %q declares no component named %q", comp.Path, want)
 	}
+
+	// Without one the component is whatever the file exports by default, which
+	// the compiler resolves through every shape that export is written in —
+	// including the ones that leave it with no name to be found by.
 	for _, c := range found {
-		if c.Name == want {
+		if c.Default {
 			return c.Program, nil
 		}
 	}
-	// A file naming one component and selecting its default export is the
-	// ordinary case; do not fail it just because the export could not be
-	// followed syntactically.
-	if want == "" && len(found) == 1 {
-		return found[0].Program, nil
+	if len(found) == 1 {
+		return found[0].Program, nil // one component and no default is unambiguous
 	}
-	return nil, fmt.Errorf("go_solid/ssr: %q declares no component named %q", comp.Path, want)
-}
-
-// defaultExportName names the file's default export when it is a function,
-// covering `export default function C`, `export default () => …`, and
-// `export default C`.
-//
-// It returns "" when the export cannot be followed syntactically, which the
-// caller treats as unknown rather than as absent.
-func defaultExportName(file *ast.SourceFile) string {
-	if file.Statements == nil {
-		return ""
-	}
-	for _, stmt := range file.Statements.Nodes {
-		switch stmt.Kind {
-		case ast.KindFunctionDeclaration:
-			const wantDefault = ast.ModifierFlagsExportDefault
-			if stmt.ModifierFlags()&wantDefault == wantDefault {
-				if name := stmt.AsFunctionDeclaration().Name(); name != nil {
-					return name.Text()
-				}
-			}
-		case ast.KindExportAssignment:
-			expr := stmt.AsExportAssignment().Expression
-			if expr != nil && expr.Kind == ast.KindIdentifier {
-				return expr.Text()
-			}
-		}
-	}
-	return ""
+	return nil, fmt.Errorf(
+		"go_solid/ssr: %q declares %d components and exports none of them by default; "+
+			"name one with a selector", comp.Path, len(found))
 }

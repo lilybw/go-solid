@@ -124,8 +124,8 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 	}
 
 	// Assemble a request-local response. Never mutate the cached artifact:
-	// HTML carries props/root/HMR, which vary per call.
-	resp, err := assembleResponse(bundler, data, artifact, "" /*SSR DISABLED*/)
+	// HTML carries props/root/HMR/first paint, which vary per call.
+	resp, err := assembleResponse(bundler, data, artifact, bundler.serverMarkup(data, propsJSON))
 	if err != nil {
 		return nil, fmt.Errorf("[go-solid]: Error while assembling response: %s", err.Error())
 	}
