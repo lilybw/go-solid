@@ -1,6 +1,7 @@
 package networking
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/lilybw/go-solid/internal/noop"
@@ -65,7 +66,9 @@ func (d *Defaults) NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBe
 		return instance
 	}
 	d.mu.RLock()
-	data.Middleware = d.middleware
+	// Cloned: With appends, and an append into the defaults' own backing array
+	// would let one call's middleware surface in another's.
+	data.Middleware = slices.Clone(d.middleware)
 	fn := d.requests
 	d.mu.RUnlock()
 

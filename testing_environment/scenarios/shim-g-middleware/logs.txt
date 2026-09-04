@@ -1,0 +1,104 @@
+PS E:\GitHub\abbr\service\domain_service\domain.com\v1.0> ./dev
+time=20260904-111314.036 level=info msg="Changed log level." function=LoadConfg fields.level=info package=config
+time=20260904-111314.049 level=info msg="Configuration directory." absolute-directory="E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0" package=main function=main configuration-directory="E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0" upload-directory="\\tmp\\plupload"
+2026/09/04 11:13:14 [bundler.go#configValidationAndNormalization] user config:
+{
+    "Components": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components",
+    "Workspace": "",
+    "LogLevel": 1,
+    "DisableCaching": false,
+    "Generation": null,
+    "ReactiveRegistry": true,
+    "Rasterization": null,
+    "Types": null,
+    "Static": {
+       "Location": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\static",
+       "Reactive": true,
+       "Ignore": [
+          "*.js",
+          "*.md"
+       ],
+       "MountPath": "",
+       "Disabled": false,
+       "InlineLimit": 0
+    },
+    "SSR": null,
+    "HMR": {
+       "Disabled": false,
+       "Path": ""
+    },
+    "Defaults": {}
+ }
+2026/09/04 11:13:14 normalized configuration: 
+{
+    "Components": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components",
+    "Workspace": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components\\.go_solid",
+    "LogLevel": 1,
+    "DisableCaching": false,
+    "Generation": {
+       "Alias": {
+          "@go_solid/static": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components\\.go_solid\\modules\\static\\index.ts"
+       },
+       "Solid": {
+          "Runtime": 0,
+          "Development": false,
+          "ModuleName": "solid-js/web",
+          "HelperPrefix": "_$",
+          "DisableEventDelegation": false,
+          "RuntimeOverride": {}
+       },
+       "Sourcemap": 0,
+       "Minify": true,
+       "Dependencies": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components",
+       "Disabled": false
+    },
+    "ReactiveRegistry": true,
+    "Rasterization": {
+       "Location": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\frontend\\components\\.go_solid",
+       "ExpectCompleted": false,
+       "Disabled": false
+    },
+    "Types": {
+       "Check": "RUNTIME_AND_BOOT"
+    },
+    "Static": {
+       "Location": "E:\\GitHub\\abbr\\service\\domain_service\\domain.com\\v1.0\\static",
+       "Reactive": true,
+       "Ignore": [
+          "*.js",
+          "*.md"
+       ],
+       "MountPath": "/__go_solid_static__/",
+       "Disabled": false,
+       "InlineLimit": 262144
+    },
+    "SSR": {
+       "Disabled": false,
+       "Strict": false
+    },
+    "HMR": {
+       "Disabled": false,
+       "Path": ""
+    },
+    "Defaults": {}
+ }
+2026/09/04 11:13:14 [go_solid] generated modules import as "@go_solid"/<name>. For editor resolution add "extends": ["E:/GitHub/abbr/service/domain_service/domain.com/v1.0/frontend/components/.go_solid/tsconfig.paths.json"] to your tsconfig.json
+time=20260904-111314.097 level=info msg="attaching middleware"
+time=20260904-111314.099 level=info msg="attaching middleware"
+time=20260904-111314.101 level=info msg="attaching middleware"
+time=20260904-111314.101 level=info msg="attaching middleware"
+time=20260904-111314.102 level=info msg="attaching middleware"
+time=20260904-111314.102 level=info msg="attaching middleware"
+time=20260904-111314.111 level=info msg="attaching middleware"
+time=20260904-111314.111 level=info msg="attaching middleware"
+time=20260904-111314.112 level=info msg="Components: [Welcome Home JobList Login MapScreen NavBar ServiceList TopBar]"
+time=20260904-111314.112 level=info msg="AppConfig: {\n\tMode: development, \n\tTarget: local, \n\tAddress: localhost, \n\tPort: 9090, \n\tForward: , \n\tGeoServer: http://atlas.domain.com:8080/geoserver, \n\tVibrations: ../data/vibrations/, \n\tClips: ../data/clips/, \n\tVersion: service 2.0, \n\tLogPath: ,\n\tLogLevel: info, \n\tTLSCert: ****, \n\tTLSKey: ****, \n\tSite: eu, \n\tSites: map[eu:{Url:https://service.domain.com/ Name:European Union Flag:eu Description:European site Branding:abbr} us:{Url:https://service.us.domain.com/ Name:United States Flag:us Description:North American site Branding:abbr}],\n\tUploadDir: /tmp}"
+time=20260904-111314.119 level=info msg="TLS certificate and key location" function=CreateTLSConfiguration tlsCert=../certificates/service.domain.com/certificate.crt tlsKey=../certificates/service.domain.com/private.key package=tls
+time=20260904-111314.119 level=info msg="Loaded TLS certificate" package=tls function=CreateTLSConfiguration subject=service.domain.com dnsNames="[service.domain.com]" notAfter="2023-06-02 23:59:59 +0000 UTC"
+time=20260904-111314.119 level=warning msg="TLS certificate is expired"
+time=20260904-111314.119 level=info msg="Starting server on listener." function=main address="127.0.0.1:9090" network=tcp TLS=true package=main
+time=20260904-111314.130 level=info msg="[server]http: TLS handshake error from 127.0.0.1:50225: remote error: tls: unknown certificate"
+time=20260904-111334.850 level=info msg="[server]http: TLS handshake error from 127.0.0.1:55875: remote error: tls: unknown certificate"
+time=20260904-111335.166 level=info msg="attaching middleware"
+time=20260904-111335.166 level=info msg="[REQ LOG] 127.0.0.1:50211 --> GET    /                              --> 200   "
+time=20260904-111335.559 level=info msg="[server]http: TLS handshake error from 127.0.0.1:51775: remote error: tls: unknown certificate"

@@ -114,18 +114,25 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 		return nil, data.emitEvent(err, events.NewPropsMarshalingFailure(err))
 	}
 
-	artifact, err := bundler.compiledArtifact(data, propsJSON)
+	artifact, err := bundler.compiledArtifact(data)
 	if err != nil {
 		return nil, fmt.Errorf("[go-solid]: Error during artifact compilation: %s", err.Error())
 	}
 
-	if err := data.execMiddleware(artifact); err != nil {
+	// Request-local, and deliberately not the artifact's own map: middleware
+	// writes per-user data into this, and the artifact behind it is the cache
+	// entry every concurrent request for this component shares.
+	islands := map[meta.HTMLElementID]meta.JSONString{
+		code_gen.DerivePropsMountIdFromCompRootID(data.root): propsJSON,
+	}
+
+	if err := data.execMiddleware(islands); err != nil {
 		return nil, fmt.Errorf("[go-solid]: Error during execution of middleware: %s", err.Error())
 	}
 
 	// Assemble a request-local response. Never mutate the cached artifact:
 	// HTML carries props/root/HMR/first paint, which vary per call.
-	resp, err := assembleResponse(bundler, data, artifact, bundler.serverMarkup(data, propsJSON))
+	resp, err := assembleResponse(bundler, data, artifact, islands, bundler.serverMarkup(data, propsJSON))
 	if err != nil {
 		return nil, fmt.Errorf("[go-solid]: Error while assembling response: %s", err.Error())
 	}
@@ -139,17 +146,17 @@ func render0(bundler *Bundler, data *renderData) (*caching.Rendered, error) {
 }
 
 type limitedAccessView struct {
-	artifact *caching.Rendered
+	islands map[meta.HTMLElementID]meta.JSONString
 }
 
 func (this *limitedAccessView) PutDataIsland(key meta.HTMLElementID, data meta.JSONString) networking.LimitedAccessView {
-	this.artifact.DataIslands[key] = data
+	this.islands[key] = data
 	return this
 }
 
-func (this *renderData) execMiddleware(artifact *caching.Rendered) error {
+func (this *renderData) execMiddleware(islands map[meta.HTMLElementID]meta.JSONString) error {
 	return this.ifRequest(func(req *networking.RequestBehaviour) error {
-		limAcc := &limitedAccessView{artifact: artifact}
+		limAcc := &limitedAccessView{islands: islands}
 		for _, fn := range req.Middleware {
 			if err := fn(limAcc, req); err != nil {
 				return err
@@ -189,7 +196,7 @@ func marshalProps[T any](props *T) (string, error) {
 // compiledArtifact returns the props-independent JS/CSS artifact for this
 // component, from cache if present, otherwise by bundling and caching it.
 // The returned *Rendered is shared and must be treated as read-only.
-func (bundler *Bundler) compiledArtifact(data *renderData, propsJSON meta.JSONString) (*caching.Rendered, error) {
+func (bundler *Bundler) compiledArtifact(data *renderData) (*caching.Rendered, error) {
 
 	comp, ok := bundler.registry.Lookup(data.component)
 	if !ok {
@@ -204,11 +211,8 @@ func (bundler *Bundler) compiledArtifact(data *renderData, propsJSON meta.JSONSt
 		data.root = comp.MountRootID
 	}
 
-	dataIslands := map[meta.HTMLElementID]meta.JSONString{code_gen.DerivePropsMountIdFromCompRootID(data.root): propsJSON}
-
 	key := caching.NewBuildCacheKey(data.component, data.root, bundler.buildID)
 	if cached, ok := bundler.searchCaches(key); ok {
-		cached.DataIslands = dataIslands
 		return cached, nil
 	}
 
@@ -220,8 +224,6 @@ func (bundler *Bundler) compiledArtifact(data *renderData, propsJSON meta.JSONSt
 	if err != nil {
 		return nil, err
 	}
-	artifact.DataIslands = dataIslands
-
 	bundler.mem.Put(key, artifact)
 	if bundler.disk != nil {
 		if err := bundler.disk.Put(key, bundler.cfg.Generation.Minify, artifact, sources); err != nil {
@@ -284,9 +286,10 @@ func (bundler *Bundler) bundleComponent(
 
 func assembleResponse(
 	bundler *Bundler, data *renderData,
-	artifact *caching.Rendered, ssrHTML string,
+	artifact *caching.Rendered, islands map[meta.HTMLElementID]meta.JSONString, ssrHTML string,
 ) (*caching.Rendered, error) {
 	resp := *artifact // copy JS/CSS/JSName/CSSName by value
+	resp.DataIslands = islands
 	var err error
 	resp.HTML, err = code_gen.AssembleHTML(
 		data.htmlHeadTags,

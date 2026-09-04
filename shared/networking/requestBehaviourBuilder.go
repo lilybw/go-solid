@@ -18,8 +18,12 @@ func NewRequestBehaviourBuilder(data *RequestBehaviour) *RequestBehaviourBuilder
 	return &RequestBehaviourBuilder{data: data}
 }
 
+// With adds middleware to run, in registration order, before the response is
+// assembled. Calls accumulate, onto the bundler's defaults and onto each other.
+//
+//	builder.With(userIsland, statistics).With(featureFlags)
 func (this *RequestBehaviourBuilder) With(middleware ...Middleware) *RequestBehaviourBuilder {
-	this.data.Middleware = middleware
+	this.data.Middleware = append(this.data.Middleware, middleware...)
 	return this
 }
 
